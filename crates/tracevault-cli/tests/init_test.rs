@@ -7,31 +7,35 @@ fn tmp_git_repo() -> TempDir {
     tmp
 }
 
-#[test]
-fn init_fails_without_git() {
+#[tokio::test]
+async fn init_fails_without_git() {
     let tmp = TempDir::new().unwrap();
-    let result = tracevault_cli::commands::init::init_in_directory(tmp.path());
+    let result = tracevault_cli::commands::init::init_in_directory(tmp.path(), None).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("Not a git repository"));
 }
 
-#[test]
-fn init_creates_tracevault_config() {
+#[tokio::test]
+async fn init_creates_tracevault_config() {
     let tmp = tmp_git_repo();
     let config_path = tmp.path().join(".tracevault").join("config.toml");
 
-    tracevault_cli::commands::init::init_in_directory(tmp.path()).unwrap();
+    tracevault_cli::commands::init::init_in_directory(tmp.path(), None)
+        .await
+        .unwrap();
 
     assert!(config_path.exists());
     let content = fs::read_to_string(&config_path).unwrap();
     assert!(content.contains("claude-code"));
 }
 
-#[test]
-fn init_creates_directory_structure() {
+#[tokio::test]
+async fn init_creates_directory_structure() {
     let tmp = tmp_git_repo();
 
-    tracevault_cli::commands::init::init_in_directory(tmp.path()).unwrap();
+    tracevault_cli::commands::init::init_in_directory(tmp.path(), None)
+        .await
+        .unwrap();
 
     assert!(tmp.path().join(".tracevault").exists());
     assert!(tmp.path().join(".tracevault/sessions").exists());
@@ -39,11 +43,13 @@ fn init_creates_directory_structure() {
     assert!(tmp.path().join(".tracevault/.gitignore").exists());
 }
 
-#[test]
-fn init_installs_claude_hooks() {
+#[tokio::test]
+async fn init_installs_claude_hooks() {
     let tmp = tmp_git_repo();
 
-    tracevault_cli::commands::init::init_in_directory(tmp.path()).unwrap();
+    tracevault_cli::commands::init::init_in_directory(tmp.path(), None)
+        .await
+        .unwrap();
 
     let settings_path = tmp.path().join(".claude/settings.json");
     assert!(settings_path.exists());
@@ -55,8 +61,8 @@ fn init_installs_claude_hooks() {
     assert!(hooks.get("PostToolUse").is_some());
 }
 
-#[test]
-fn init_merges_into_existing_settings() {
+#[tokio::test]
+async fn init_merges_into_existing_settings() {
     let tmp = tmp_git_repo();
 
     // Pre-existing settings.json with other config
@@ -68,7 +74,9 @@ fn init_merges_into_existing_settings() {
     )
     .unwrap();
 
-    tracevault_cli::commands::init::init_in_directory(tmp.path()).unwrap();
+    tracevault_cli::commands::init::init_in_directory(tmp.path(), None)
+        .await
+        .unwrap();
 
     let content = fs::read_to_string(claude_dir.join("settings.json")).unwrap();
     let settings: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -84,4 +92,71 @@ fn tracevault_hooks_has_pre_and_post() {
     let hooks = tracevault_cli::commands::init::tracevault_hooks();
     assert!(hooks.get("PreToolUse").is_some());
     assert!(hooks.get("PostToolUse").is_some());
+}
+
+#[tokio::test]
+async fn init_installs_git_pre_push_hook() {
+    let tmp = tmp_git_repo();
+
+    tracevault_cli::commands::init::init_in_directory(tmp.path(), None)
+        .await
+        .unwrap();
+
+    let hook_path = tmp.path().join(".git/hooks/pre-push");
+    assert!(hook_path.exists());
+
+    let content = fs::read_to_string(&hook_path).unwrap();
+    assert!(content.contains("#!/bin/sh"));
+    assert!(content.contains("# tracevault:auto-push"));
+    assert!(content.contains("tracevault push"));
+}
+
+#[tokio::test]
+async fn init_preserves_existing_pre_push_hook() {
+    let tmp = tmp_git_repo();
+
+    // Create existing hook
+    let hooks_dir = tmp.path().join(".git/hooks");
+    fs::create_dir_all(&hooks_dir).unwrap();
+    fs::write(hooks_dir.join("pre-push"), "#!/bin/sh\necho 'existing hook'\n").unwrap();
+
+    tracevault_cli::commands::init::init_in_directory(tmp.path(), None)
+        .await
+        .unwrap();
+
+    let content = fs::read_to_string(hooks_dir.join("pre-push")).unwrap();
+    // Existing content preserved
+    assert!(content.contains("echo 'existing hook'"));
+    // Tracevault appended
+    assert!(content.contains("# tracevault:auto-push"));
+    assert!(content.contains("tracevault push"));
+}
+
+#[tokio::test]
+async fn init_does_not_duplicate_hook_on_reinit() {
+    let tmp = tmp_git_repo();
+
+    tracevault_cli::commands::init::init_in_directory(tmp.path(), None)
+        .await
+        .unwrap();
+    tracevault_cli::commands::init::init_in_directory(tmp.path(), None)
+        .await
+        .unwrap();
+
+    let content = fs::read_to_string(tmp.path().join(".git/hooks/pre-push")).unwrap();
+    let marker_count = content.matches("# tracevault:auto-push").count();
+    assert_eq!(marker_count, 1, "Marker should appear exactly once, found {marker_count}");
+}
+
+#[tokio::test]
+async fn init_writes_server_url_to_config() {
+    let tmp = tmp_git_repo();
+
+    tracevault_cli::commands::init::init_in_directory(tmp.path(), Some("https://tv.example.com"))
+        .await
+        .unwrap();
+
+    let config_path = tmp.path().join(".tracevault/config.toml");
+    let content = fs::read_to_string(&config_path).unwrap();
+    assert!(content.contains("server_url = \"https://tv.example.com\""));
 }

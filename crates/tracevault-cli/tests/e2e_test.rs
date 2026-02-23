@@ -7,12 +7,14 @@ fn tmp_git_repo() -> TempDir {
     tmp
 }
 
-#[test]
-fn full_flow_init_hook_and_local_stats() {
+#[tokio::test]
+async fn full_flow_init_hook_and_local_stats() {
     let tmp = tmp_git_repo();
 
     // 1. Init
-    tracevault_cli::commands::init::init_in_directory(tmp.path()).unwrap();
+    tracevault_cli::commands::init::init_in_directory(tmp.path(), None)
+        .await
+        .unwrap();
     assert!(tmp.path().join(".tracevault/config.toml").exists());
     assert!(tmp.path().join(".tracevault/sessions").exists());
     assert!(tmp.path().join(".tracevault/cache").exists());
@@ -91,10 +93,12 @@ fn full_flow_init_hook_and_local_stats() {
     assert_eq!(metadata["session_id"], "e2e-session-001");
 }
 
-#[test]
-fn multiple_sessions_tracked_independently() {
+#[tokio::test]
+async fn multiple_sessions_tracked_independently() {
     let tmp = tmp_git_repo();
-    tracevault_cli::commands::init::init_in_directory(tmp.path()).unwrap();
+    tracevault_cli::commands::init::init_in_directory(tmp.path(), None)
+        .await
+        .unwrap();
 
     // Session 1
     let event1 = serde_json::json!({

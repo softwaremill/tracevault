@@ -28,9 +28,13 @@ impl TracevaultConfig {
     }
 
     pub fn to_toml(&self) -> String {
-        format!(
+        let mut out = format!(
             "# TraceVault configuration\nagent = \"{}\"\n",
             self.agent
-        )
+        );
+        if let Some(url) = &self.server_url {
+            out.push_str(&format!("server_url = \"{url}\"\n"));
+        }
+        out
     }
 }

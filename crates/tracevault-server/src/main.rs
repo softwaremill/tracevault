@@ -24,6 +24,8 @@ async fn main() {
         .route("/api/v1/traces", post(api::traces::create_trace))
         .route("/api/v1/traces", get(api::traces::list_traces))
         .route("/api/v1/traces/{id}", get(api::traces::get_trace))
+        // Repos
+        .route("/api/v1/repos", post(api::repos::register_repo))
         // Auth
         .route("/api/v1/auth/register", post(api::auth::register))
         // Policies

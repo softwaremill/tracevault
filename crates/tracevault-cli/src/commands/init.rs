@@ -1,9 +1,13 @@
+use crate::api_client::ApiClient;
 use crate::config::TracevaultConfig;
 use std::fs;
 use std::io;
 use std::path::Path;
 
-pub fn init_in_directory(project_root: &Path) -> Result<(), io::Error> {
+pub async fn init_in_directory(
+    project_root: &Path,
+    server_url: Option<&str>,
+) -> Result<(), io::Error> {
     // Check for git repository
     if !project_root.join(".git").exists() {
         return Err(io::Error::new(
@@ -18,8 +22,11 @@ pub fn init_in_directory(project_root: &Path) -> Result<(), io::Error> {
     fs::create_dir_all(config_dir.join("sessions"))?;
     fs::create_dir_all(config_dir.join("cache"))?;
 
-    // Write default config
-    let config = TracevaultConfig::default();
+    // Write config (include server_url if provided)
+    let mut config = TracevaultConfig::default();
+    if let Some(url) = server_url {
+        config.server_url = Some(url.to_string());
+    }
     fs::write(TracevaultConfig::config_path(project_root), config.to_toml())?;
 
     // Create .tracevault/.gitignore
@@ -30,6 +37,93 @@ pub fn init_in_directory(project_root: &Path) -> Result<(), io::Error> {
 
     // Install Claude Code hooks into .claude/settings.json
     install_claude_hooks(project_root)?;
+
+    // Install git pre-push hook
+    install_git_hook(project_root)?;
+
+    // Register repo on server if server_url is available
+    let effective_url = server_url
+        .map(String::from)
+        .or_else(|| std::env::var("TRACEVAULT_SERVER_URL").ok());
+
+    if let Some(url) = effective_url {
+        let api_key = std::env::var("TRACEVAULT_API_KEY").ok();
+        let client = ApiClient::new(&url, api_key.as_deref());
+
+        let repo_name = git_repo_name(project_root);
+        let org_name =
+            std::env::var("TRACEVAULT_ORG").unwrap_or_else(|_| "default".into());
+
+        match client
+            .register_repo(
+                crate::api_client::RegisterRepoRequest {
+                    org_name,
+                    repo_name,
+                    github_url: None,
+                },
+            )
+            .await
+        {
+            Ok(resp) => {
+                println!("Repo registered on server (id: {})", resp.repo_id);
+            }
+            Err(e) => {
+                eprintln!("Warning: could not register repo on server: {e}");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn git_repo_name(project_root: &Path) -> String {
+    std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(project_root)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .as_deref()
+        .and_then(|p| p.rsplit('/').next())
+        .map(String::from)
+        .unwrap_or_else(|| "unknown".into())
+}
+
+const HOOK_MARKER: &str = "# tracevault:auto-push";
+
+fn install_git_hook(project_root: &Path) -> Result<(), io::Error> {
+    let hooks_dir = project_root.join(".git/hooks");
+    fs::create_dir_all(&hooks_dir)?;
+
+    let hook_path = hooks_dir.join("pre-push");
+    let tracevault_block = format!("{HOOK_MARKER}\ntracevault push 2>/dev/null || true\n");
+
+    if hook_path.exists() {
+        let existing = fs::read_to_string(&hook_path)?;
+        if existing.contains(HOOK_MARKER) {
+            return Ok(()); // already installed
+        }
+        // Append to existing hook
+        let mut content = existing;
+        if !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push_str(&tracevault_block);
+        fs::write(&hook_path, content)?;
+    } else {
+        let content = format!("#!/bin/sh\n{tracevault_block}");
+        fs::write(&hook_path, content)?;
+    }
+
+    // Make executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&hook_path)?.permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&hook_path, perms)?;
+    }
 
     Ok(())
 }
