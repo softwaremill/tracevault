@@ -6,7 +6,7 @@ mod commands;
 mod config;
 
 #[derive(Parser)]
-#[command(name = "tracevault", about = "AI code governance platform")]
+#[command(name = "tracevault", version, about = "AI code governance platform")]
 enum Cli {
     /// Initialize TraceVault in current repository
     Init,
@@ -32,9 +32,7 @@ async fn main() {
             match commands::init::init_in_directory(&cwd) {
                 Ok(()) => {
                     println!("TraceVault initialized in {}", cwd.display());
-                    println!("\nTo enable Claude Code hooks, add this to .claude/settings.json:");
-                    let hooks = commands::init::claude_code_hooks_json();
-                    println!("{}", serde_json::to_string_pretty(&hooks).unwrap());
+                    println!("Claude Code hooks installed in .claude/settings.json");
                 }
                 Err(e) => eprintln!("Error: {e}"),
             }

@@ -1,9 +1,15 @@
 use std::fs;
 use tempfile::TempDir;
 
+fn tmp_git_repo() -> TempDir {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir(tmp.path().join(".git")).unwrap();
+    tmp
+}
+
 #[test]
 fn full_flow_init_hook_and_local_stats() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = tmp_git_repo();
 
     // 1. Init
     tracevault_cli::commands::init::init_in_directory(tmp.path()).unwrap();
@@ -87,7 +93,7 @@ fn full_flow_init_hook_and_local_stats() {
 
 #[test]
 fn multiple_sessions_tracked_independently() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = tmp_git_repo();
     tracevault_cli::commands::init::init_in_directory(tmp.path()).unwrap();
 
     // Session 1
