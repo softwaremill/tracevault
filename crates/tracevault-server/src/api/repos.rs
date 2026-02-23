@@ -1,7 +1,9 @@
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{extract::{Path, State}, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
+
+use crate::extractors::AuthUser;
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterRepoRequest {
@@ -17,6 +19,7 @@ pub struct RegisterRepoResponse {
 
 pub async fn register_repo(
     State(pool): State<PgPool>,
+    _auth: AuthUser,
     Json(req): Json<RegisterRepoRequest>,
 ) -> Result<(StatusCode, Json<RegisterRepoResponse>), (StatusCode, String)> {
     let org_id: Uuid = sqlx::query_scalar(
@@ -38,4 +41,56 @@ pub async fn register_repo(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok((StatusCode::CREATED, Json(RegisterRepoResponse { repo_id })))
+}
+
+#[derive(Debug, Serialize)]
+pub struct RepoResponse {
+    pub id: Uuid,
+    pub name: String,
+    pub github_url: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+pub async fn list_repos(
+    State(pool): State<PgPool>,
+    auth: AuthUser,
+) -> Result<Json<Vec<RepoResponse>>, (StatusCode, String)> {
+    let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, chrono::DateTime<chrono::Utc>)>(
+        "SELECT id, name, github_url, created_at FROM repos WHERE org_id = $1 ORDER BY name",
+    )
+    .bind(auth.org_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let repos = rows
+        .into_iter()
+        .map(|r| RepoResponse {
+            id: r.0,
+            name: r.1,
+            github_url: r.2,
+            created_at: r.3,
+        })
+        .collect();
+
+    Ok(Json(repos))
+}
+
+pub async fn delete_repo(
+    State(pool): State<PgPool>,
+    auth: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    if auth.role != "owner" && auth.role != "admin" {
+        return Err((StatusCode::FORBIDDEN, "Requires admin role".into()));
+    }
+
+    sqlx::query("DELETE FROM repos WHERE id = $1 AND org_id = $2")
+        .bind(id)
+        .bind(auth.org_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(StatusCode::OK)
 }
