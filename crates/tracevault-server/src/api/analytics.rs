@@ -4,8 +4,10 @@ use sqlx::PgPool;
 
 #[derive(Deserialize)]
 pub struct TokenQuery {
-    pub group_by: Option<String>,
-    pub period: Option<String>,
+    #[allow(dead_code)]
+    group_by: Option<String>,
+    #[allow(dead_code)]
+    period: Option<String>,
 }
 
 pub async fn token_analytics(
