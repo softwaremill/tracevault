@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::extractors::AuthUser;
+
 #[derive(Debug, Deserialize)]
 pub struct CreateTraceRequest {
     pub repo_name: String,
@@ -48,6 +50,7 @@ pub struct TraceQuery {
 
 pub async fn create_trace(
     State(pool): State<PgPool>,
+    _auth: AuthUser,
     Json(req): Json<CreateTraceRequest>,
 ) -> Result<(StatusCode, Json<TraceResponse>), (StatusCode, String)> {
     // Ensure org exists (create if not)
@@ -111,6 +114,7 @@ pub async fn create_trace(
 
 pub async fn get_trace(
     State(pool): State<PgPool>,
+    _auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let row = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, String, Option<String>, Option<String>, Option<f32>, Option<i64>, Option<f64>, Option<serde_json::Value>, Option<serde_json::Value>, chrono::DateTime<chrono::Utc>)>(
@@ -141,6 +145,7 @@ pub async fn get_trace(
 
 pub async fn list_traces(
     State(pool): State<PgPool>,
+    _auth: AuthUser,
     Query(query): Query<TraceQuery>,
 ) -> Result<Json<Vec<TraceResponse>>, (StatusCode, String)> {
     let limit = query.limit.unwrap_or(50).min(200);

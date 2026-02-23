@@ -4,6 +4,7 @@ pub struct ServerConfig {
     pub database_url: String,
     pub host: String,
     pub port: u16,
+    pub cors_origin: Option<String>,
 }
 
 impl ServerConfig {
@@ -16,6 +17,7 @@ impl ServerConfig {
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(3000),
+            cors_origin: env::var("CORS_ORIGIN").ok(),
         }
     }
 
