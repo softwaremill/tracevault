@@ -31,6 +31,18 @@ pub struct PushTraceResponse {
     pub id: uuid::Uuid,
 }
 
+#[derive(Serialize)]
+pub struct RegisterRepoRequest {
+    pub org_name: String,
+    pub repo_name: String,
+    pub github_url: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct RegisterRepoResponse {
+    pub repo_id: uuid::Uuid,
+}
+
 impl ApiClient {
     pub fn new(base_url: &str, api_key: Option<&str>) -> Self {
         Self {
@@ -45,6 +57,27 @@ impl ApiClient {
         req: PushTraceRequest,
     ) -> Result<PushTraceResponse, Box<dyn Error>> {
         let mut builder = self.client.post(format!("{}/api/v1/traces", self.base_url));
+
+        if let Some(key) = &self.api_key {
+            builder = builder.header("Authorization", format!("Bearer {key}"));
+        }
+
+        let resp = builder.json(&req).send().await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Server returned {status}: {body}").into());
+        }
+
+        Ok(resp.json().await?)
+    }
+
+    pub async fn register_repo(
+        &self,
+        req: RegisterRepoRequest,
+    ) -> Result<RegisterRepoResponse, Box<dyn Error>> {
+        let mut builder = self.client.post(format!("{}/api/v1/repos", self.base_url));
 
         if let Some(key) = &self.api_key {
             builder = builder.header("Authorization", format!("Bearer {key}"));

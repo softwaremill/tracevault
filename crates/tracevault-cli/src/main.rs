@@ -9,7 +9,11 @@ mod config;
 #[command(name = "tracevault", version, about = "AI code governance platform")]
 enum Cli {
     /// Initialize TraceVault in current repository
-    Init,
+    Init {
+        /// TraceVault server URL for repo registration
+        #[arg(long)]
+        server_url: Option<String>,
+    },
     /// Show current session status
     Status,
     /// Handle Claude Code hook event (reads JSON from stdin)
@@ -27,12 +31,13 @@ enum Cli {
 async fn main() {
     let cli = Cli::parse();
     match cli {
-        Cli::Init => {
+        Cli::Init { server_url } => {
             let cwd = env::current_dir().expect("Cannot determine current directory");
-            match commands::init::init_in_directory(&cwd) {
+            match commands::init::init_in_directory(&cwd, server_url.as_deref()).await {
                 Ok(()) => {
                     println!("TraceVault initialized in {}", cwd.display());
                     println!("Claude Code hooks installed in .claude/settings.json");
+                    println!("Git pre-push hook installed");
                 }
                 Err(e) => eprintln!("Error: {e}"),
             }
