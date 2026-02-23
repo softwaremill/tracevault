@@ -108,6 +108,7 @@ async fn init_installs_git_pre_push_hook() {
     let content = fs::read_to_string(&hook_path).unwrap();
     assert!(content.contains("#!/bin/sh"));
     assert!(content.contains("# tracevault:auto-push"));
+    assert!(content.contains("tracevault sync"));
     assert!(content.contains("tracevault push"));
 }
 

@@ -23,6 +23,8 @@ enum Cli {
     },
     /// Push collected traces to the TraceVault server
     Push,
+    /// Sync repo remote URL with the TraceVault server
+    Sync,
     /// Show local session statistics
     Stats,
 }
@@ -53,6 +55,12 @@ async fn main() {
             let cwd = env::current_dir().expect("Cannot determine current directory");
             if let Err(e) = commands::push::push_traces(&cwd).await {
                 eprintln!("Push error: {e}");
+            }
+        }
+        Cli::Sync => {
+            let cwd = env::current_dir().expect("Cannot determine current directory");
+            if let Err(e) = commands::sync::sync_repo(&cwd).await {
+                eprintln!("Sync error: {e}");
             }
         }
         Cli::Stats => {
