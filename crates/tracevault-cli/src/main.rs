@@ -1,6 +1,7 @@
 use clap::Parser;
 use std::env;
 
+mod api_client;
 mod commands;
 mod config;
 
@@ -16,9 +17,14 @@ enum Cli {
         #[arg(long)]
         event: String,
     },
+    /// Push collected traces to the TraceVault server
+    Push,
+    /// Show local session statistics
+    Stats,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
     match cli {
         Cli::Init => {
@@ -38,6 +44,18 @@ fn main() {
             let cwd = env::current_dir().expect("Cannot determine current directory");
             if let Err(e) = commands::hook::handle_hook_from_stdin(&cwd) {
                 eprintln!("Hook error: {e}");
+            }
+        }
+        Cli::Push => {
+            let cwd = env::current_dir().expect("Cannot determine current directory");
+            if let Err(e) = commands::push::push_traces(&cwd).await {
+                eprintln!("Push error: {e}");
+            }
+        }
+        Cli::Stats => {
+            let cwd = env::current_dir().expect("Cannot determine current directory");
+            if let Err(e) = commands::stats::show_stats(&cwd) {
+                eprintln!("Stats error: {e}");
             }
         }
     }

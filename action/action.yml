@@ -1,0 +1,85 @@
+name: "TraceVault Check"
+description: "Evaluate AI code governance policies on pull requests"
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  server-url:
+    description: "TraceVault server URL"
+    required: false
+    default: ""
+  api-key:
+    description: "TraceVault API key"
+    required: false
+    default: ""
+  policies:
+    description: "Comma-separated list of policies to enforce (default: all)"
+    required: false
+    default: "all"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install TraceVault CLI
+      shell: bash
+      run: |
+        # Download latest tracevault binary
+        # For MVP: build from source or download release binary
+        echo "Installing TraceVault CLI..."
+        if ! command -v tracevault &> /dev/null; then
+          echo "::warning::TraceVault CLI not found. Install it or add it to the release."
+        fi
+
+    - name: Check traces and evaluate policies
+      shell: bash
+      env:
+        TRACEVAULT_SERVER_URL: ${{ inputs.server-url }}
+        TRACEVAULT_API_KEY: ${{ inputs.api-key }}
+      run: |
+        echo "## TraceVault Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        # Read git notes for tracevault data
+        git fetch origin refs/notes/tracevault:refs/notes/tracevault 2>/dev/null || true
+
+        # Get commits in this PR
+        BASE_SHA="${{ github.event.pull_request.base.sha }}"
+        HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+        COMMITS=$(git log --format=%H ${BASE_SHA}..${HEAD_SHA} 2>/dev/null || echo "")
+
+        if [ -z "$COMMITS" ]; then
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | No commits found in PR |" >> $GITHUB_STEP_SUMMARY
+          exit 0
+        fi
+
+        TRACE_COUNT=0
+        TOTAL_AI_PCT=0
+        TOTAL_TOKENS=0
+
+        for SHA in $COMMITS; do
+          NOTE=$(git notes --ref=tracevault show $SHA 2>/dev/null || echo "")
+          if [ -n "$NOTE" ]; then
+            TRACE_COUNT=$((TRACE_COUNT + 1))
+          fi
+        done
+
+        COMMIT_COUNT=$(echo "$COMMITS" | wc -l | tr -d ' ')
+
+        echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Commits | $COMMIT_COUNT |" >> $GITHUB_STEP_SUMMARY
+        echo "| Traces found | $TRACE_COUNT |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        # Policy evaluation
+        echo "### Policy Results" >> $GITHUB_STEP_SUMMARY
+
+        if [ "$TRACE_COUNT" -eq 0 ] && [ "$COMMIT_COUNT" -gt 0 ]; then
+          echo "- :warning: No traces found for $COMMIT_COUNT commit(s)" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- :white_check_mark: Traces present for $TRACE_COUNT/$COMMIT_COUNT commit(s)" >> $GITHUB_STEP_SUMMARY
+        fi
