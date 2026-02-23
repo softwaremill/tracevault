@@ -59,26 +59,26 @@ pub async fn init_in_directory(
         eprintln!("Run 'git remote add origin <url>' then 'tracevault sync' to register.");
     }
 
+    // Use 3-tier credential resolution, with explicit --server-url taking top priority
+    let (resolved_url, resolved_token) =
+        crate::api_client::resolve_credentials(project_root);
     let effective_url = server_url
         .map(String::from)
-        .or_else(|| std::env::var("TRACEVAULT_SERVER_URL").ok());
+        .or(resolved_url);
 
     if let (Some(url), Some(remote)) = (effective_url, remote_url) {
-        let api_key = std::env::var("TRACEVAULT_API_KEY").ok();
-        let client = ApiClient::new(&url, api_key.as_deref());
+        let client = ApiClient::new(&url, resolved_token.as_deref());
 
         let repo_name = git_repo_name(project_root);
         let org_name =
             std::env::var("TRACEVAULT_ORG").unwrap_or_else(|_| "default".into());
 
         match client
-            .register_repo(
-                crate::api_client::RegisterRepoRequest {
-                    org_name,
-                    repo_name,
-                    github_url: Some(remote),
-                },
-            )
+            .register_repo(crate::api_client::RegisterRepoRequest {
+                org_name,
+                repo_name,
+                github_url: Some(remote),
+            })
             .await
         {
             Ok(resp) => {

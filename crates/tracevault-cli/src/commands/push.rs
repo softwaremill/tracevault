@@ -1,5 +1,4 @@
-use crate::api_client::{ApiClient, PushTraceRequest};
-use crate::config::TracevaultConfig;
+use crate::api_client::{resolve_credentials, ApiClient, PushTraceRequest};
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
@@ -100,25 +99,9 @@ fn summarize_session(session_dir: &Path) -> Option<SessionSummary> {
 }
 
 pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let config_path = TracevaultConfig::config_path(project_root);
-    let config_content = fs::read_to_string(&config_path)?;
-
-    let server_url = config_content
-        .lines()
-        .find(|l| l.starts_with("server_url"))
-        .and_then(|l| l.split('=').nth(1))
-        .map(|s| s.trim().trim_matches('"').to_string())
-        .or_else(|| std::env::var("TRACEVAULT_SERVER_URL").ok())
-        .unwrap_or_else(|| "http://localhost:3000".into());
-
-    let api_key = config_content
-        .lines()
-        .find(|l| l.starts_with("api_key"))
-        .and_then(|l| l.split('=').nth(1))
-        .map(|s| s.trim().trim_matches('"').to_string())
-        .or_else(|| std::env::var("TRACEVAULT_API_KEY").ok());
-
-    let client = ApiClient::new(&server_url, api_key.as_deref());
+    let (server_url, token) = resolve_credentials(project_root);
+    let server_url = server_url.unwrap_or_else(|| "http://localhost:3000".into());
+    let client = ApiClient::new(&server_url, token.as_deref());
 
     let sessions_dir = project_root.join(".tracevault").join("sessions");
     if !sessions_dir.exists() {

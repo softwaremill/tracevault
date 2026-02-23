@@ -4,6 +4,7 @@ use std::env;
 mod api_client;
 mod commands;
 mod config;
+mod credentials;
 
 #[derive(Parser)]
 #[command(name = "tracevault", version, about = "AI code governance platform")]
@@ -27,6 +28,14 @@ enum Cli {
     Sync,
     /// Show local session statistics
     Stats,
+    /// Log in to a TraceVault server
+    Login {
+        /// TraceVault server URL
+        #[arg(long)]
+        server_url: String,
+    },
+    /// Log out from the TraceVault server
+    Logout,
 }
 
 #[tokio::main]
@@ -67,6 +76,16 @@ async fn main() {
             let cwd = env::current_dir().expect("Cannot determine current directory");
             if let Err(e) = commands::stats::show_stats(&cwd) {
                 eprintln!("Stats error: {e}");
+            }
+        }
+        Cli::Login { server_url } => {
+            if let Err(e) = commands::login::login(&server_url).await {
+                eprintln!("Login error: {e}");
+            }
+        }
+        Cli::Logout => {
+            if let Err(e) = commands::logout::logout().await {
+                eprintln!("Logout error: {e}");
             }
         }
     }
