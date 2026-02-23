@@ -4,6 +4,17 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+pub fn git_remote_url(project_root: &Path) -> Option<String> {
+    std::process::Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(project_root)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 pub async fn init_in_directory(
     project_root: &Path,
     server_url: Option<&str>,
@@ -41,12 +52,18 @@ pub async fn init_in_directory(
     // Install git pre-push hook
     install_git_hook(project_root)?;
 
-    // Register repo on server if server_url is available
+    // Register repo on server if server_url and git remote are available
+    let remote_url = git_remote_url(project_root);
+    if remote_url.is_none() {
+        eprintln!("Warning: no git remote 'origin' configured. Skipping server registration.");
+        eprintln!("Run 'git remote add origin <url>' then 'tracevault sync' to register.");
+    }
+
     let effective_url = server_url
         .map(String::from)
         .or_else(|| std::env::var("TRACEVAULT_SERVER_URL").ok());
 
-    if let Some(url) = effective_url {
+    if let (Some(url), Some(remote)) = (effective_url, remote_url) {
         let api_key = std::env::var("TRACEVAULT_API_KEY").ok();
         let client = ApiClient::new(&url, api_key.as_deref());
 
@@ -59,7 +76,7 @@ pub async fn init_in_directory(
                 crate::api_client::RegisterRepoRequest {
                     org_name,
                     repo_name,
-                    github_url: None,
+                    github_url: Some(remote),
                 },
             )
             .await
@@ -97,7 +114,7 @@ fn install_git_hook(project_root: &Path) -> Result<(), io::Error> {
     fs::create_dir_all(&hooks_dir)?;
 
     let hook_path = hooks_dir.join("pre-push");
-    let tracevault_block = format!("{HOOK_MARKER}\ntracevault push 2>/dev/null || true\n");
+    let tracevault_block = format!("{HOOK_MARKER}\ntracevault sync 2>/dev/null || true\ntracevault push 2>/dev/null || true\n");
 
     if hook_path.exists() {
         let existing = fs::read_to_string(&hook_path)?;
