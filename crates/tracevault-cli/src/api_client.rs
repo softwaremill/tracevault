@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::error::Error;
+use std::path::Path;
 
 pub struct ApiClient {
     base_url: String,
@@ -41,6 +42,20 @@ pub struct RegisterRepoRequest {
 #[derive(Deserialize)]
 pub struct RegisterRepoResponse {
     pub repo_id: uuid::Uuid,
+}
+
+#[derive(Deserialize)]
+pub struct DeviceAuthResponse {
+    pub token: String,
+    pub verification_url: String,
+}
+
+#[derive(Deserialize)]
+pub struct DeviceStatusResponse {
+    pub status: String,
+    pub token: Option<String>,
+    pub email: Option<String>,
+    pub org_name: Option<String>,
 }
 
 impl ApiClient {
@@ -93,4 +108,97 @@ impl ApiClient {
 
         Ok(resp.json().await?)
     }
+
+    pub async fn device_start(&self) -> Result<DeviceAuthResponse, Box<dyn Error>> {
+        let resp = self
+            .client
+            .post(format!("{}/api/v1/auth/device", self.base_url))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Server returned {status}: {body}").into());
+        }
+
+        Ok(resp.json().await?)
+    }
+
+    pub async fn device_status(&self, token: &str) -> Result<DeviceStatusResponse, Box<dyn Error>> {
+        let resp = self
+            .client
+            .get(format!(
+                "{}/api/v1/auth/device/{token}/status",
+                self.base_url
+            ))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Server returned {status}: {body}").into());
+        }
+
+        Ok(resp.json().await?)
+    }
+
+    pub async fn logout(&self) -> Result<(), Box<dyn Error>> {
+        let mut builder = self
+            .client
+            .post(format!("{}/api/v1/auth/logout", self.base_url));
+        if let Some(key) = &self.api_key {
+            builder = builder.header("Authorization", format!("Bearer {key}"));
+        }
+        let resp = builder.send().await?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Server returned {status}: {body}").into());
+        }
+        Ok(())
+    }
+}
+
+/// Resolve server URL and auth token from multiple sources.
+/// Priority: env var > credentials file > project config.toml
+/// Returns (server_url, auth_token).
+pub fn resolve_credentials(project_root: &Path) -> (Option<String>, Option<String>) {
+    use crate::credentials::Credentials;
+
+    // 1. Env var API key
+    let env_key = std::env::var("TRACEVAULT_API_KEY").ok();
+
+    // 2. Credentials file
+    let creds = Credentials::load();
+
+    // 3. Project config
+    let config_path = crate::config::TracevaultConfig::config_path(project_root);
+    let config_content = std::fs::read_to_string(&config_path).unwrap_or_default();
+
+    let config_server_url = config_content
+        .lines()
+        .find(|l| l.starts_with("server_url"))
+        .and_then(|l| l.split('=').nth(1))
+        .map(|s| s.trim().trim_matches('"').to_string());
+
+    let config_api_key = config_content
+        .lines()
+        .find(|l| l.starts_with("api_key"))
+        .and_then(|l| l.split('=').nth(1))
+        .map(|s| s.trim().trim_matches('"').to_string());
+
+    // Resolve server URL: env > creds > config
+    let server_url = std::env::var("TRACEVAULT_SERVER_URL")
+        .ok()
+        .or_else(|| creds.as_ref().map(|c| c.server_url.clone()))
+        .or(config_server_url);
+
+    // Resolve token: env api key > creds token > config api key
+    let token = env_key
+        .or_else(|| creds.map(|c| c.token))
+        .or(config_api_key);
+
+    (server_url, token)
 }

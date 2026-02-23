@@ -1,19 +1,9 @@
-use crate::api_client::ApiClient;
+use crate::api_client::{resolve_credentials, ApiClient};
 use crate::commands::init::git_remote_url;
-use crate::config::TracevaultConfig;
-use std::fs;
 use std::path::Path;
 
 pub async fn sync_repo(project_root: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let config_path = TracevaultConfig::config_path(project_root);
-    let config_content = fs::read_to_string(&config_path)?;
-
-    let server_url = config_content
-        .lines()
-        .find(|l| l.starts_with("server_url"))
-        .and_then(|l| l.split('=').nth(1))
-        .map(|s| s.trim().trim_matches('"').to_string())
-        .or_else(|| std::env::var("TRACEVAULT_SERVER_URL").ok());
+    let (server_url, token) = resolve_credentials(project_root);
 
     let server_url = match server_url {
         Some(url) => url,
@@ -31,14 +21,7 @@ pub async fn sync_repo(project_root: &Path) -> Result<(), Box<dyn std::error::Er
         }
     };
 
-    let api_key = config_content
-        .lines()
-        .find(|l| l.starts_with("api_key"))
-        .and_then(|l| l.split('=').nth(1))
-        .map(|s| s.trim().trim_matches('"').to_string())
-        .or_else(|| std::env::var("TRACEVAULT_API_KEY").ok());
-
-    let client = ApiClient::new(&server_url, api_key.as_deref());
+    let client = ApiClient::new(&server_url, token.as_deref());
 
     let repo_name = std::process::Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
