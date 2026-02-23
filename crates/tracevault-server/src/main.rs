@@ -1,16 +1,44 @@
+use axum::{routing::{get, post}, Router};
+use tower_http::trace::TraceLayer;
+
+mod api;
+mod config;
 mod db;
-
-use axum::{routing::get, Router};
-
-async fn health() -> &'static str {
-    "ok"
-}
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
-    let app = Router::new().route("/health", get(health));
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    tracing::info!("TraceVault server listening on :3000");
+
+    let cfg = config::ServerConfig::from_env();
+    let pool = db::create_pool(&cfg.database_url)
+        .await
+        .expect("Failed to connect to database");
+
+    db::run_migrations(&pool)
+        .await
+        .expect("Failed to run migrations");
+
+    let app = Router::new()
+        .route("/health", get(|| async { "ok" }))
+        // Traces
+        .route("/api/v1/traces", post(api::traces::create_trace))
+        .route("/api/v1/traces", get(api::traces::list_traces))
+        .route("/api/v1/traces/{id}", get(api::traces::get_trace))
+        // Auth
+        .route("/api/v1/auth/register", post(api::auth::register))
+        // Policies
+        .route("/api/v1/policies", get(api::policies::list_policies))
+        .route("/api/v1/policies/evaluate", post(api::policies::evaluate))
+        // Analytics
+        .route("/api/v1/analytics/tokens", get(api::analytics::token_analytics))
+        // GitHub
+        .route("/api/v1/github/webhook", post(api::github::webhook))
+        .layer(TraceLayer::new_for_http())
+        .with_state(pool);
+
+    let listener = tokio::net::TcpListener::bind(cfg.bind_addr())
+        .await
+        .unwrap();
+    tracing::info!("TraceVault server listening on {}", cfg.bind_addr());
     axum::serve(listener, app).await.unwrap();
 }
