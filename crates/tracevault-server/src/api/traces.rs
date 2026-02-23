@@ -1,6 +1,6 @@
 use axum::{extract::{Path, Query, State}, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use crate::AppState;
 use uuid::Uuid;
 
 use crate::extractors::AuthUser;
@@ -8,7 +8,6 @@ use crate::extractors::AuthUser;
 #[derive(Debug, Deserialize)]
 pub struct CreateTraceRequest {
     pub repo_name: String,
-    pub org_name: String,
     pub commit_sha: String,
     pub branch: Option<String>,
     pub author: String,
@@ -49,26 +48,17 @@ pub struct TraceQuery {
 }
 
 pub async fn create_trace(
-    State(pool): State<PgPool>,
-    _auth: AuthUser,
+    State(state): State<AppState>,
+    auth: AuthUser,
     Json(req): Json<CreateTraceRequest>,
 ) -> Result<(StatusCode, Json<TraceResponse>), (StatusCode, String)> {
-    // Ensure org exists (create if not)
-    let org_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO orgs (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name = $1 RETURNING id"
-    )
-    .bind(&req.org_name)
-    .fetch_one(&pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    // Ensure repo exists (create if not)
+    // Ensure repo exists under the authenticated user's org
     let repo_id: Uuid = sqlx::query_scalar(
         "INSERT INTO repos (org_id, name) VALUES ($1, $2) ON CONFLICT (org_id, name) DO UPDATE SET name = $2 RETURNING id"
     )
-    .bind(org_id)
+    .bind(auth.org_id)
     .bind(&req.repo_name)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -93,7 +83,7 @@ pub async fn create_trace(
     .bind(req.api_calls)
     .bind(&req.session_data)
     .bind(&req.attribution)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -113,15 +103,16 @@ pub async fn create_trace(
 }
 
 pub async fn get_trace(
-    State(pool): State<PgPool>,
-    _auth: AuthUser,
+    State(state): State<AppState>,
+    auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let row = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, String, Option<String>, Option<String>, Option<f32>, Option<i64>, Option<f64>, Option<serde_json::Value>, Option<serde_json::Value>, chrono::DateTime<chrono::Utc>)>(
-        "SELECT id, repo_id, commit_sha, branch, author, model, tool, ai_percentage, total_tokens, estimated_cost_usd, session_data, attribution, created_at FROM traces WHERE id = $1"
+        "SELECT t.id, t.repo_id, t.commit_sha, t.branch, t.author, t.model, t.tool, t.ai_percentage, t.total_tokens, t.estimated_cost_usd, t.session_data, t.attribution, t.created_at FROM traces t JOIN repos r ON t.repo_id = r.id WHERE t.id = $1 AND r.org_id = $2"
     )
     .bind(id)
-    .fetch_optional(&pool)
+    .bind(auth.org_id)
+    .fetch_optional(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .ok_or((StatusCode::NOT_FOUND, "Trace not found".into()))?;
@@ -144,8 +135,8 @@ pub async fn get_trace(
 }
 
 pub async fn list_traces(
-    State(pool): State<PgPool>,
-    _auth: AuthUser,
+    State(state): State<AppState>,
+    auth: AuthUser,
     Query(query): Query<TraceQuery>,
 ) -> Result<Json<Vec<TraceResponse>>, (StatusCode, String)> {
     let limit = query.limit.unwrap_or(50).min(200);
@@ -153,18 +144,20 @@ pub async fn list_traces(
     let rows = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, String, Option<String>, Option<String>, Option<f32>, Option<i64>, Option<f64>, chrono::DateTime<chrono::Utc>)>(
         "SELECT t.id, t.repo_id, t.commit_sha, t.branch, t.author, t.model, t.tool, t.ai_percentage, t.total_tokens, t.estimated_cost_usd, t.created_at
          FROM traces t
-         LEFT JOIN repos r ON t.repo_id = r.id
-         WHERE ($1::TEXT IS NULL OR r.name = $1)
-           AND ($2::TEXT IS NULL OR t.commit_sha = $2)
-           AND ($3::TEXT IS NULL OR t.author = $3)
+         JOIN repos r ON t.repo_id = r.id
+         WHERE r.org_id = $1
+           AND ($2::TEXT IS NULL OR r.name = $2)
+           AND ($3::TEXT IS NULL OR t.commit_sha = $3)
+           AND ($4::TEXT IS NULL OR t.author = $4)
          ORDER BY t.created_at DESC
-         LIMIT $4"
+         LIMIT $5"
     )
+    .bind(auth.org_id)
     .bind(&query.repo)
     .bind(&query.sha)
     .bind(&query.author)
     .bind(limit)
-    .fetch_all(&pool)
+    .fetch_all(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 

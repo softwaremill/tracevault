@@ -1,6 +1,6 @@
 use axum::{extract::{Query, State}, http::StatusCode};
 use serde::Deserialize;
-use sqlx::PgPool;
+use crate::AppState;
 
 #[derive(Deserialize)]
 pub struct TokenQuery {
@@ -11,7 +11,7 @@ pub struct TokenQuery {
 }
 
 pub async fn token_analytics(
-    State(_pool): State<PgPool>,
+    State(_state): State<AppState>,
     Query(_query): Query<TokenQuery>,
 ) -> (StatusCode, &'static str) {
     (StatusCode::OK, "analytics endpoint - not yet implemented")

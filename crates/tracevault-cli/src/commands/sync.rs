@@ -13,6 +13,11 @@ pub async fn sync_repo(project_root: &Path) -> Result<(), Box<dyn std::error::Er
         }
     };
 
+    if token.is_none() {
+        eprintln!("Not logged in. Run 'tracevault login' to sync.");
+        return Ok(());
+    }
+
     let remote = match git_remote_url(project_root) {
         Some(url) => url,
         None => {
@@ -35,11 +40,8 @@ pub async fn sync_repo(project_root: &Path) -> Result<(), Box<dyn std::error::Er
         .map(String::from)
         .unwrap_or_else(|| "unknown".into());
 
-    let org_name = std::env::var("TRACEVAULT_ORG").unwrap_or_else(|_| "default".into());
-
     match client
         .register_repo(crate::api_client::RegisterRepoRequest {
-            org_name,
             repo_name,
             github_url: Some(remote.clone()),
         })

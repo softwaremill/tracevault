@@ -100,7 +100,20 @@ fn summarize_session(session_dir: &Path) -> Option<SessionSummary> {
 
 pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let (server_url, token) = resolve_credentials(project_root);
-    let server_url = server_url.unwrap_or_else(|| "http://localhost:3000".into());
+
+    let server_url = match server_url {
+        Some(url) => url,
+        None => {
+            eprintln!("No server URL configured. Skipping push.");
+            return Ok(());
+        }
+    };
+
+    if token.is_none() {
+        eprintln!("Not logged in. Run 'tracevault login' to push traces.");
+        return Ok(());
+    }
+
     let client = ApiClient::new(&server_url, token.as_deref());
 
     let sessions_dir = project_root.join(".tracevault").join("sessions");
@@ -149,7 +162,6 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
         let model = summary.models.iter().next().cloned();
 
         let req = PushTraceRequest {
-            org_name: std::env::var("TRACEVAULT_ORG").unwrap_or_else(|_| "default".into()),
             repo_name: git.repo_name.clone(),
             commit_sha: git.commit_sha.clone(),
             branch: git.branch.clone(),

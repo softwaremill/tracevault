@@ -1,7 +1,7 @@
 import { browser } from '$app/environment';
 import { goto } from '$app/navigation';
 
-const BASE_URL = import.meta.env.PUBLIC_API_URL || 'http://localhost:3000';
+const BASE_URL = import.meta.env.PUBLIC_API_URL || '';
 
 async function request<T>(
 	path: string,

@@ -11,7 +11,6 @@ pub struct ApiClient {
 #[derive(Serialize)]
 pub struct PushTraceRequest {
     pub repo_name: String,
-    pub org_name: String,
     pub commit_sha: String,
     pub branch: Option<String>,
     pub author: String,
@@ -34,7 +33,6 @@ pub struct PushTraceResponse {
 
 #[derive(Serialize)]
 pub struct RegisterRepoRequest {
-    pub org_name: String,
     pub repo_name: String,
     pub github_url: Option<String>,
 }
@@ -47,7 +45,6 @@ pub struct RegisterRepoResponse {
 #[derive(Deserialize)]
 pub struct DeviceAuthResponse {
     pub token: String,
-    pub verification_url: String,
 }
 
 #[derive(Deserialize)]

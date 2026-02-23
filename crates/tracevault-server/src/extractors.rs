@@ -2,10 +2,10 @@ use axum::{
     extract::FromRequestParts,
     http::{request::Parts, StatusCode},
 };
-use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::auth::sha256_hex;
+use crate::AppState;
 
 #[derive(Debug, Clone)]
 pub struct AuthUser {
@@ -14,13 +14,14 @@ pub struct AuthUser {
     pub role: String,
 }
 
-impl FromRequestParts<PgPool> for AuthUser {
+impl FromRequestParts<AppState> for AuthUser {
     type Rejection = (StatusCode, &'static str);
 
     async fn from_request_parts(
         parts: &mut Parts,
-        pool: &PgPool,
+        state: &AppState,
     ) -> Result<Self, Self::Rejection> {
+        let pool = &state.pool;
         let header = parts
             .headers
             .get("authorization")

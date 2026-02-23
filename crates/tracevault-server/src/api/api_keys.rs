@@ -1,6 +1,6 @@
 use axum::{extract::{Path, State}, http::StatusCode, Json};
 use serde::Serialize;
-use sqlx::PgPool;
+use crate::AppState;
 use uuid::Uuid;
 
 use crate::auth::generate_api_key;
@@ -27,7 +27,7 @@ pub struct CreateApiKeyRequest {
 }
 
 pub async fn create_api_key(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: AuthUser,
     Json(req): Json<CreateApiKeyRequest>,
 ) -> Result<(StatusCode, Json<CreateApiKeyResponse>), (StatusCode, String)> {
@@ -39,7 +39,7 @@ pub async fn create_api_key(
     .bind(auth.org_id)
     .bind(&key_hash)
     .bind(&req.name)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -54,14 +54,14 @@ pub async fn create_api_key(
 }
 
 pub async fn list_api_keys(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Vec<ApiKeyResponse>>, (StatusCode, String)> {
     let rows = sqlx::query_as::<_, (Uuid, String, String, chrono::DateTime<chrono::Utc>)>(
         "SELECT id, name, LEFT(key_hash, 8), created_at FROM api_keys WHERE org_id = $1 ORDER BY created_at",
     )
     .bind(auth.org_id)
-    .fetch_all(&pool)
+    .fetch_all(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -79,14 +79,14 @@ pub async fn list_api_keys(
 }
 
 pub async fn delete_api_key(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     sqlx::query("DELETE FROM api_keys WHERE id = $1 AND org_id = $2")
         .bind(id)
         .bind(auth.org_id)
-        .execute(&pool)
+        .execute(&state.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
