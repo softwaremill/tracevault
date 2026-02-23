@@ -1,6 +1,6 @@
 use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use crate::AppState;
 use uuid::Uuid;
 
 use crate::auth::{
@@ -26,7 +26,7 @@ pub struct RegisterResponse {
 }
 
 pub async fn register(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<(StatusCode, Json<RegisterResponse>), (StatusCode, String)> {
     if req.password.len() < 8 {
@@ -44,7 +44,7 @@ pub async fn register(
         "INSERT INTO orgs (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name = $1 RETURNING id",
     )
     .bind(&req.org_name)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -52,7 +52,7 @@ pub async fn register(
     let existing: Option<(Uuid,)> =
         sqlx::query_as("SELECT id FROM users WHERE email = $1")
             .bind(&req.email)
-            .fetch_optional(&pool)
+            .fetch_optional(&state.pool)
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -68,7 +68,7 @@ pub async fn register(
     .bind(&req.email)
     .bind(&password_hash)
     .bind(&req.name)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -82,7 +82,7 @@ pub async fn register(
     .bind(user_id)
     .bind(&token_hash)
     .bind(expires_at)
-    .execute(&pool)
+    .execute(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -115,14 +115,14 @@ pub struct LoginResponse {
 }
 
 pub async fn login(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, (StatusCode, String)> {
     let row = sqlx::query_as::<_, (Uuid, Uuid, String, String)>(
         "SELECT u.id, u.org_id, u.password_hash, u.role FROM users u WHERE u.email = $1",
     )
     .bind(&req.email)
-    .fetch_optional(&pool)
+    .fetch_optional(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .ok_or((
@@ -141,7 +141,7 @@ pub async fn login(
 
     let org_name: String = sqlx::query_scalar("SELECT name FROM orgs WHERE id = $1")
         .bind(org_id)
-        .fetch_one(&pool)
+        .fetch_one(&state.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -154,7 +154,7 @@ pub async fn login(
     .bind(user_id)
     .bind(&token_hash)
     .bind(expires_at)
-    .execute(&pool)
+    .execute(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -178,7 +178,7 @@ pub struct DeviceAuthResponse {
 }
 
 pub async fn device_start(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
 ) -> Result<Json<DeviceAuthResponse>, (StatusCode, String)> {
     let token = generate_device_token();
     let expires_at = chrono::Utc::now() + chrono::Duration::minutes(10);
@@ -188,12 +188,14 @@ pub async fn device_start(
     )
     .bind(&token)
     .bind(expires_at)
-    .execute(&pool)
+    .execute(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    let verification_url = format!("/auth/device?token={token}");
+
     Ok(Json(DeviceAuthResponse {
-        verification_url: format!("/auth/device?token={token}"),
+        verification_url,
         token,
         expires_in: 600,
     }))
@@ -211,14 +213,14 @@ pub struct DeviceStatusResponse {
 }
 
 pub async fn device_status(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     axum::extract::Path(token): axum::extract::Path<String>,
 ) -> Result<Json<DeviceStatusResponse>, (StatusCode, String)> {
     let row = sqlx::query_as::<_, (String, Option<Uuid>)>(
         "SELECT status, session_id FROM device_auth_requests WHERE token = $1 AND expires_at > NOW()",
     )
     .bind(&token)
-    .fetch_optional(&pool)
+    .fetch_optional(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .ok_or((
@@ -237,7 +239,7 @@ pub async fn device_status(
                  WHERE s.id = $1",
             )
             .bind(sid)
-            .fetch_optional(&pool)
+            .fetch_optional(&state.pool)
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -246,7 +248,7 @@ pub async fn device_status(
                     "SELECT session_token FROM device_auth_requests WHERE token = $1",
                 )
                 .bind(&token)
-                .fetch_optional(&pool)
+                .fetch_optional(&state.pool)
                 .await
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
                 .flatten();
@@ -270,7 +272,7 @@ pub async fn device_status(
 }
 
 pub async fn device_approve(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: AuthUser,
     axum::extract::Path(token): axum::extract::Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
@@ -278,7 +280,7 @@ pub async fn device_approve(
         "SELECT id, status FROM device_auth_requests WHERE token = $1 AND expires_at > NOW()",
     )
     .bind(&token)
-    .fetch_optional(&pool)
+    .fetch_optional(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .ok_or((
@@ -304,7 +306,7 @@ pub async fn device_approve(
     .bind(auth.user_id)
     .bind(&token_hash)
     .bind(expires_at)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -316,7 +318,7 @@ pub async fn device_approve(
     .bind(session_id)
     .bind(&raw_token)
     .bind(request_id)
-    .execute(&pool)
+    .execute(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -326,7 +328,7 @@ pub async fn device_approve(
 // --- Logout ---
 
 pub async fn logout(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: AuthUser,
     headers: axum::http::HeaderMap,
 ) -> Result<StatusCode, (StatusCode, String)> {
@@ -341,7 +343,7 @@ pub async fn logout(
     sqlx::query("DELETE FROM auth_sessions WHERE token_hash = $1 AND user_id = $2")
         .bind(&token_hash)
         .bind(auth.user_id)
-        .execute(&pool)
+        .execute(&state.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -361,14 +363,14 @@ pub struct MeResponse {
 }
 
 pub async fn me(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<MeResponse>, (StatusCode, String)> {
     let row = sqlx::query_as::<_, (String, Option<String>, String, String)>(
         "SELECT u.email, u.name, u.role, o.name FROM users u JOIN orgs o ON u.org_id = o.id WHERE u.id = $1",
     )
     .bind(auth.user_id)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 

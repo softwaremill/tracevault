@@ -52,30 +52,27 @@ pub async fn init_in_directory(
     // Install git pre-push hook
     install_git_hook(project_root)?;
 
-    // Register repo on server if server_url and git remote are available
+    // Register repo on server if authenticated, server URL known, and git remote available
     let remote_url = git_remote_url(project_root);
     if remote_url.is_none() {
         eprintln!("Warning: no git remote 'origin' configured. Skipping server registration.");
         eprintln!("Run 'git remote add origin <url>' then 'tracevault sync' to register.");
     }
 
-    // Use 3-tier credential resolution, with explicit --server-url taking top priority
     let (resolved_url, resolved_token) =
         crate::api_client::resolve_credentials(project_root);
     let effective_url = server_url
         .map(String::from)
         .or(resolved_url);
 
-    if let (Some(url), Some(remote)) = (effective_url, remote_url) {
+    if resolved_token.is_none() {
+        eprintln!("Not logged in. Run 'tracevault login' to register this repo with the server.");
+    } else if let (Some(url), Some(remote)) = (effective_url, remote_url) {
         let client = ApiClient::new(&url, resolved_token.as_deref());
-
         let repo_name = git_repo_name(project_root);
-        let org_name =
-            std::env::var("TRACEVAULT_ORG").unwrap_or_else(|_| "default".into());
 
         match client
             .register_repo(crate::api_client::RegisterRepoRequest {
-                org_name,
                 repo_name,
                 github_url: Some(remote),
             })

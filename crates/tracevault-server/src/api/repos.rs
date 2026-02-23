@@ -1,13 +1,12 @@
 use axum::{extract::{Path, State}, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use crate::AppState;
 use uuid::Uuid;
 
 use crate::extractors::AuthUser;
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterRepoRequest {
-    pub org_name: String,
     pub repo_name: String,
     pub github_url: Option<String>,
 }
@@ -18,25 +17,17 @@ pub struct RegisterRepoResponse {
 }
 
 pub async fn register_repo(
-    State(pool): State<PgPool>,
-    _auth: AuthUser,
+    State(state): State<AppState>,
+    auth: AuthUser,
     Json(req): Json<RegisterRepoRequest>,
 ) -> Result<(StatusCode, Json<RegisterRepoResponse>), (StatusCode, String)> {
-    let org_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO orgs (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name = $1 RETURNING id",
-    )
-    .bind(&req.org_name)
-    .fetch_one(&pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
     let repo_id: Uuid = sqlx::query_scalar(
         "INSERT INTO repos (org_id, name, github_url) VALUES ($1, $2, $3) ON CONFLICT (org_id, name) DO UPDATE SET github_url = COALESCE(EXCLUDED.github_url, repos.github_url) RETURNING id",
     )
-    .bind(org_id)
+    .bind(auth.org_id)
     .bind(&req.repo_name)
     .bind(&req.github_url)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -52,14 +43,14 @@ pub struct RepoResponse {
 }
 
 pub async fn list_repos(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Vec<RepoResponse>>, (StatusCode, String)> {
     let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, chrono::DateTime<chrono::Utc>)>(
         "SELECT id, name, github_url, created_at FROM repos WHERE org_id = $1 ORDER BY name",
     )
     .bind(auth.org_id)
-    .fetch_all(&pool)
+    .fetch_all(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -77,7 +68,7 @@ pub async fn list_repos(
 }
 
 pub async fn delete_repo(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
@@ -88,7 +79,7 @@ pub async fn delete_repo(
     sqlx::query("DELETE FROM repos WHERE id = $1 AND org_id = $2")
         .bind(id)
         .bind(auth.org_id)
-        .execute(&pool)
+        .execute(&state.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 

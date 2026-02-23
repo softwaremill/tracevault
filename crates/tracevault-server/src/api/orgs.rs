@@ -1,6 +1,6 @@
 use axum::{extract::{Path, State}, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use crate::AppState;
 use uuid::Uuid;
 
 use crate::auth::hash_password;
@@ -15,7 +15,7 @@ pub struct OrgResponse {
 }
 
 pub async fn get_org(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<OrgResponse>, (StatusCode, String)> {
@@ -30,7 +30,7 @@ pub async fn get_org(
         "SELECT id, name, plan, created_at FROM orgs WHERE id = $1",
     )
     .bind(id)
-    .fetch_optional(&pool)
+    .fetch_optional(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .ok_or((StatusCode::NOT_FOUND, "Org not found".into()))?;
@@ -49,7 +49,7 @@ pub struct UpdateOrgRequest {
 }
 
 pub async fn update_org(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: AuthUser,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateOrgRequest>,
@@ -62,7 +62,7 @@ pub async fn update_org(
         sqlx::query("UPDATE orgs SET name = $1 WHERE id = $2")
             .bind(name)
             .bind(id)
-            .execute(&pool)
+            .execute(&state.pool)
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     }
@@ -80,7 +80,7 @@ pub struct MemberResponse {
 }
 
 pub async fn list_members(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<MemberResponse>>, (StatusCode, String)> {
@@ -95,7 +95,7 @@ pub async fn list_members(
         "SELECT id, email, name, role, created_at FROM users WHERE org_id = $1 ORDER BY created_at",
     )
     .bind(id)
-    .fetch_all(&pool)
+    .fetch_all(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -122,7 +122,7 @@ pub struct InviteMemberRequest {
 }
 
 pub async fn invite_member(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: AuthUser,
     Path(id): Path<Uuid>,
     Json(req): Json<InviteMemberRequest>,
@@ -157,7 +157,7 @@ pub async fn invite_member(
     .bind(&password_hash)
     .bind(&req.name)
     .bind(&role)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await
     .map_err(|e| {
         if e.to_string().contains("unique") {
@@ -180,7 +180,7 @@ pub async fn invite_member(
 }
 
 pub async fn remove_member(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: AuthUser,
     Path((org_id, user_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, (StatusCode, String)> {
@@ -194,7 +194,7 @@ pub async fn remove_member(
     sqlx::query("DELETE FROM users WHERE id = $1 AND org_id = $2")
         .bind(user_id)
         .bind(org_id)
-        .execute(&pool)
+        .execute(&state.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -207,7 +207,7 @@ pub struct ChangeRoleRequest {
 }
 
 pub async fn change_role(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: AuthUser,
     Path((org_id, user_id)): Path<(Uuid, Uuid)>,
     Json(req): Json<ChangeRoleRequest>,
@@ -226,7 +226,7 @@ pub async fn change_role(
         .bind(&req.role)
         .bind(user_id)
         .bind(org_id)
-        .execute(&pool)
+        .execute(&state.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 

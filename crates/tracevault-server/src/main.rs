@@ -2,7 +2,8 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use tower_http::cors::{Any, CorsLayer};
+use http::Method;
+use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 mod api;
@@ -10,6 +11,11 @@ mod auth;
 mod config;
 mod db;
 mod extractors;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub pool: sqlx::PgPool,
+}
 
 #[tokio::main]
 async fn main() {
@@ -27,11 +33,22 @@ async fn main() {
     let cors = if let Some(origin) = &cfg.cors_origin {
         CorsLayer::new()
             .allow_origin(origin.parse::<http::HeaderValue>().unwrap())
-            .allow_methods(Any)
-            .allow_headers(Any)
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
+            .allow_headers([
+                http::header::CONTENT_TYPE,
+                http::header::AUTHORIZATION,
+            ])
     } else {
         CorsLayer::permissive()
     };
+
+    let bind_addr = cfg.bind_addr();
 
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
@@ -94,13 +111,13 @@ async fn main() {
         )
         // GitHub
         .route("/api/v1/github/webhook", post(api::github::webhook))
-        .layer(cors)
         .layer(TraceLayer::new_for_http())
-        .with_state(pool);
+        .layer(cors)
+        .with_state(AppState { pool });
 
-    let listener = tokio::net::TcpListener::bind(cfg.bind_addr())
+    let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .unwrap();
-    tracing::info!("TraceVault server listening on {}", cfg.bind_addr());
+    tracing::info!("TraceVault server listening on {}", bind_addr);
     axum::serve(listener, app).await.unwrap();
 }
