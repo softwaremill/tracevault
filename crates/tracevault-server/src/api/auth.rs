@@ -3,7 +3,8 @@ use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct RegisterRequest {
-    pub org_name: String,
+    #[allow(dead_code)]
+    org_name: String,
 }
 
 pub async fn register(
