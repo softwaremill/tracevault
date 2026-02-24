@@ -248,14 +248,12 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
     let server_url = match server_url {
         Some(url) => url,
         None => {
-            eprintln!("No server URL configured. Skipping push.");
-            return Ok(());
+            return Err("No server URL configured. Run 'tracevault login' first.".into());
         }
     };
 
     if token.is_none() {
-        eprintln!("Not logged in. Run 'tracevault login' to push traces.");
-        return Ok(());
+        return Err("Not logged in. Run 'tracevault login' to push traces.".into());
     }
 
     let client = ApiClient::new(&server_url, token.as_deref());
@@ -267,6 +265,43 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
     }
 
     let git = git_info(project_root);
+
+    // Read diff + attribution once (commit-level data)
+    let diff_files = read_git_diff(project_root, &git.commit_sha);
+    let diff_data = diff_files
+        .as_ref()
+        .and_then(|f| serde_json::to_value(f).ok());
+    let attribution = read_gitai_attribution(
+        project_root,
+        &git.commit_sha,
+        diff_files.as_deref().unwrap_or(&[]),
+    );
+
+    // Step 1: Register commit (no session_id, with diff_data + attribution)
+    let commit_req = PushTraceRequest {
+        repo_name: git.repo_name.clone(),
+        commit_sha: git.commit_sha.clone(),
+        branch: git.branch.clone(),
+        author: git.author.clone(),
+        model: None,
+        tool: None,
+        session_id: None,
+        total_tokens: None,
+        input_tokens: None,
+        output_tokens: None,
+        estimated_cost_usd: None,
+        api_calls: None,
+        session_data: None,
+        attribution,
+        transcript: None,
+        diff_data,
+    };
+
+    let commit_resp = client.push_trace(commit_req).await
+        .map_err(|e| format!("Failed to register commit: {e}"))?;
+    println!("Registered commit {} -> {}", &git.commit_sha[..8.min(git.commit_sha.len())], commit_resp.commit_id);
+
+    // Step 2: Push each unpushed session
     let mut pushed = 0;
     let mut failed = 0;
 
@@ -304,19 +339,12 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
         });
 
         let transcript_data = read_transcript(&metadata);
-        let diff_files = read_git_diff(project_root, &git.commit_sha);
-        let diff_data = diff_files
-            .as_ref()
-            .and_then(|f| serde_json::to_value(f).ok());
-        let attribution = read_gitai_attribution(
-            project_root,
-            &git.commit_sha,
-            diff_files.as_deref().unwrap_or(&[]),
-        );
 
         // Prefer model from transcript, fall back to events
         let model = transcript_data.model
             .or_else(|| summary.models.iter().next().cloned());
+
+        let session_name = entry.file_name().to_string_lossy().to_string();
 
         let req = PushTraceRequest {
             repo_name: git.repo_name.clone(),
@@ -325,19 +353,18 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
             author: git.author.clone(),
             model,
             tool: Some("claude-code".into()),
-            ai_percentage: None,
+            session_id: Some(session_name.clone()),
             total_tokens: transcript_data.total_tokens,
             input_tokens: transcript_data.input_tokens,
             output_tokens: transcript_data.output_tokens,
             estimated_cost_usd: None,
             api_calls: Some(summary.event_count as i32),
             session_data: Some(session_data),
-            attribution,
+            attribution: None, // commit-level only
             transcript: transcript_data.transcript,
-            diff_data,
+            diff_data: None,   // commit-level only
         };
 
-        let session_name = entry.file_name().to_string_lossy().to_string();
         match client.push_trace(req).await {
             Ok(resp) => {
                 println!(
@@ -345,10 +372,10 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
                     session_name,
                     summary.event_count,
                     summary.files_modified.len(),
-                    resp.id,
+                    resp.commit_id,
                 );
                 // Mark as pushed so we don't push again
-                fs::write(&pushed_marker, resp.id.to_string())?;
+                fs::write(&pushed_marker, resp.commit_id.to_string())?;
                 pushed += 1;
             }
             Err(e) => {
@@ -362,6 +389,10 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
         println!("\nPushed {pushed} session(s), {failed} failed.");
     } else {
         println!("No new sessions to push.");
+    }
+
+    if failed > 0 {
+        return Err(format!("{failed} session(s) failed to push").into());
     }
 
     Ok(())

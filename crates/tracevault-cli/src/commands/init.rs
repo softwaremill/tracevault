@@ -104,27 +104,59 @@ fn git_repo_name(project_root: &Path) -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
-const HOOK_MARKER: &str = "# tracevault:auto-push";
+const HOOK_MARKER: &str = "# tracevault:enforce";
+const OLD_HOOK_MARKER: &str = "# tracevault:auto-push";
 
 fn install_git_hook(project_root: &Path) -> Result<(), io::Error> {
     let hooks_dir = project_root.join(".git/hooks");
     fs::create_dir_all(&hooks_dir)?;
 
     let hook_path = hooks_dir.join("pre-push");
-    let tracevault_block = format!("{HOOK_MARKER}\ntracevault sync 2>/dev/null || true\ntracevault push 2>/dev/null || true\n");
+    let tracevault_block = format!(
+        "{HOOK_MARKER}\ntracevault sync 2>/dev/null || true\ntracevault push || {{ echo \"tracevault: push failed, git push blocked.\"; exit 1; }}\n"
+    );
 
     if hook_path.exists() {
         let existing = fs::read_to_string(&hook_path)?;
+
+        // Already has new-style hook
         if existing.contains(HOOK_MARKER) {
-            return Ok(()); // already installed
+            return Ok(());
         }
-        // Append to existing hook
-        let mut content = existing;
-        if !content.ends_with('\n') {
-            content.push('\n');
+
+        // Replace old-style hook block if present
+        if existing.contains(OLD_HOOK_MARKER) {
+            let mut new_content = String::new();
+            let mut skip = false;
+            for line in existing.lines() {
+                if line.contains(OLD_HOOK_MARKER) {
+                    skip = true;
+                    continue;
+                }
+                if skip {
+                    // Skip old tracevault lines (they start with "tracevault " or are empty continuations)
+                    if line.starts_with("tracevault ") {
+                        continue;
+                    }
+                    skip = false;
+                }
+                new_content.push_str(line);
+                new_content.push('\n');
+            }
+            if !new_content.ends_with('\n') {
+                new_content.push('\n');
+            }
+            new_content.push_str(&tracevault_block);
+            fs::write(&hook_path, new_content)?;
+        } else {
+            // Append to existing hook
+            let mut content = existing;
+            if !content.ends_with('\n') {
+                content.push('\n');
+            }
+            content.push_str(&tracevault_block);
+            fs::write(&hook_path, content)?;
         }
-        content.push_str(&tracevault_block);
-        fs::write(&hook_path, content)?;
     } else {
         let content = format!("#!/bin/sh\n{tracevault_block}");
         fs::write(&hook_path, content)?;

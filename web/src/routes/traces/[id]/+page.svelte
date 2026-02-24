@@ -6,21 +6,31 @@
 	import * as Table from '$lib/components/ui/table/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 
-	interface TraceDetail {
+	interface SessionDetail {
 		id: string;
-		commit_sha: string;
-		parent_sha: string | null;
-		author: string | null;
-		committer: string | null;
-		message: string | null;
+		session_id: string;
 		model: string | null;
-		ai_percentage: number | null;
-		repo_name: string | null;
+		tool: string | null;
+		total_tokens: number | null;
+		input_tokens: number | null;
+		output_tokens: number | null;
+		estimated_cost_usd: number | null;
+		api_calls: number | null;
 		session_data: Record<string, unknown> | null;
-		attribution: Record<string, unknown> | null;
 		transcript: unknown[] | null;
-		diff_data: FileDiff[] | null;
 		created_at: string;
+	}
+
+	interface CommitDetail {
+		id: string;
+		repo_id: string;
+		commit_sha: string;
+		branch: string | null;
+		author: string;
+		diff_data: FileDiff[] | null;
+		attribution: Record<string, unknown> | null;
+		created_at: string;
+		sessions: SessionDetail[];
 	}
 
 	interface TokenUsage {
@@ -280,7 +290,7 @@
 		};
 	}
 
-	function fmtTokens(n: number | undefined): string {
+	function fmtTokens(n: number | undefined | null): string {
 		if (n == null || n === 0) return '-';
 		if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
 		return String(n);
@@ -299,19 +309,18 @@
 		return `${Math.floor(ms / 3_600_000)}h ${Math.floor((ms % 3_600_000) / 60_000)}m`;
 	}
 
-	let trace: TraceDetail | null = $state(null);
+	let commit: CommitDetail | null = $state(null);
 	let loading = $state(true);
 	let error = $state('');
-	let expandedRows: Set<number> = $state(new Set());
-	let visibleTypes: Set<string> = $state(new Set());
+	let expandedSessions: Set<string> = $state(new Set());
 
-	const traceId = $derived($page.params.id ?? '');
+	const commitId = $derived($page.params.id ?? '');
 
 	onMount(async () => {
 		try {
-			trace = await api.get<TraceDetail>(`/api/v1/traces/${traceId}`);
+			commit = await api.get<CommitDetail>(`/api/v1/traces/${commitId}`);
 		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load trace';
+			error = err instanceof Error ? err.message : 'Failed to load commit';
 		} finally {
 			loading = false;
 		}
@@ -321,68 +330,50 @@
 		return new Date(iso).toLocaleString();
 	}
 
-	function formatPercentage(val: number | null): string {
-		if (val == null) return '-';
-		return `${(val * 100).toFixed(1)}%`;
-	}
-
 	function formatJson(obj: unknown): string {
 		return JSON.stringify(obj, null, 2);
 	}
 
-	const transcriptEntries = $derived.by(() => {
-		if (!trace?.transcript) return [] as TranscriptEntry[];
-		return parseTranscript(trace.transcript);
-	});
-
-	const stats = $derived.by(() => computeStats(transcriptEntries));
-
-	const allTypes = $derived.by(() => {
-		const types = new Set<string>();
-		for (const entry of transcriptEntries) types.add(entry.type);
-		return Array.from(types);
-	});
-
-	// Initialize visibleTypes when entries load
-	$effect(() => {
-		if (transcriptEntries.length > 0 && visibleTypes.size === 0) {
-			visibleTypes = new Set(allTypes);
+	// Aggregate stats across all sessions
+	const aggregatedStats = $derived.by(() => {
+		if (!commit?.sessions) return null;
+		let totalTokens = 0;
+		let totalInput = 0;
+		let totalOutput = 0;
+		for (const s of commit.sessions) {
+			totalTokens += s.total_tokens ?? 0;
+			totalInput += s.input_tokens ?? 0;
+			totalOutput += s.output_tokens ?? 0;
 		}
+		if (totalTokens === 0 && totalInput === 0 && totalOutput === 0) return null;
+		return { totalTokens, totalInput, totalOutput };
 	});
 
-	const filteredEntries = $derived.by(() => {
-		if (visibleTypes.size === 0) return transcriptEntries;
-		return transcriptEntries.filter((e) => visibleTypes.has(e.type));
-	});
-
-	function toggleRow(index: number) {
-		const next = new Set(expandedRows);
-		if (next.has(index)) next.delete(index);
-		else next.add(index);
-		expandedRows = next;
+	// Per-session transcript data
+	function sessionTranscript(session: SessionDetail) {
+		if (!session.transcript) return { entries: [] as TranscriptEntry[], stats: computeStats([]) };
+		const entries = parseTranscript(session.transcript);
+		const stats = computeStats(entries);
+		return { entries, stats };
 	}
 
-	function toggleType(type: string) {
-		const next = new Set(visibleTypes);
-		if (next.has(type)) next.delete(type);
-		else next.add(type);
-		visibleTypes = next;
+	function toggleSession(sessionId: string) {
+		const next = new Set(expandedSessions);
+		if (next.has(sessionId)) next.delete(sessionId);
+		else next.add(sessionId);
+		expandedSessions = next;
 	}
-
-	const sortedToolEntries = $derived.by(() =>
-		Object.entries(stats.toolUsageCounts).sort((a, b) => b[1] - a[1])
-	);
 
 	let expandedFiles: Set<string> = $state(new Set());
 
 	const diffFiles = $derived.by(() => {
-		if (!trace?.diff_data) return [] as FileDiff[];
-		return trace.diff_data as FileDiff[];
+		if (!commit?.diff_data) return [] as FileDiff[];
+		return commit.diff_data as FileDiff[];
 	});
 
 	const attrData = $derived.by(() => {
-		if (!trace?.attribution) return null;
-		return trace.attribution as unknown as AttributionData;
+		if (!commit?.attribution) return null;
+		return commit.attribution as unknown as AttributionData;
 	});
 
 	const diffSummary = $derived.by(() => {
@@ -436,21 +427,21 @@
 </script>
 
 <svelte:head>
-	<title>Trace Detail - TraceVault</title>
+	<title>Commit Detail - TraceVault</title>
 </svelte:head>
 
 <div class="space-y-4">
 	<div class="flex items-center gap-2">
-		<a href="/traces" class="text-muted-foreground hover:underline">Traces</a>
+		<a href="/traces" class="text-muted-foreground hover:underline">Commits</a>
 		<span class="text-muted-foreground">/</span>
-		<h1 class="text-2xl font-bold font-mono">{traceId.slice(0, 8)}</h1>
+		<h1 class="text-2xl font-bold font-mono">{commitId.slice(0, 8)}</h1>
 	</div>
 
 	{#if loading}
 		<p class="text-muted-foreground">Loading...</p>
 	{:else if error}
 		<p class="text-destructive">{error}</p>
-	{:else if trace}
+	{:else if commit}
 		<div class="grid gap-4 md:grid-cols-2">
 			<Card.Root>
 				<Card.Header>
@@ -459,195 +450,219 @@
 				<Card.Content class="space-y-2">
 					<div class="flex justify-between">
 						<span class="text-muted-foreground">SHA</span>
-						<span class="font-mono text-sm">{trace.commit_sha}</span>
+						<span class="font-mono text-sm">{commit.commit_sha}</span>
 					</div>
-					{#if trace.parent_sha}
+					{#if commit.branch}
 						<div class="flex justify-between">
-							<span class="text-muted-foreground">Parent</span>
-							<span class="font-mono text-sm">{trace.parent_sha}</span>
+							<span class="text-muted-foreground">Branch</span>
+							<Badge variant="outline">{commit.branch}</Badge>
 						</div>
 					{/if}
 					<div class="flex justify-between">
 						<span class="text-muted-foreground">Author</span>
-						<span>{trace.author ?? '-'}</span>
+						<span>{commit.author}</span>
 					</div>
-					{#if trace.committer}
-						<div class="flex justify-between">
-							<span class="text-muted-foreground">Committer</span>
-							<span>{trace.committer}</span>
-						</div>
-					{/if}
-					{#if trace.message}
-						<div>
-							<span class="text-muted-foreground">Message</span>
-							<p class="mt-1 text-sm">{trace.message}</p>
-						</div>
-					{/if}
 					<div class="flex justify-between">
 						<span class="text-muted-foreground">Date</span>
-						<span>{formatDate(trace.created_at)}</span>
+						<span>{formatDate(commit.created_at)}</span>
+					</div>
+					<div class="flex justify-between">
+						<span class="text-muted-foreground">Sessions</span>
+						<span>{commit.sessions.length}</span>
 					</div>
 				</Card.Content>
 			</Card.Root>
 
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>AI Attribution</Card.Title>
-				</Card.Header>
-				<Card.Content class="space-y-2">
-					<div class="flex justify-between">
-						<span class="text-muted-foreground">Model</span>
-						{#if trace.model}
-							<Badge>{trace.model}</Badge>
-						{:else}
-							<span class="text-muted-foreground">-</span>
-						{/if}
-					</div>
-					<div class="flex justify-between">
-						<span class="text-muted-foreground">AI Percentage</span>
-						<span class="font-semibold">
-							{#if attrData}
-								{attrData.summary.ai_percentage.toFixed(1)}%
-							{:else}
-								{formatPercentage(trace.ai_percentage)}
-							{/if}
-						</span>
-					</div>
-				</Card.Content>
-			</Card.Root>
+			{#if attrData}
+				<Card.Root>
+					<Card.Header>
+						<Card.Title>AI Attribution</Card.Title>
+					</Card.Header>
+					<Card.Content class="space-y-2">
+						<div class="flex justify-between">
+							<span class="text-muted-foreground">AI Percentage</span>
+							<span class="font-semibold">{attrData.summary.ai_percentage.toFixed(1)}%</span>
+						</div>
+						<div class="flex justify-between">
+							<span class="text-muted-foreground">Human Percentage</span>
+							<span class="font-semibold">{attrData.summary.human_percentage.toFixed(1)}%</span>
+						</div>
+						<div class="flex justify-between">
+							<span class="text-muted-foreground">Lines Added</span>
+							<span class="text-green-600">+{attrData.summary.total_lines_added}</span>
+						</div>
+						<div class="flex justify-between">
+							<span class="text-muted-foreground">Lines Deleted</span>
+							<span class="text-red-600">-{attrData.summary.total_lines_deleted}</span>
+						</div>
+					</Card.Content>
+				</Card.Root>
+			{/if}
 		</div>
 
-		{#if trace.transcript && transcriptEntries.length > 0}
-			<div class="grid gap-4 md:grid-cols-4">
+		{#if aggregatedStats}
+			<div class="grid gap-4 md:grid-cols-3">
 				<Card.Root>
 					<Card.Header class="pb-2">
 						<Card.Title class="text-sm font-medium text-muted-foreground">Total Tokens</Card.Title>
 					</Card.Header>
 					<Card.Content>
-						<div class="text-2xl font-bold">{fmtTokens(stats.totalInputTokens + stats.totalOutputTokens)}</div>
+						<div class="text-2xl font-bold">{fmtTokens(aggregatedStats.totalTokens)}</div>
 						<p class="text-xs text-muted-foreground">
-							{fmtTokens(stats.totalInputTokens)} in / {fmtTokens(stats.totalOutputTokens)} out
+							{fmtTokens(aggregatedStats.totalInput)} in / {fmtTokens(aggregatedStats.totalOutput)} out
 						</p>
 					</Card.Content>
 				</Card.Root>
 
 				<Card.Root>
 					<Card.Header class="pb-2">
-						<Card.Title class="text-sm font-medium text-muted-foreground">Cache Tokens</Card.Title>
+						<Card.Title class="text-sm font-medium text-muted-foreground">Sessions</Card.Title>
 					</Card.Header>
 					<Card.Content>
-						<div class="text-2xl font-bold">{fmtTokens(stats.totalCacheReadTokens + stats.totalCacheCreationTokens)}</div>
-						<p class="text-xs text-muted-foreground">
-							{fmtTokens(stats.totalCacheReadTokens)} read / {fmtTokens(stats.totalCacheCreationTokens)} created
-						</p>
+						<div class="text-2xl font-bold">{commit.sessions.length}</div>
 					</Card.Content>
 				</Card.Root>
 
 				<Card.Root>
 					<Card.Header class="pb-2">
-						<Card.Title class="text-sm font-medium text-muted-foreground">Turns</Card.Title>
+						<Card.Title class="text-sm font-medium text-muted-foreground">Files Changed</Card.Title>
 					</Card.Header>
 					<Card.Content>
-						<div class="text-2xl font-bold">{stats.userMessageCount}</div>
+						<div class="text-2xl font-bold">{diffSummary.fileCount}</div>
 						<p class="text-xs text-muted-foreground">
-							user messages / {stats.turnCount} total events
+							<span class="text-green-600">+{diffSummary.totalAdded}</span>
+							<span class="text-red-600 ml-1">-{diffSummary.totalDeleted}</span>
 						</p>
-					</Card.Content>
-				</Card.Root>
-
-				<Card.Root>
-					<Card.Header class="pb-2">
-						<Card.Title class="text-sm font-medium text-muted-foreground">Duration</Card.Title>
-					</Card.Header>
-					<Card.Content>
-						<div class="text-2xl font-bold">{fmtDuration(stats.totalDurationMs)}</div>
-						<div class="flex flex-wrap gap-1 mt-1">
-							{#each stats.byModel as m}
-								<Badge variant="outline" class="text-xs">{m.model} ({m.count})</Badge>
-							{/each}
-						</div>
 					</Card.Content>
 				</Card.Root>
 			</div>
+		{/if}
 
-			{#if sortedToolEntries.length > 0}
+		{#if commit.sessions.length > 0}
+			<h2 class="text-lg font-semibold">Sessions</h2>
+			{#each commit.sessions as session (session.id)}
+				{@const tx = sessionTranscript(session)}
 				<Card.Root>
-					<Card.Header class="pb-2">
-						<Card.Title class="text-sm font-medium">Tool Usage</Card.Title>
-					</Card.Header>
-					<Card.Content>
-						<div class="flex flex-wrap gap-2">
-							{#each sortedToolEntries as [tool, count]}
-								<Badge variant="secondary">{tool} ({count})</Badge>
-							{/each}
-						</div>
-					</Card.Content>
-				</Card.Root>
-			{/if}
-
-			<div class="flex flex-wrap items-center gap-2">
-				<span class="text-sm text-muted-foreground">Filter:</span>
-				{#each allTypes as type}
-					<button onclick={() => toggleType(type)}>
-						<Badge variant={visibleTypes.has(type) ? 'default' : 'outline'}>{type}</Badge>
-					</button>
-				{/each}
-			</div>
-
-			<Card.Root>
-				<Card.Content class="p-0">
-					<Table.Root>
-						<Table.Header>
-							<Table.Row>
-								<Table.Head class="w-12">#</Table.Head>
-								<Table.Head class="w-24">Time</Table.Head>
-								<Table.Head class="w-28">Type</Table.Head>
-								<Table.Head>Summary</Table.Head>
-								<Table.Head class="w-36">Model</Table.Head>
-								<Table.Head class="w-20 text-right">In</Table.Head>
-								<Table.Head class="w-20 text-right">Out</Table.Head>
-								<Table.Head class="w-20 text-right">Cache</Table.Head>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{#each filteredEntries as entry (entry.index)}
-								<Table.Row
-									class="cursor-pointer hover:bg-muted/50"
-									onclick={() => toggleRow(entry.index)}
-								>
-									<Table.Cell class="font-mono text-xs text-muted-foreground">{entry.index}</Table.Cell>
-									<Table.Cell class="text-xs">{fmtTime(entry.timestamp)}</Table.Cell>
-									<Table.Cell>
-										<Badge variant="outline" class="text-xs">{entry.type}{entry.subtype ? `:${entry.subtype}` : ''}</Badge>
-									</Table.Cell>
-									<Table.Cell class="max-w-md truncate" title={entry.summary}>
-										{entry.summary}
-									</Table.Cell>
-									<Table.Cell>
-										{#if entry.model}
-											<Badge variant="secondary" class="text-xs">{entry.model}</Badge>
-										{:else}
-											<span class="text-muted-foreground">-</span>
-										{/if}
-									</Table.Cell>
-									<Table.Cell class="text-right font-mono text-xs">{fmtTokens(entry.usage?.input_tokens)}</Table.Cell>
-									<Table.Cell class="text-right font-mono text-xs">{fmtTokens(entry.usage?.output_tokens)}</Table.Cell>
-									<Table.Cell class="text-right font-mono text-xs">
-										{fmtTokens(entry.usage ? entry.usage.cache_read_input_tokens + entry.usage.cache_creation_input_tokens : undefined)}
-									</Table.Cell>
-								</Table.Row>
-								{#if expandedRows.has(entry.index)}
-									<Table.Row>
-										<Table.Cell colspan={8} class="bg-muted/30 p-0">
-											<pre class="overflow-auto p-4 font-mono text-xs max-h-96">{formatJson(entry.raw)}</pre>
-										</Table.Cell>
-									</Table.Row>
+					<Card.Header>
+						<button
+							class="flex w-full items-center justify-between text-left"
+							onclick={() => toggleSession(session.id)}
+						>
+							<div class="flex items-center gap-2">
+								<span class="text-muted-foreground">{expandedSessions.has(session.id) ? '▼' : '▶'}</span>
+								<Card.Title class="text-base">
+									Session <span class="font-mono text-sm">{session.session_id}</span>
+								</Card.Title>
+								{#if session.model}
+									<Badge variant="secondary">{session.model}</Badge>
 								{/if}
-							{/each}
-						</Table.Body>
-					</Table.Root>
-				</Card.Content>
-			</Card.Root>
+								{#if session.tool}
+									<Badge variant="outline">{session.tool}</Badge>
+								{/if}
+							</div>
+							<div class="flex items-center gap-4 text-sm text-muted-foreground">
+								<span>{fmtTokens(session.total_tokens)} tokens</span>
+								<span>{new Date(session.created_at).toLocaleString()}</span>
+							</div>
+						</button>
+					</Card.Header>
+
+					{#if expandedSessions.has(session.id)}
+						<Card.Content class="space-y-4">
+							{#if tx.entries.length > 0}
+								<div class="grid gap-4 md:grid-cols-4">
+									<div>
+										<p class="text-xs text-muted-foreground">Total Tokens</p>
+										<p class="text-lg font-bold">{fmtTokens(tx.stats.totalInputTokens + tx.stats.totalOutputTokens)}</p>
+										<p class="text-xs text-muted-foreground">
+											{fmtTokens(tx.stats.totalInputTokens)} in / {fmtTokens(tx.stats.totalOutputTokens)} out
+										</p>
+									</div>
+									<div>
+										<p class="text-xs text-muted-foreground">Cache</p>
+										<p class="text-lg font-bold">{fmtTokens(tx.stats.totalCacheReadTokens + tx.stats.totalCacheCreationTokens)}</p>
+									</div>
+									<div>
+										<p class="text-xs text-muted-foreground">Turns</p>
+										<p class="text-lg font-bold">{tx.stats.userMessageCount}</p>
+										<p class="text-xs text-muted-foreground">{tx.stats.turnCount} events</p>
+									</div>
+									<div>
+										<p class="text-xs text-muted-foreground">Duration</p>
+										<p class="text-lg font-bold">{fmtDuration(tx.stats.totalDurationMs)}</p>
+										<div class="flex flex-wrap gap-1 mt-1">
+											{#each tx.stats.byModel as m}
+												<Badge variant="outline" class="text-xs">{m.model} ({m.count})</Badge>
+											{/each}
+										</div>
+									</div>
+								</div>
+
+								{#if Object.keys(tx.stats.toolUsageCounts).length > 0}
+									<div>
+										<p class="text-xs text-muted-foreground mb-1">Tool Usage</p>
+										<div class="flex flex-wrap gap-1">
+											{#each Object.entries(tx.stats.toolUsageCounts).sort((a, b) => b[1] - a[1]) as [tool, count]}
+												<Badge variant="secondary" class="text-xs">{tool} ({count})</Badge>
+											{/each}
+										</div>
+									</div>
+								{/if}
+
+								<Table.Root>
+									<Table.Header>
+										<Table.Row>
+											<Table.Head class="w-12">#</Table.Head>
+											<Table.Head class="w-24">Time</Table.Head>
+											<Table.Head class="w-28">Type</Table.Head>
+											<Table.Head>Summary</Table.Head>
+											<Table.Head class="w-36">Model</Table.Head>
+											<Table.Head class="w-20 text-right">In</Table.Head>
+											<Table.Head class="w-20 text-right">Out</Table.Head>
+											<Table.Head class="w-20 text-right">Cache</Table.Head>
+										</Table.Row>
+									</Table.Header>
+									<Table.Body>
+										{#each tx.entries as entry (entry.index)}
+											<Table.Row class="cursor-pointer hover:bg-muted/50">
+												<Table.Cell class="font-mono text-xs text-muted-foreground">{entry.index}</Table.Cell>
+												<Table.Cell class="text-xs">{fmtTime(entry.timestamp)}</Table.Cell>
+												<Table.Cell>
+													<Badge variant="outline" class="text-xs">{entry.type}{entry.subtype ? `:${entry.subtype}` : ''}</Badge>
+												</Table.Cell>
+												<Table.Cell class="max-w-md truncate" title={entry.summary}>
+													{entry.summary}
+												</Table.Cell>
+												<Table.Cell>
+													{#if entry.model}
+														<Badge variant="secondary" class="text-xs">{entry.model}</Badge>
+													{:else}
+														<span class="text-muted-foreground">-</span>
+													{/if}
+												</Table.Cell>
+												<Table.Cell class="text-right font-mono text-xs">{fmtTokens(entry.usage?.input_tokens)}</Table.Cell>
+												<Table.Cell class="text-right font-mono text-xs">{fmtTokens(entry.usage?.output_tokens)}</Table.Cell>
+												<Table.Cell class="text-right font-mono text-xs">
+													{fmtTokens(entry.usage ? entry.usage.cache_read_input_tokens + entry.usage.cache_creation_input_tokens : undefined)}
+												</Table.Cell>
+											</Table.Row>
+										{/each}
+									</Table.Body>
+								</Table.Root>
+							{/if}
+
+							{#if session.session_data}
+								<details>
+									<summary class="cursor-pointer text-sm text-muted-foreground hover:text-foreground">
+										Session Data
+									</summary>
+									<pre class="mt-2 overflow-auto rounded bg-muted p-4 text-sm max-h-96">{formatJson(session.session_data)}</pre>
+								</details>
+							{/if}
+						</Card.Content>
+					{/if}
+				</Card.Root>
+			{/each}
 		{/if}
 
 		{#if diffFiles.length > 0}
@@ -736,21 +751,12 @@
 			</Card.Root>
 		{/if}
 
-		{#if trace.attribution}
+		{#if commit.attribution}
 			<details>
 				<summary class="cursor-pointer text-sm text-muted-foreground hover:text-foreground">
 					Attribution Details
 				</summary>
-				<pre class="mt-2 overflow-auto rounded bg-muted p-4 text-sm">{formatJson(trace.attribution)}</pre>
-			</details>
-		{/if}
-
-		{#if trace.session_data}
-			<details>
-				<summary class="cursor-pointer text-sm text-muted-foreground hover:text-foreground">
-					Session Data
-				</summary>
-				<pre class="mt-2 overflow-auto rounded bg-muted p-4 text-sm">{formatJson(trace.session_data)}</pre>
+				<pre class="mt-2 overflow-auto rounded bg-muted p-4 text-sm">{formatJson(commit.attribution)}</pre>
 			</details>
 		{/if}
 	{/if}
