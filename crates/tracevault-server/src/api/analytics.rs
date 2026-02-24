@@ -299,3 +299,116 @@ pub async fn get_overview(
         }).collect(),
     }))
 }
+
+// --- Tokens endpoint ---
+
+#[derive(Debug, Serialize)]
+pub struct TokensResponse {
+    pub time_series: Vec<TokenTimePoint>,
+    pub by_repo: Vec<RepoTokenDetail>,
+    pub by_author: Vec<AuthorTokens>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TokenTimePoint {
+    pub date: String,
+    pub input: i64,
+    pub output: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RepoTokenDetail {
+    pub repo: String,
+    pub total: i64,
+    pub input: i64,
+    pub output: i64,
+    pub sessions: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthorTokens {
+    pub author: String,
+    pub total: i64,
+}
+
+pub async fn get_tokens(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Query(q): Query<AnalyticsQuery>,
+) -> Result<Json<TokensResponse>, (StatusCode, String)> {
+    let org_id = q.effective_org_id(&auth);
+
+    let time_series = sqlx::query_as::<_, (String, i64, i64)>(
+        "SELECT TO_CHAR(c.created_at::date, 'YYYY-MM-DD'),
+                COALESCE(CAST(SUM(s.input_tokens) AS BIGINT), 0),
+                COALESCE(CAST(SUM(s.output_tokens) AS BIGINT), 0)
+         FROM commits c
+         JOIN repos r ON c.repo_id = r.id
+         LEFT JOIN sessions s ON s.commit_id = c.id
+         WHERE r.org_id = $1
+           AND ($2::TEXT IS NULL OR r.name = $2)
+           AND ($3::TEXT IS NULL OR c.author = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
+         GROUP BY c.created_at::date
+         ORDER BY c.created_at::date"
+    )
+    .bind(org_id)
+    .bind(&q.repo)
+    .bind(&q.author)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let by_repo = sqlx::query_as::<_, (String, i64, i64, i64, i64)>(
+        "SELECT r.name,
+                COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0),
+                COALESCE(CAST(SUM(s.input_tokens) AS BIGINT), 0),
+                COALESCE(CAST(SUM(s.output_tokens) AS BIGINT), 0),
+                COUNT(s.id)
+         FROM commits c
+         JOIN repos r ON c.repo_id = r.id
+         LEFT JOIN sessions s ON s.commit_id = c.id
+         WHERE r.org_id = $1
+           AND ($2::TEXT IS NULL OR c.author = $2)
+           AND ($3::TIMESTAMPTZ IS NULL OR c.created_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
+         GROUP BY r.name
+         ORDER BY 2 DESC"
+    )
+    .bind(org_id)
+    .bind(&q.author)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let by_author = sqlx::query_as::<_, (String, i64)>(
+        "SELECT c.author, COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0)
+         FROM commits c
+         JOIN repos r ON c.repo_id = r.id
+         LEFT JOIN sessions s ON s.commit_id = c.id
+         WHERE r.org_id = $1
+           AND ($2::TEXT IS NULL OR r.name = $2)
+           AND ($3::TIMESTAMPTZ IS NULL OR c.created_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
+         GROUP BY c.author
+         ORDER BY 2 DESC"
+    )
+    .bind(org_id)
+    .bind(&q.repo)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(TokensResponse {
+        time_series: time_series.into_iter().map(|(d, i, o)| TokenTimePoint { date: d, input: i, output: o }).collect(),
+        by_repo: by_repo.into_iter().map(|(r, t, i, o, s)| RepoTokenDetail { repo: r, total: t, input: i, output: o, sessions: s }).collect(),
+        by_author: by_author.into_iter().map(|(a, t)| AuthorTokens { author: a, total: t }).collect(),
+    }))
+}

@@ -113,6 +113,10 @@ async fn main() {
             "/api/v1/analytics/overview",
             get(api::analytics::get_overview),
         )
+        .route(
+            "/api/v1/analytics/tokens",
+            get(api::analytics::get_tokens),
+        )
         // GitHub
         .route("/api/v1/github/webhook", post(api::github::webhook))
         .layer(TraceLayer::new_for_http())
