@@ -189,7 +189,7 @@ fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
     }
 }
 
-fn read_git_diff(project_root: &Path, commit_sha: &str) -> Option<serde_json::Value> {
+fn read_git_diff(project_root: &Path, commit_sha: &str) -> Option<Vec<tracevault_core::diff::FileDiff>> {
     let output = Command::new("git")
         .args(["diff", &format!("{commit_sha}~1..{commit_sha}")])
         .current_dir(project_root)
@@ -218,11 +218,14 @@ fn read_git_diff(project_root: &Path, commit_sha: &str) -> Option<serde_json::Va
     if raw.is_empty() {
         return None;
     }
-    let files = parse_unified_diff(&raw);
-    serde_json::to_value(&files).ok()
+    Some(parse_unified_diff(&raw))
 }
 
-fn read_gitai_attribution(project_root: &Path, commit_sha: &str) -> Option<serde_json::Value> {
+fn read_gitai_attribution(
+    project_root: &Path,
+    commit_sha: &str,
+    diff_files: &[tracevault_core::diff::FileDiff],
+) -> Option<serde_json::Value> {
     let output = Command::new("git")
         .args(["notes", "--ref", "refs/notes/ai", "show", commit_sha])
         .current_dir(project_root)
@@ -235,7 +238,7 @@ fn read_gitai_attribution(project_root: &Path, commit_sha: &str) -> Option<serde
 
     let note = String::from_utf8_lossy(&output.stdout);
     let log = parse_gitai_note(&note)?;
-    let attribution = gitai_to_attribution(&log);
+    let attribution = gitai_to_attribution(&log, diff_files);
     serde_json::to_value(&attribution).ok()
 }
 
@@ -301,8 +304,15 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
         });
 
         let transcript_data = read_transcript(&metadata);
-        let diff_data = read_git_diff(project_root, &git.commit_sha);
-        let attribution = read_gitai_attribution(project_root, &git.commit_sha);
+        let diff_files = read_git_diff(project_root, &git.commit_sha);
+        let diff_data = diff_files
+            .as_ref()
+            .and_then(|f| serde_json::to_value(f).ok());
+        let attribution = read_gitai_attribution(
+            project_root,
+            &git.commit_sha,
+            diff_files.as_deref().unwrap_or(&[]),
+        );
 
         // Prefer model from transcript, fall back to events
         let model = transcript_data.model
