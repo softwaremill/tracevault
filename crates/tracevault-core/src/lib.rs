@@ -1,5 +1,7 @@
 pub mod attribution;
 pub mod attribution_engine;
+pub mod diff;
+pub mod gitai;
 pub mod hooks;
 pub mod policy;
 pub mod policy_engine;
