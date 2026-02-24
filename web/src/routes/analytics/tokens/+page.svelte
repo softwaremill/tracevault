@@ -3,7 +3,7 @@
 	import { api } from '$lib/api';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
-	import { Line, Bar } from 'svelte-chartjs';
+	import Chart from '$lib/components/chart.svelte';
 	import {
 		Chart as ChartJS,
 		CategoryScale,
@@ -154,7 +154,8 @@
 			</Card.Header>
 			<Card.Content>
 				{#if data.time_series.length > 0}
-					<Line
+					<Chart
+					type="line"
 						data={timeChartData(data)}
 						options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
 					/>
@@ -224,7 +225,8 @@
 			</Card.Header>
 			<Card.Content>
 				{#if data.by_author.length > 0}
-					<Bar
+					<Chart
+					type="bar"
 						data={authorChartData(data)}
 						options={{ responsive: true, plugins: { legend: { display: false } } }}
 					/>

@@ -4,7 +4,7 @@
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
-	import { Line, Bar, Doughnut } from 'svelte-chartjs';
+	import Chart from '$lib/components/chart.svelte';
 	import {
 		Chart as ChartJS,
 		CategoryScale,
@@ -228,7 +228,8 @@
 				</Card.Header>
 				<Card.Content>
 					{#if data.tokens_over_time.length > 0}
-						<Line
+						<Chart
+							type="line"
 							data={tokensChartData(data)}
 							options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
 						/>
@@ -246,7 +247,8 @@
 				</Card.Header>
 				<Card.Content>
 					{#if data.top_repos.length > 0}
-						<Bar
+						<Chart
+							type="bar"
 							data={reposChartData(data)}
 							options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
 						/>
@@ -267,7 +269,8 @@
 				<Card.Content class="flex justify-center">
 					{#if data.model_distribution.length > 0}
 						<div class="max-w-[300px]">
-							<Doughnut
+							<Chart
+								type="doughnut"
 								data={modelChartData(data)}
 								options={{ responsive: true, plugins: { legend: { position: 'bottom' } } }}
 							/>
