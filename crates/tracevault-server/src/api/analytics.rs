@@ -642,3 +642,134 @@ pub async fn get_authors(
         model_preferences: model_preferences.into_iter().map(|(a, m, s)| AuthorModelPreference { author: a, model: m, sessions: s }).collect(),
     }))
 }
+
+// --- Attribution endpoint ---
+
+#[derive(Debug, Serialize)]
+pub struct AttributionResponse {
+    pub trend: Vec<AttributionTrend>,
+    pub by_repo: Vec<RepoAttribution>,
+    pub by_author: Vec<AuthorAttribution>,
+    pub totals: AttributionTotals,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AttributionTrend {
+    pub date: String,
+    pub ai_pct: f64,
+    pub human_pct: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RepoAttribution {
+    pub repo: String,
+    pub ai_pct: f64,
+    pub ai_lines: i64,
+    pub human_lines: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthorAttribution {
+    pub author: String,
+    pub ai_pct: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AttributionTotals {
+    pub ai_lines: i64,
+    pub human_lines: i64,
+    pub ai_pct: f64,
+}
+
+pub async fn get_attribution(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Query(q): Query<AnalyticsQuery>,
+) -> Result<Json<AttributionResponse>, (StatusCode, String)> {
+    let org_id = q.effective_org_id(&auth);
+
+    // Only include commits that have attribution data
+    let base_filter = "c.attribution IS NOT NULL AND c.attribution->'summary'->>'ai_percentage' IS NOT NULL";
+
+    let trend = sqlx::query_as::<_, (String, f64)>(
+        &format!(
+            "SELECT TO_CHAR(c.created_at::date, 'YYYY-MM-DD'),
+                    AVG((c.attribution->'summary'->>'ai_percentage')::float)
+             FROM commits c
+             JOIN repos r ON c.repo_id = r.id
+             WHERE r.org_id = $1 AND {base_filter}
+               AND ($2::TEXT IS NULL OR r.name = $2)
+               AND ($3::TEXT IS NULL OR c.author = $3)
+               AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
+               AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
+             GROUP BY c.created_at::date
+             ORDER BY 1"
+        )
+    )
+    .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
+    .fetch_all(&state.pool).await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let by_repo = sqlx::query_as::<_, (String, f64, i64, i64)>(
+        &format!(
+            "SELECT r.name,
+                    AVG((c.attribution->'summary'->>'ai_percentage')::float),
+                    COALESCE(CAST(SUM((c.attribution->'summary'->>'total_lines_added')::bigint) AS BIGINT), 0),
+                    COALESCE(CAST(SUM((c.attribution->'summary'->>'total_lines_deleted')::bigint) AS BIGINT), 0)
+             FROM commits c
+             JOIN repos r ON c.repo_id = r.id
+             WHERE r.org_id = $1 AND {base_filter}
+               AND ($2::TEXT IS NULL OR c.author = $2)
+               AND ($3::TIMESTAMPTZ IS NULL OR c.created_at >= $3)
+               AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
+             GROUP BY r.name
+             ORDER BY 2 DESC"
+        )
+    )
+    .bind(org_id).bind(&q.author).bind(q.from).bind(q.to)
+    .fetch_all(&state.pool).await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let by_author = sqlx::query_as::<_, (String, f64)>(
+        &format!(
+            "SELECT c.author, AVG((c.attribution->'summary'->>'ai_percentage')::float)
+             FROM commits c
+             JOIN repos r ON c.repo_id = r.id
+             WHERE r.org_id = $1 AND {base_filter}
+               AND ($2::TEXT IS NULL OR r.name = $2)
+               AND ($3::TIMESTAMPTZ IS NULL OR c.created_at >= $3)
+               AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
+             GROUP BY c.author
+             ORDER BY 2 DESC"
+        )
+    )
+    .bind(org_id).bind(&q.repo).bind(q.from).bind(q.to)
+    .fetch_all(&state.pool).await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let totals = sqlx::query_as::<_, (i64, i64, f64)>(
+        &format!(
+            "SELECT
+                COALESCE(CAST(SUM((c.attribution->'summary'->>'total_lines_added')::bigint) AS BIGINT), 0),
+                COALESCE(CAST(SUM((c.attribution->'summary'->>'total_lines_deleted')::bigint) AS BIGINT), 0),
+                COALESCE(AVG((c.attribution->'summary'->>'ai_percentage')::float), 0.0)
+             FROM commits c
+             JOIN repos r ON c.repo_id = r.id
+             WHERE r.org_id = $1 AND {base_filter}
+               AND ($2::TEXT IS NULL OR r.name = $2)
+               AND ($3::TEXT IS NULL OR c.author = $3)
+               AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
+               AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)"
+        )
+    )
+    .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
+    .fetch_one(&state.pool).await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(AttributionResponse {
+        trend: trend.into_iter().map(|(d, ai)| AttributionTrend { date: d, ai_pct: ai, human_pct: 100.0 - ai }).collect(),
+        by_repo: by_repo.into_iter().map(|(r, ai, al, hl)| RepoAttribution { repo: r, ai_pct: ai, ai_lines: al, human_lines: hl }).collect(),
+        by_author: by_author.into_iter().map(|(a, ai)| AuthorAttribution { author: a, ai_pct: ai }).collect(),
+        totals: AttributionTotals { ai_lines: totals.0, human_lines: totals.1, ai_pct: totals.2 },
+    }))
+}
