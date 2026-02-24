@@ -224,7 +224,7 @@ fn read_git_diff(project_root: &Path, commit_sha: &str) -> Option<serde_json::Va
 
 fn read_gitai_attribution(project_root: &Path, commit_sha: &str) -> Option<serde_json::Value> {
     let output = Command::new("git")
-        .args(["notes", "show", "--ref=refs/notes/ai", commit_sha])
+        .args(["notes", "--ref", "refs/notes/ai", "show", commit_sha])
         .current_dir(project_root)
         .output()
         .ok()?;

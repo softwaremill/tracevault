@@ -217,10 +217,17 @@
 		let totalCacheCreationTokens = 0;
 		let userMessageCount = 0;
 		let totalDurationMs = 0;
+		let minTime = Infinity;
+		let maxTime = -Infinity;
 		const modelMap = new Map<string, { tokens: number; count: number }>();
 		const toolCounts: Record<string, number> = {};
 
 		for (const entry of entries) {
+			if (entry.timestamp) {
+				const t = new Date(entry.timestamp).getTime();
+				if (t < minTime) minTime = t;
+				if (t > maxTime) maxTime = t;
+			}
 			if (entry.usage) {
 				totalInputTokens += entry.usage.input_tokens;
 				totalOutputTokens += entry.usage.output_tokens;
@@ -249,6 +256,11 @@
 					| undefined;
 				totalDurationMs += (data?.durationMs as number) ?? 0;
 			}
+		}
+
+		// Prefer timestamp range over turn_duration sum
+		if (minTime !== Infinity && maxTime !== -Infinity && maxTime > minTime) {
+			totalDurationMs = maxTime - minTime;
 		}
 
 		const byModel: ModelStats[] = Array.from(modelMap.entries())
@@ -282,7 +294,9 @@
 	function fmtDuration(ms: number): string {
 		if (ms === 0) return '-';
 		if (ms < 1000) return `${Math.round(ms)}ms`;
-		return `${(ms / 1000).toFixed(1)}s`;
+		if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+		if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`;
+		return `${Math.floor(ms / 3_600_000)}h ${Math.floor((ms % 3_600_000) / 60_000)}m`;
 	}
 
 	let trace: TraceDetail | null = $state(null);
@@ -491,22 +505,17 @@
 					</div>
 					<div class="flex justify-between">
 						<span class="text-muted-foreground">AI Percentage</span>
-						<span class="font-semibold">{formatPercentage(trace.ai_percentage)}</span>
+						<span class="font-semibold">
+							{#if attrData}
+								{attrData.summary.ai_percentage.toFixed(1)}%
+							{:else}
+								{formatPercentage(trace.ai_percentage)}
+							{/if}
+						</span>
 					</div>
 				</Card.Content>
 			</Card.Root>
 		</div>
-
-		{#if trace.attribution}
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>Attribution Details</Card.Title>
-				</Card.Header>
-				<Card.Content>
-					<pre class="overflow-auto rounded bg-muted p-4 text-sm">{formatJson(trace.attribution)}</pre>
-				</Card.Content>
-			</Card.Root>
-		{/if}
 
 		{#if trace.transcript && transcriptEntries.length > 0}
 			<div class="grid gap-4 md:grid-cols-4">
@@ -725,6 +734,15 @@
 					{/each}
 				</Card.Content>
 			</Card.Root>
+		{/if}
+
+		{#if trace.attribution}
+			<details>
+				<summary class="cursor-pointer text-sm text-muted-foreground hover:text-foreground">
+					Attribution Details
+				</summary>
+				<pre class="mt-2 overflow-auto rounded bg-muted p-4 text-sm">{formatJson(trace.attribution)}</pre>
+			</details>
 		{/if}
 
 		{#if trace.session_data}

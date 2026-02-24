@@ -11,23 +11,22 @@ pub struct GitAiAuthorshipLog {
 #[derive(Debug, Clone)]
 pub struct GitAiFileEntry {
     pub path: String,
-    /// Added line ranges as (start, end) inclusive, 1-indexed.
+    /// AI-authored line ranges as (start, end) inclusive, 1-indexed.
     pub ai_line_ranges: Vec<(u32, u32)>,
-    /// Single deleted line numbers (in the old file).
-    pub deleted_lines: Vec<u32>,
 }
 
-/// Parse a git-ai note (from `git notes show --ref=refs/notes/ai <sha>`).
+/// Parse a git-ai note (from `git notes --ref refs/notes/ai show <sha>`).
 ///
-/// Format:
+/// Format (v3.0.0):
 /// ```text
 /// path/to/file.rs
-///    session_id +1-10 +20 -5
+///    session_id 94,102,107,120,122-123,128
 /// another/file.rs
-///    session_id +1-5
+///    session_id 1-5,10
 /// ---
 /// {"schema_version":"authorship/3.0.0",...}
 /// ```
+/// Line specs are comma-separated numbers and ranges (no +/- prefix).
 pub fn parse_gitai_note(note: &str) -> Option<GitAiAuthorshipLog> {
     let note = note.trim();
     if note.is_empty() {
@@ -57,7 +56,6 @@ fn parse_attestation(text: &str) -> Vec<GitAiFileEntry> {
     let mut files: Vec<GitAiFileEntry> = Vec::new();
     let mut current_path: Option<String> = None;
     let mut current_ranges: Vec<(u32, u32)> = Vec::new();
-    let mut current_deletes: Vec<u32> = Vec::new();
 
     for line in text.lines() {
         if line.is_empty() {
@@ -66,16 +64,13 @@ fn parse_attestation(text: &str) -> Vec<GitAiFileEntry> {
 
         // Indented lines are session entries (start with whitespace)
         if line.starts_with(' ') || line.starts_with('\t') {
+            // Format: "  session_id 94,102,107,120,122-123,128"
             let tokens: Vec<&str> = line.split_whitespace().collect();
-            // Skip first token (session_id)
-            for token in tokens.iter().skip(1) {
-                if let Some(range_str) = token.strip_prefix('+') {
-                    if let Some((start, end)) = parse_line_range(range_str) {
+            // tokens[0] = session_id, tokens[1] = comma-separated line specs
+            if tokens.len() >= 2 {
+                for spec in tokens[1].split(',') {
+                    if let Some((start, end)) = parse_line_range(spec) {
                         current_ranges.push((start, end));
-                    }
-                } else if let Some(del_str) = token.strip_prefix('-') {
-                    if let Ok(line_num) = del_str.parse::<u32>() {
-                        current_deletes.push(line_num);
                     }
                 }
             }
@@ -85,7 +80,6 @@ fn parse_attestation(text: &str) -> Vec<GitAiFileEntry> {
                 files.push(GitAiFileEntry {
                     path,
                     ai_line_ranges: std::mem::take(&mut current_ranges),
-                    deleted_lines: std::mem::take(&mut current_deletes),
                 });
             }
             current_path = Some(line.to_string());
@@ -97,7 +91,6 @@ fn parse_attestation(text: &str) -> Vec<GitAiFileEntry> {
         files.push(GitAiFileEntry {
             path,
             ai_line_ranges: current_ranges,
-            deleted_lines: current_deletes,
         });
     }
 
@@ -129,12 +122,11 @@ pub fn gitai_to_attribution(log: &GitAiAuthorshipLog) -> Attribution {
                 .collect();
 
             let lines_added: u32 = ai_lines.iter().map(|r| r.end - r.start + 1).sum();
-            let lines_deleted = entry.deleted_lines.len() as u32;
 
             FileAttribution {
                 path: entry.path.clone(),
                 lines_added,
-                lines_deleted,
+                lines_deleted: 0,
                 ai_lines,
                 human_lines: vec![],
                 mixed_lines: vec![],
