@@ -536,3 +536,109 @@ pub async fn get_models(
         comparison: comparison.into_iter().map(|(m, t, c)| ModelComparison { model: m, avg_tokens: t, avg_cost: c }).collect(),
     }))
 }
+
+// --- Authors endpoint ---
+
+#[derive(Debug, Serialize)]
+pub struct AuthorsResponse {
+    pub leaderboard: Vec<AuthorLeaderboard>,
+    pub timeline: Vec<AuthorTimeline>,
+    pub model_preferences: Vec<AuthorModelPreference>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthorLeaderboard {
+    pub author: String,
+    pub commits: i64,
+    pub sessions: i64,
+    pub tokens: i64,
+    pub cost: f64,
+    pub ai_pct: Option<f64>,
+    pub last_active: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthorTimeline {
+    pub date: String,
+    pub author: String,
+    pub commits: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthorModelPreference {
+    pub author: String,
+    pub model: String,
+    pub sessions: i64,
+}
+
+pub async fn get_authors(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Query(q): Query<AnalyticsQuery>,
+) -> Result<Json<AuthorsResponse>, (StatusCode, String)> {
+    let org_id = q.effective_org_id(&auth);
+
+    let leaderboard = sqlx::query_as::<_, (String, i64, i64, i64, f64, Option<f64>, chrono::DateTime<chrono::Utc>)>(
+        "SELECT c.author,
+                COUNT(DISTINCT c.id),
+                COUNT(s.id),
+                COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0),
+                COALESCE(SUM(s.estimated_cost_usd), 0.0),
+                AVG(CASE WHEN c.attribution IS NOT NULL AND c.attribution->'summary'->>'ai_percentage' IS NOT NULL
+                    THEN (c.attribution->'summary'->>'ai_percentage')::float END),
+                MAX(c.created_at)
+         FROM commits c
+         JOIN repos r ON c.repo_id = r.id
+         LEFT JOIN sessions s ON s.commit_id = c.id
+         WHERE r.org_id = $1
+           AND ($2::TEXT IS NULL OR r.name = $2)
+           AND ($3::TIMESTAMPTZ IS NULL OR c.created_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
+         GROUP BY c.author
+         ORDER BY 4 DESC"
+    )
+    .bind(org_id).bind(&q.repo).bind(q.from).bind(q.to)
+    .fetch_all(&state.pool).await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let timeline = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT TO_CHAR(c.created_at::date, 'YYYY-MM-DD'), c.author, COUNT(DISTINCT c.id)
+         FROM commits c
+         JOIN repos r ON c.repo_id = r.id
+         WHERE r.org_id = $1
+           AND ($2::TEXT IS NULL OR r.name = $2)
+           AND ($3::TEXT IS NULL OR c.author = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
+         GROUP BY c.created_at::date, c.author
+         ORDER BY 1, 2"
+    )
+    .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
+    .fetch_all(&state.pool).await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let model_preferences = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT c.author, COALESCE(s.model, 'unknown'), COUNT(*)
+         FROM sessions s
+         JOIN commits c ON s.commit_id = c.id
+         JOIN repos r ON c.repo_id = r.id
+         WHERE r.org_id = $1
+           AND ($2::TEXT IS NULL OR r.name = $2)
+           AND ($3::TEXT IS NULL OR c.author = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
+         GROUP BY c.author, s.model
+         ORDER BY c.author, 3 DESC"
+    )
+    .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
+    .fetch_all(&state.pool).await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(AuthorsResponse {
+        leaderboard: leaderboard.into_iter().map(|(a, c, s, t, cost, ai, la)| AuthorLeaderboard {
+            author: a, commits: c, sessions: s, tokens: t, cost, ai_pct: ai, last_active: la
+        }).collect(),
+        timeline: timeline.into_iter().map(|(d, a, c)| AuthorTimeline { date: d, author: a, commits: c }).collect(),
+        model_preferences: model_preferences.into_iter().map(|(a, m, s)| AuthorModelPreference { author: a, model: m, sessions: s }).collect(),
+    }))
+}
