@@ -106,8 +106,12 @@ async fn main() {
         .route("/api/v1/policies/evaluate", post(api::policies::evaluate))
         // Analytics
         .route(
-            "/api/v1/analytics/tokens",
-            get(api::analytics::token_analytics),
+            "/api/v1/analytics/filters",
+            get(api::analytics::get_filters),
+        )
+        .route(
+            "/api/v1/analytics/overview",
+            get(api::analytics::get_overview),
         )
         // GitHub
         .route("/api/v1/github/webhook", post(api::github::webhook))
