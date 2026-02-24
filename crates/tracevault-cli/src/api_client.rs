@@ -16,7 +16,7 @@ pub struct PushTraceRequest {
     pub author: String,
     pub model: Option<String>,
     pub tool: Option<String>,
-    pub ai_percentage: Option<f32>,
+    pub session_id: Option<String>,
     pub total_tokens: Option<i64>,
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
@@ -30,7 +30,7 @@ pub struct PushTraceRequest {
 
 #[derive(Deserialize)]
 pub struct PushTraceResponse {
-    pub id: uuid::Uuid,
+    pub commit_id: uuid::Uuid,
 }
 
 #[derive(Serialize)]

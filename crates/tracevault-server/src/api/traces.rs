@@ -13,8 +13,7 @@ pub struct CreateTraceRequest {
     pub author: String,
     pub model: Option<String>,
     pub tool: Option<String>,
-    pub tool_version: Option<String>,
-    pub ai_percentage: Option<f32>,
+    pub session_id: Option<String>,
     pub total_tokens: Option<i64>,
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
@@ -27,17 +26,20 @@ pub struct CreateTraceRequest {
 }
 
 #[derive(Debug, Serialize)]
-pub struct TraceResponse {
+pub struct CreateTraceResponse {
+    pub commit_id: Uuid,
+    pub session_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CommitListItem {
     pub id: Uuid,
     pub repo_id: Uuid,
     pub commit_sha: String,
     pub branch: Option<String>,
     pub author: String,
-    pub model: Option<String>,
-    pub tool: Option<String>,
-    pub ai_percentage: Option<f32>,
+    pub session_count: i64,
     pub total_tokens: Option<i64>,
-    pub estimated_cost_usd: Option<f64>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -53,7 +55,7 @@ pub async fn create_trace(
     State(state): State<AppState>,
     auth: AuthUser,
     Json(req): Json<CreateTraceRequest>,
-) -> Result<(StatusCode, Json<TraceResponse>), (StatusCode, String)> {
+) -> Result<(StatusCode, Json<CreateTraceResponse>), (StatusCode, String)> {
     // Ensure repo exists under the authenticated user's org
     let repo_id: Uuid = sqlx::query_scalar(
         "INSERT INTO repos (org_id, name) VALUES ($1, $2) ON CONFLICT (org_id, name) DO UPDATE SET name = $2 RETURNING id"
@@ -64,45 +66,66 @@ pub async fn create_trace(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Insert trace
-    let row = sqlx::query_as::<_, (Uuid, String, Option<String>, String, Option<String>, Option<String>, Option<f32>, Option<i64>, Option<f64>, chrono::DateTime<chrono::Utc>)>(
-        "INSERT INTO traces (repo_id, commit_sha, branch, author, model, tool, tool_version, ai_percentage, total_tokens, input_tokens, output_tokens, estimated_cost_usd, api_calls, session_data, attribution, transcript, diff_data)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-         RETURNING id, commit_sha, branch, author, model, tool, ai_percentage, total_tokens, estimated_cost_usd, created_at"
+    // Upsert commit
+    let commit_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO commits (repo_id, commit_sha, branch, author, diff_data, attribution)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (repo_id, commit_sha) DO UPDATE SET
+           branch = COALESCE(EXCLUDED.branch, commits.branch),
+           diff_data = COALESCE(EXCLUDED.diff_data, commits.diff_data),
+           attribution = COALESCE(EXCLUDED.attribution, commits.attribution)
+         RETURNING id"
     )
     .bind(repo_id)
     .bind(&req.commit_sha)
     .bind(&req.branch)
     .bind(&req.author)
-    .bind(&req.model)
-    .bind(&req.tool)
-    .bind(&req.tool_version)
-    .bind(req.ai_percentage)
-    .bind(req.total_tokens)
-    .bind(req.input_tokens)
-    .bind(req.output_tokens)
-    .bind(req.estimated_cost_usd)
-    .bind(req.api_calls)
-    .bind(&req.session_data)
-    .bind(&req.attribution)
-    .bind(&req.transcript)
     .bind(&req.diff_data)
+    .bind(&req.attribution)
     .fetch_one(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    Ok((StatusCode::CREATED, Json(TraceResponse {
-        id: row.0,
-        repo_id,
-        commit_sha: row.1,
-        branch: row.2,
-        author: row.3,
-        model: row.4,
-        tool: row.5,
-        ai_percentage: row.6,
-        total_tokens: row.7,
-        estimated_cost_usd: row.8,
-        created_at: row.9,
+    // Optionally upsert session
+    let session_db_id = if let Some(sid) = &req.session_id {
+        let id: Uuid = sqlx::query_scalar(
+            "INSERT INTO sessions (commit_id, session_id, model, tool, total_tokens, input_tokens, output_tokens,
+                estimated_cost_usd, api_calls, session_data, transcript)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+             ON CONFLICT (commit_id, session_id) DO UPDATE SET
+               model = COALESCE(EXCLUDED.model, sessions.model),
+               tool = COALESCE(EXCLUDED.tool, sessions.tool),
+               total_tokens = COALESCE(EXCLUDED.total_tokens, sessions.total_tokens),
+               input_tokens = COALESCE(EXCLUDED.input_tokens, sessions.input_tokens),
+               output_tokens = COALESCE(EXCLUDED.output_tokens, sessions.output_tokens),
+               estimated_cost_usd = COALESCE(EXCLUDED.estimated_cost_usd, sessions.estimated_cost_usd),
+               api_calls = COALESCE(EXCLUDED.api_calls, sessions.api_calls),
+               session_data = COALESCE(EXCLUDED.session_data, sessions.session_data),
+               transcript = COALESCE(EXCLUDED.transcript, sessions.transcript)
+             RETURNING id"
+        )
+        .bind(commit_id)
+        .bind(sid)
+        .bind(&req.model)
+        .bind(&req.tool)
+        .bind(req.total_tokens)
+        .bind(req.input_tokens)
+        .bind(req.output_tokens)
+        .bind(req.estimated_cost_usd)
+        .bind(req.api_calls)
+        .bind(&req.session_data)
+        .bind(&req.transcript)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        Some(id)
+    } else {
+        None
+    };
+
+    Ok((StatusCode::CREATED, Json(CreateTraceResponse {
+        commit_id,
+        session_id: session_db_id,
     })))
 }
 
@@ -111,32 +134,57 @@ pub async fn get_trace(
     auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let row = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, String, Option<String>, Option<String>, Option<f32>, Option<i64>, Option<f64>, Option<serde_json::Value>, Option<serde_json::Value>, Option<serde_json::Value>, Option<serde_json::Value>, chrono::DateTime<chrono::Utc>)>(
-        "SELECT t.id, t.repo_id, t.commit_sha, t.branch, t.author, t.model, t.tool, t.ai_percentage, t.total_tokens, t.estimated_cost_usd, t.session_data, t.attribution, t.transcript, t.diff_data, t.created_at FROM traces t JOIN repos r ON t.repo_id = r.id WHERE t.id = $1 AND r.org_id = $2"
+    // Fetch commit
+    let commit = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, String, Option<serde_json::Value>, Option<serde_json::Value>, chrono::DateTime<chrono::Utc>)>(
+        "SELECT c.id, c.repo_id, c.commit_sha, c.branch, c.author, c.diff_data, c.attribution, c.created_at
+         FROM commits c JOIN repos r ON c.repo_id = r.id
+         WHERE c.id = $1 AND r.org_id = $2"
     )
     .bind(id)
     .bind(auth.org_id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, "Trace not found".into()))?;
+    .ok_or((StatusCode::NOT_FOUND, "Commit not found".into()))?;
+
+    // Fetch sessions for this commit
+    let sessions = sqlx::query_as::<_, (Uuid, String, Option<String>, Option<String>, Option<i64>, Option<i64>, Option<i64>, Option<f64>, Option<i32>, Option<serde_json::Value>, Option<serde_json::Value>, chrono::DateTime<chrono::Utc>)>(
+        "SELECT id, session_id, model, tool, total_tokens, input_tokens, output_tokens,
+                estimated_cost_usd, api_calls, session_data, transcript, created_at
+         FROM sessions WHERE commit_id = $1 ORDER BY created_at ASC"
+    )
+    .bind(id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let sessions_json: Vec<serde_json::Value> = sessions.into_iter().map(|s| {
+        serde_json::json!({
+            "id": s.0,
+            "session_id": s.1,
+            "model": s.2,
+            "tool": s.3,
+            "total_tokens": s.4,
+            "input_tokens": s.5,
+            "output_tokens": s.6,
+            "estimated_cost_usd": s.7,
+            "api_calls": s.8,
+            "session_data": s.9,
+            "transcript": s.10,
+            "created_at": s.11,
+        })
+    }).collect();
 
     Ok(Json(serde_json::json!({
-        "id": row.0,
-        "repo_id": row.1,
-        "commit_sha": row.2,
-        "branch": row.3,
-        "author": row.4,
-        "model": row.5,
-        "tool": row.6,
-        "ai_percentage": row.7,
-        "total_tokens": row.8,
-        "estimated_cost_usd": row.9,
-        "session_data": row.10,
-        "attribution": row.11,
-        "transcript": row.12,
-        "diff_data": row.13,
-        "created_at": row.14,
+        "id": commit.0,
+        "repo_id": commit.1,
+        "commit_sha": commit.2,
+        "branch": commit.3,
+        "author": commit.4,
+        "diff_data": commit.5,
+        "attribution": commit.6,
+        "created_at": commit.7,
+        "sessions": sessions_json,
     })))
 }
 
@@ -144,18 +192,23 @@ pub async fn list_traces(
     State(state): State<AppState>,
     auth: AuthUser,
     Query(query): Query<TraceQuery>,
-) -> Result<Json<Vec<TraceResponse>>, (StatusCode, String)> {
+) -> Result<Json<Vec<CommitListItem>>, (StatusCode, String)> {
     let limit = query.limit.unwrap_or(50).min(200);
 
-    let rows = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, String, Option<String>, Option<String>, Option<f32>, Option<i64>, Option<f64>, chrono::DateTime<chrono::Utc>)>(
-        "SELECT t.id, t.repo_id, t.commit_sha, t.branch, t.author, t.model, t.tool, t.ai_percentage, t.total_tokens, t.estimated_cost_usd, t.created_at
-         FROM traces t
-         JOIN repos r ON t.repo_id = r.id
+    let rows = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, String, i64, Option<i64>, chrono::DateTime<chrono::Utc>)>(
+        "SELECT c.id, c.repo_id, c.commit_sha, c.branch, c.author,
+                COUNT(s.id) as session_count,
+                CAST(SUM(s.total_tokens) AS BIGINT) as total_tokens,
+                c.created_at
+         FROM commits c
+         JOIN repos r ON c.repo_id = r.id
+         LEFT JOIN sessions s ON s.commit_id = c.id
          WHERE r.org_id = $1
            AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR t.commit_sha = $3)
-           AND ($4::TEXT IS NULL OR t.author = $4)
-         ORDER BY t.created_at DESC
+           AND ($3::TEXT IS NULL OR c.commit_sha = $3)
+           AND ($4::TEXT IS NULL OR c.author = $4)
+         GROUP BY c.id
+         ORDER BY c.created_at DESC
          LIMIT $5"
     )
     .bind(auth.org_id)
@@ -167,19 +220,16 @@ pub async fn list_traces(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let traces: Vec<TraceResponse> = rows.into_iter().map(|r| TraceResponse {
+    let items: Vec<CommitListItem> = rows.into_iter().map(|r| CommitListItem {
         id: r.0,
         repo_id: r.1,
         commit_sha: r.2,
         branch: r.3,
         author: r.4,
-        model: r.5,
-        tool: r.6,
-        ai_percentage: r.7,
-        total_tokens: r.8,
-        estimated_cost_usd: r.9,
-        created_at: r.10,
+        session_count: r.5,
+        total_tokens: r.6,
+        created_at: r.7,
     }).collect();
 
-    Ok(Json(traces))
+    Ok(Json(items))
 }

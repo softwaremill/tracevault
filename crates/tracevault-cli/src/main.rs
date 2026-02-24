@@ -64,6 +64,7 @@ async fn main() {
             let cwd = env::current_dir().expect("Cannot determine current directory");
             if let Err(e) = commands::push::push_traces(&cwd).await {
                 eprintln!("Push error: {e}");
+                std::process::exit(1);
             }
         }
         Cli::Sync => {
