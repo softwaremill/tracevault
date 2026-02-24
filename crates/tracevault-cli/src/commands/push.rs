@@ -1,5 +1,5 @@
 use crate::api_client::{resolve_credentials, ApiClient, PushTraceRequest};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -98,6 +98,95 @@ fn summarize_session(session_dir: &Path) -> Option<SessionSummary> {
     })
 }
 
+struct TranscriptData {
+    transcript: Option<serde_json::Value>,
+    model: Option<String>,
+    input_tokens: Option<i64>,
+    output_tokens: Option<i64>,
+    total_tokens: Option<i64>,
+}
+
+fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
+    let empty = TranscriptData {
+        transcript: None,
+        model: None,
+        input_tokens: None,
+        output_tokens: None,
+        total_tokens: None,
+    };
+
+    let transcript_path = metadata
+        .as_ref()
+        .and_then(|m| m.get("transcript_path"))
+        .and_then(|v| v.as_str());
+
+    let path = match transcript_path {
+        Some(p) => std::path::PathBuf::from(p),
+        None => return empty,
+    };
+
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return empty,
+    };
+
+    let mut lines: Vec<serde_json::Value> = Vec::new();
+    let mut total_input: i64 = 0;
+    let mut total_output: i64 = 0;
+    let mut model_counts: HashMap<String, usize> = HashMap::new();
+
+    for line in content.lines() {
+        let entry: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        // Extract token usage from assistant messages
+        if entry.get("type").and_then(|v| v.as_str()) == Some("assistant") {
+            if let Some(usage) = entry.get("message").and_then(|m| m.get("usage")) {
+                if let Some(n) = usage.get("input_tokens").and_then(|v| v.as_i64()) {
+                    total_input += n;
+                }
+                if let Some(n) = usage.get("output_tokens").and_then(|v| v.as_i64()) {
+                    total_output += n;
+                }
+                if let Some(n) = usage.get("cache_creation_input_tokens").and_then(|v| v.as_i64()) {
+                    total_input += n;
+                }
+                if let Some(n) = usage.get("cache_read_input_tokens").and_then(|v| v.as_i64()) {
+                    total_input += n;
+                }
+            }
+        }
+
+        // Collect model IDs
+        if let Some(model) = entry.get("message").and_then(|m| m.get("model")).and_then(|v| v.as_str()) {
+            *model_counts.entry(model.to_string()).or_insert(0) += 1;
+        }
+
+        lines.push(entry);
+    }
+
+    if lines.is_empty() {
+        return empty;
+    }
+
+    let model = model_counts
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map(|(name, _)| name);
+
+    let total = total_input + total_output;
+
+    TranscriptData {
+        transcript: Some(serde_json::Value::Array(lines)),
+        model,
+        input_tokens: if total > 0 { Some(total_input) } else { None },
+        output_tokens: if total > 0 { Some(total_output) } else { None },
+        total_tokens: if total > 0 { Some(total) } else { None },
+    }
+}
+
 pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let (server_url, token) = resolve_credentials(project_root);
 
@@ -159,7 +248,11 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
             "events": summary.events,
         });
 
-        let model = summary.models.iter().next().cloned();
+        let transcript_data = read_transcript(&metadata);
+
+        // Prefer model from transcript, fall back to events
+        let model = transcript_data.model
+            .or_else(|| summary.models.iter().next().cloned());
 
         let req = PushTraceRequest {
             repo_name: git.repo_name.clone(),
@@ -169,13 +262,14 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
             model,
             tool: Some("claude-code".into()),
             ai_percentage: None,
-            total_tokens: None,
-            input_tokens: None,
-            output_tokens: None,
+            total_tokens: transcript_data.total_tokens,
+            input_tokens: transcript_data.input_tokens,
+            output_tokens: transcript_data.output_tokens,
             estimated_cost_usd: None,
             api_calls: Some(summary.event_count as i32),
             session_data: Some(session_data),
             attribution: None,
+            transcript: transcript_data.transcript,
         };
 
         let session_name = entry.file_name().to_string_lossy().to_string();
