@@ -19,6 +19,7 @@
 		session_data: Record<string, unknown> | null;
 		attribution: Record<string, unknown> | null;
 		transcript: unknown[] | null;
+		diff_data: FileDiff[] | null;
 		created_at: string;
 	}
 
@@ -58,6 +59,51 @@
 		turnCount: number;
 		userMessageCount: number;
 		totalDurationMs: number;
+	}
+
+	interface DiffLine {
+		kind: 'add' | 'delete' | 'context';
+		content: string;
+		new_line_number: number | null;
+		old_line_number: number | null;
+	}
+
+	interface DiffHunk {
+		old_start: number;
+		old_count: number;
+		new_start: number;
+		new_count: number;
+		lines: DiffLine[];
+	}
+
+	interface FileDiff {
+		path: string;
+		old_path: string | null;
+		hunks: DiffHunk[];
+	}
+
+	interface AttrLineRange {
+		start: number;
+		end: number;
+	}
+
+	interface FileAttribution {
+		path: string;
+		lines_added: number;
+		lines_deleted: number;
+		ai_lines: AttrLineRange[];
+		human_lines: AttrLineRange[];
+		mixed_lines: AttrLineRange[];
+	}
+
+	interface AttributionData {
+		files: FileAttribution[];
+		summary: {
+			total_lines_added: number;
+			total_lines_deleted: number;
+			ai_percentage: number;
+			human_percentage: number;
+		};
 	}
 
 	function truncate(s: string, max: number): string {
@@ -312,6 +358,67 @@
 	const sortedToolEntries = $derived.by(() =>
 		Object.entries(stats.toolUsageCounts).sort((a, b) => b[1] - a[1])
 	);
+
+	let expandedFiles: Set<string> = $state(new Set());
+
+	const diffFiles = $derived.by(() => {
+		if (!trace?.diff_data) return [] as FileDiff[];
+		return trace.diff_data as FileDiff[];
+	});
+
+	const attrData = $derived.by(() => {
+		if (!trace?.attribution) return null;
+		return trace.attribution as unknown as AttributionData;
+	});
+
+	const diffSummary = $derived.by(() => {
+		let totalAdded = 0;
+		let totalDeleted = 0;
+		for (const file of diffFiles) {
+			for (const hunk of file.hunks) {
+				for (const line of hunk.lines) {
+					if (line.kind === 'add') totalAdded++;
+					else if (line.kind === 'delete') totalDeleted++;
+				}
+			}
+		}
+		return { totalAdded, totalDeleted, fileCount: diffFiles.length };
+	});
+
+	function toggleFile(path: string) {
+		const next = new Set(expandedFiles);
+		if (next.has(path)) next.delete(path);
+		else next.add(path);
+		expandedFiles = next;
+	}
+
+	function isAiLine(filePath: string, lineNum: number): boolean {
+		if (!attrData) return false;
+		const fileAttr = attrData.files.find((f) => f.path === filePath);
+		if (!fileAttr) return false;
+		return fileAttr.ai_lines.some((r) => lineNum >= r.start && lineNum <= r.end);
+	}
+
+	function fileAiLineCount(filePath: string): number {
+		if (!attrData) return 0;
+		const fileAttr = attrData.files.find((f) => f.path === filePath);
+		if (!fileAttr) return 0;
+		return fileAttr.ai_lines.reduce((sum, r) => sum + (r.end - r.start + 1), 0);
+	}
+
+	function fileAddedCount(file: FileDiff): number {
+		return file.hunks.reduce(
+			(sum, h) => sum + h.lines.filter((l) => l.kind === 'add').length,
+			0
+		);
+	}
+
+	function fileDeletedCount(file: FileDiff): number {
+		return file.hunks.reduce(
+			(sum, h) => sum + h.lines.filter((l) => l.kind === 'delete').length,
+			0
+		);
+	}
 </script>
 
 <svelte:head>
@@ -530,6 +637,92 @@
 							{/each}
 						</Table.Body>
 					</Table.Root>
+				</Card.Content>
+			</Card.Root>
+		{/if}
+
+		{#if diffFiles.length > 0}
+			<Card.Root>
+				<Card.Header class="pb-2">
+					<Card.Title class="flex items-center gap-3">
+						<span>Changes</span>
+						<Badge variant="secondary">{diffSummary.fileCount} file{diffSummary.fileCount !== 1 ? 's' : ''}</Badge>
+						<span class="text-sm font-normal">
+							<span class="text-green-600">+{diffSummary.totalAdded}</span>
+							<span class="text-red-600 ml-1">-{diffSummary.totalDeleted}</span>
+						</span>
+						{#if attrData}
+							<Badge variant="outline" class="text-xs">
+								{attrData.summary.ai_percentage.toFixed(0)}% AI
+							</Badge>
+						{/if}
+					</Card.Title>
+				</Card.Header>
+				<Card.Content class="space-y-2 p-0">
+					{#if !attrData}
+						<div class="mx-4 mt-2 mb-2 rounded border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950 p-3 text-sm text-blue-700 dark:text-blue-300">
+							Attribution data not available. Install <a href="https://usegitai.com" class="underline font-medium" target="_blank" rel="noopener">git-ai</a> to track which lines were written by AI agents vs humans.
+						</div>
+					{/if}
+					{#each diffFiles as file}
+						<div class="border-t first:border-t-0">
+							<button
+								class="flex w-full items-center gap-2 px-4 py-2 text-left text-sm hover:bg-muted/50"
+								onclick={() => toggleFile(file.path)}
+							>
+								<span class="text-muted-foreground">{expandedFiles.has(file.path) ? '▼' : '▶'}</span>
+								<span class="font-mono font-medium">{file.path}</span>
+								{#if file.old_path}
+									<span class="text-muted-foreground text-xs">(renamed from {file.old_path})</span>
+								{/if}
+								<span class="ml-auto text-xs">
+									<span class="text-green-600">+{fileAddedCount(file)}</span>
+									<span class="text-red-600 ml-1">-{fileDeletedCount(file)}</span>
+								</span>
+								{#if attrData && fileAiLineCount(file.path) > 0}
+									<Badge variant="outline" class="text-xs">AI: {fileAiLineCount(file.path)} lines</Badge>
+								{:else if attrData}
+									<span class="text-xs text-muted-foreground">Human only</span>
+								{/if}
+							</button>
+							{#if expandedFiles.has(file.path)}
+								<div class="overflow-x-auto">
+									{#each file.hunks as hunk}
+										<div class="bg-blue-50 dark:bg-blue-950/30 px-4 py-1 text-xs font-mono text-muted-foreground border-y">
+											@@ -{hunk.old_start},{hunk.old_count} +{hunk.new_start},{hunk.new_count} @@
+										</div>
+										{#each hunk.lines as line}
+											{@const isAi = line.kind === 'add' && line.new_line_number != null && isAiLine(file.path, line.new_line_number)}
+											<div
+												class="flex font-mono text-xs leading-5 {
+													line.kind === 'delete'
+														? 'bg-red-500/10'
+														: line.kind === 'add'
+															? isAi
+																? 'bg-violet-500/10'
+																: 'bg-green-500/10'
+															: ''
+												}"
+											>
+												<span class="w-12 shrink-0 select-none text-right pr-2 text-muted-foreground/50 border-r">
+													{line.old_line_number ?? ''}
+												</span>
+												<span class="w-12 shrink-0 select-none text-right pr-2 text-muted-foreground/50 border-r">
+													{line.new_line_number ?? ''}
+												</span>
+												<span class="w-5 shrink-0 select-none text-center {
+													line.kind === 'add' ? 'text-green-600' : line.kind === 'delete' ? 'text-red-600' : 'text-muted-foreground/30'
+												}">
+													{line.kind === 'add' ? '+' : line.kind === 'delete' ? '-' : ' '}
+												</span>
+												<span class="whitespace-pre pl-1">{line.content}</span>
+											</div>
+										{/each}
+									{/each}
+								</div>
+							{/if}
+						</div>
+					{/each}
 				</Card.Content>
 			</Card.Root>
 		{/if}
