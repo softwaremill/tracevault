@@ -25,6 +25,7 @@ pub struct PushTraceRequest {
     pub session_data: Option<serde_json::Value>,
     pub attribution: Option<serde_json::Value>,
     pub transcript: Option<serde_json::Value>,
+    pub diff_data: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]

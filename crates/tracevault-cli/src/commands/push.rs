@@ -3,6 +3,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use tracevault_core::diff::parse_unified_diff;
+use tracevault_core::gitai::{gitai_to_attribution, parse_gitai_note};
 
 struct GitInfo {
     repo_name: String,
@@ -187,6 +189,56 @@ fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
     }
 }
 
+fn read_git_diff(project_root: &Path, commit_sha: &str) -> Option<serde_json::Value> {
+    let output = Command::new("git")
+        .args(["diff", &format!("{commit_sha}~1..{commit_sha}")])
+        .current_dir(project_root)
+        .output()
+        .ok()?;
+
+    let raw = if output.status.success() {
+        String::from_utf8_lossy(&output.stdout).to_string()
+    } else {
+        // May fail for initial commit — try diffing against empty tree
+        let output = Command::new("git")
+            .args([
+                "diff",
+                "4b825dc642cb6eb9a060e54bf899d69f245df2c1",
+                commit_sha,
+            ])
+            .current_dir(project_root)
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        String::from_utf8_lossy(&output.stdout).to_string()
+    };
+
+    if raw.is_empty() {
+        return None;
+    }
+    let files = parse_unified_diff(&raw);
+    serde_json::to_value(&files).ok()
+}
+
+fn read_gitai_attribution(project_root: &Path, commit_sha: &str) -> Option<serde_json::Value> {
+    let output = Command::new("git")
+        .args(["notes", "show", "--ref=refs/notes/ai", commit_sha])
+        .current_dir(project_root)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None; // git-ai not installed or no note for this commit
+    }
+
+    let note = String::from_utf8_lossy(&output.stdout);
+    let log = parse_gitai_note(&note)?;
+    let attribution = gitai_to_attribution(&log);
+    serde_json::to_value(&attribution).ok()
+}
+
 pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let (server_url, token) = resolve_credentials(project_root);
 
@@ -249,6 +301,8 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
         });
 
         let transcript_data = read_transcript(&metadata);
+        let diff_data = read_git_diff(project_root, &git.commit_sha);
+        let attribution = read_gitai_attribution(project_root, &git.commit_sha);
 
         // Prefer model from transcript, fall back to events
         let model = transcript_data.model
@@ -268,8 +322,9 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
             estimated_cost_usd: None,
             api_calls: Some(summary.event_count as i32),
             session_data: Some(session_data),
-            attribution: None,
+            attribution,
             transcript: transcript_data.transcript,
+            diff_data,
         };
 
         let session_name = entry.file_name().to_string_lossy().to_string();
