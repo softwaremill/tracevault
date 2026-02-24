@@ -127,7 +127,8 @@
 		for (let i = 0; i < raw.length; i++) {
 			const e = raw[i] as Record<string, unknown>;
 			const type = (e.type as string) ?? 'unknown';
-			const subtype = (e.subtype as string) ?? null;
+			const dataObj = e.data as Record<string, unknown> | undefined;
+			const subtype = (e.subtype as string) ?? (dataObj?.type as string) ?? null;
 			const timestamp = (e.timestamp as string) ?? null;
 			const msg = e.message as Record<string, unknown> | undefined;
 
@@ -313,6 +314,7 @@
 	let loading = $state(true);
 	let error = $state('');
 	let expandedSessions: Set<string> = $state(new Set());
+	let expandedEntries: Set<string> = $state(new Set());
 
 	const commitId = $derived($page.params.id ?? '');
 
@@ -362,6 +364,13 @@
 		if (next.has(sessionId)) next.delete(sessionId);
 		else next.add(sessionId);
 		expandedSessions = next;
+	}
+
+	function toggleEntry(key: string) {
+		const next = new Set(expandedEntries);
+		if (next.has(key)) next.delete(key);
+		else next.add(key);
+		expandedEntries = next;
 	}
 
 	let expandedFiles: Set<string> = $state(new Set());
@@ -624,8 +633,11 @@
 									</Table.Header>
 									<Table.Body>
 										{#each tx.entries as entry (entry.index)}
-											<Table.Row class="cursor-pointer hover:bg-muted/50">
-												<Table.Cell class="font-mono text-xs text-muted-foreground">{entry.index}</Table.Cell>
+											{@const entryKey = `${session.id}-${entry.index}`}
+											<Table.Row class="cursor-pointer hover:bg-muted/50" onclick={() => toggleEntry(entryKey)}>
+												<Table.Cell class="font-mono text-xs text-muted-foreground">
+													<span class="text-muted-foreground mr-1">{expandedEntries.has(entryKey) ? '▼' : '▶'}</span>{entry.index}
+												</Table.Cell>
 												<Table.Cell class="text-xs">{fmtTime(entry.timestamp)}</Table.Cell>
 												<Table.Cell>
 													<Badge variant="outline" class="text-xs">{entry.type}{entry.subtype ? `:${entry.subtype}` : ''}</Badge>
@@ -646,19 +658,18 @@
 													{fmtTokens(entry.usage ? entry.usage.cache_read_input_tokens + entry.usage.cache_creation_input_tokens : undefined)}
 												</Table.Cell>
 											</Table.Row>
+											{#if expandedEntries.has(entryKey)}
+												<Table.Row>
+													<Table.Cell colspan={8} class="p-0">
+														<pre class="overflow-auto bg-muted p-4 text-xs max-h-96">{formatJson(entry.raw)}</pre>
+													</Table.Cell>
+												</Table.Row>
+											{/if}
 										{/each}
 									</Table.Body>
 								</Table.Root>
 							{/if}
 
-							{#if session.session_data}
-								<details>
-									<summary class="cursor-pointer text-sm text-muted-foreground hover:text-foreground">
-										Session Data
-									</summary>
-									<pre class="mt-2 overflow-auto rounded bg-muted p-4 text-sm max-h-96">{formatJson(session.session_data)}</pre>
-								</details>
-							{/if}
 						</Card.Content>
 					{/if}
 				</Card.Root>
@@ -759,5 +770,14 @@
 				<pre class="mt-2 overflow-auto rounded bg-muted p-4 text-sm">{formatJson(commit.attribution)}</pre>
 			</details>
 		{/if}
+
+		{#each commit.sessions.filter((s) => s.session_data) as session (session.id)}
+			<details>
+				<summary class="cursor-pointer text-sm text-muted-foreground hover:text-foreground">
+					Session Data — <span class="font-mono">{session.session_id}</span>
+				</summary>
+				<pre class="mt-2 overflow-auto rounded bg-muted p-4 text-sm max-h-96">{formatJson(session.session_data)}</pre>
+			</details>
+		{/each}
 	{/if}
 </div>
