@@ -13,6 +13,7 @@
 	const navItems = [
 		{ href: '/repos', label: 'Repos' },
 		{ href: '/traces', label: 'Traces' },
+		{ href: '/analytics', label: 'Analytics' },
 		{ href: '/settings', label: 'Settings' }
 	];
 
