@@ -1,3 +1,4 @@
+use tracevault_core::diff::*;
 use tracevault_core::gitai::*;
 
 #[test]
@@ -100,7 +101,8 @@ fn parse_no_separator_returns_none() {
 }
 
 #[test]
-fn convert_to_attribution() {
+fn convert_to_attribution_with_diff() {
+    // git-ai note: only src/main.rs has AI lines 1-10 and 20-25
     let note = "\
 src/main.rs
    abc 1-10,20-25
@@ -108,14 +110,90 @@ src/main.rs
 {}
 ";
     let log = parse_gitai_note(note).unwrap();
-    let attribution = gitai_to_attribution(&log);
 
-    assert_eq!(attribution.files.len(), 1);
-    assert_eq!(attribution.files[0].path, "src/main.rs");
-    assert_eq!(attribution.files[0].ai_lines.len(), 2);
-    assert_eq!(attribution.files[0].ai_lines[0].start, 1);
-    assert_eq!(attribution.files[0].ai_lines[0].end, 10);
-    assert_eq!(attribution.files[0].ai_lines[1].start, 20);
-    assert_eq!(attribution.files[0].ai_lines[1].end, 25);
-    assert!(attribution.summary.ai_percentage > 0.0);
+    // Diff has two files: src/main.rs (AI-modified) and src/lib.rs (human-only)
+    let diff_files = vec![
+        FileDiff {
+            path: "src/main.rs".into(),
+            old_path: None,
+            hunks: vec![DiffHunk {
+                old_start: 1,
+                old_count: 0,
+                new_start: 1,
+                new_count: 30,
+                lines: (1..=30)
+                    .map(|n| DiffLine {
+                        kind: DiffLineKind::Add,
+                        content: format!("line {n}"),
+                        new_line_number: Some(n),
+                        old_line_number: None,
+                    })
+                    .collect(),
+            }],
+        },
+        FileDiff {
+            path: "src/lib.rs".into(),
+            old_path: None,
+            hunks: vec![DiffHunk {
+                old_start: 1,
+                old_count: 0,
+                new_start: 1,
+                new_count: 10,
+                lines: (1..=10)
+                    .map(|n| DiffLine {
+                        kind: DiffLineKind::Add,
+                        content: format!("lib line {n}"),
+                        new_line_number: Some(n),
+                        old_line_number: None,
+                    })
+                    .collect(),
+            }],
+        },
+    ];
+
+    let attribution = gitai_to_attribution(&log, &diff_files);
+
+    // Should have 2 files
+    assert_eq!(attribution.files.len(), 2);
+
+    // src/main.rs: 16 AI lines (1-10 + 20-25), 14 human lines (11-19 + 26-30)
+    let main = &attribution.files[0];
+    assert_eq!(main.path, "src/main.rs");
+    assert_eq!(
+        main.ai_lines.iter().map(|r| r.end - r.start + 1).sum::<u32>(),
+        16
+    );
+    assert_eq!(
+        main.human_lines.iter().map(|r| r.end - r.start + 1).sum::<u32>(),
+        14
+    );
+
+    // src/lib.rs: 0 AI lines, 10 human lines
+    let lib = &attribution.files[1];
+    assert_eq!(lib.path, "src/lib.rs");
+    assert!(lib.ai_lines.is_empty());
+    assert_eq!(
+        lib.human_lines.iter().map(|r| r.end - r.start + 1).sum::<u32>(),
+        10
+    );
+
+    // Summary: 16 AI / 40 total = 40%
+    assert!((attribution.summary.ai_percentage - 40.0).abs() < 0.1);
+    assert!((attribution.summary.human_percentage - 60.0).abs() < 0.1);
+}
+
+#[test]
+fn convert_to_attribution_no_diff() {
+    // With empty diff, attribution should have no files
+    let note = "\
+src/main.rs
+   abc 1-10
+---
+{}
+";
+    let log = parse_gitai_note(note).unwrap();
+    let attribution = gitai_to_attribution(&log, &[]);
+
+    assert!(attribution.files.is_empty());
+    assert_eq!(attribution.summary.ai_percentage, 0.0);
 }
