@@ -2,7 +2,7 @@
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
 	import * as Card from '$lib/components/ui/card/index.js';
-	import { Line, Bar } from 'svelte-chartjs';
+	import Chart from '$lib/components/chart.svelte';
 	import {
 		Chart as ChartJS,
 		CategoryScale,
@@ -186,7 +186,8 @@
 			</Card.Header>
 			<Card.Content>
 				{#if data.trend.length > 0}
-					<Line
+					<Chart
+					type="line"
 						data={trendChartData(data)}
 						options={{
 							responsive: true,
@@ -207,7 +208,8 @@
 				</Card.Header>
 				<Card.Content>
 					{#if data.by_repo.length > 0}
-						<Bar
+						<Chart
+							type="bar"
 							data={repoChartData(data)}
 							options={{
 								responsive: true,
@@ -228,7 +230,8 @@
 				</Card.Header>
 				<Card.Content>
 					{#if data.by_author.length > 0}
-						<Bar
+						<Chart
+							type="bar"
 							data={authorChartData(data)}
 							options={{
 								responsive: true,

@@ -4,7 +4,7 @@
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
-	import { Line } from 'svelte-chartjs';
+	import Chart from '$lib/components/chart.svelte';
 	import {
 		Chart as ChartJS,
 		CategoryScale,
@@ -173,7 +173,8 @@
 			</Card.Header>
 			<Card.Content>
 				{#if data.timeline.length > 0}
-					<Line
+					<Chart
+					type="line"
 						data={timelineChartData(data)}
 						options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
 					/>
