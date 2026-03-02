@@ -23,6 +23,7 @@ pub struct CreateTraceRequest {
     pub attribution: Option<serde_json::Value>,
     pub transcript: Option<serde_json::Value>,
     pub diff_data: Option<serde_json::Value>,
+    pub model_usage: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -90,8 +91,8 @@ pub async fn create_trace(
     let session_db_id = if let Some(sid) = &req.session_id {
         let id: Uuid = sqlx::query_scalar(
             "INSERT INTO sessions (commit_id, session_id, model, tool, total_tokens, input_tokens, output_tokens,
-                estimated_cost_usd, api_calls, session_data, transcript)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                estimated_cost_usd, api_calls, session_data, transcript, model_usage)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
              ON CONFLICT (commit_id, session_id) DO UPDATE SET
                model = COALESCE(EXCLUDED.model, sessions.model),
                tool = COALESCE(EXCLUDED.tool, sessions.tool),
@@ -101,7 +102,8 @@ pub async fn create_trace(
                estimated_cost_usd = COALESCE(EXCLUDED.estimated_cost_usd, sessions.estimated_cost_usd),
                api_calls = COALESCE(EXCLUDED.api_calls, sessions.api_calls),
                session_data = COALESCE(EXCLUDED.session_data, sessions.session_data),
-               transcript = COALESCE(EXCLUDED.transcript, sessions.transcript)
+               transcript = COALESCE(EXCLUDED.transcript, sessions.transcript),
+               model_usage = COALESCE(EXCLUDED.model_usage, sessions.model_usage)
              RETURNING id"
         )
         .bind(commit_id)
@@ -115,6 +117,7 @@ pub async fn create_trace(
         .bind(req.api_calls)
         .bind(&req.session_data)
         .bind(&req.transcript)
+        .bind(&req.model_usage)
         .fetch_one(&state.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

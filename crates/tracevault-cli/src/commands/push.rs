@@ -1,7 +1,7 @@
 use crate::api_client::{resolve_credentials, ApiClient, PushTraceRequest};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tracevault_core::diff::parse_unified_diff;
 use tracevault_core::gitai::{gitai_to_attribution, parse_gitai_note};
@@ -9,8 +9,7 @@ use tracevault_core::gitai::{gitai_to_attribution, parse_gitai_note};
 struct GitInfo {
     repo_name: String,
     branch: Option<String>,
-    commit_sha: String,
-    author: String,
+    head_sha: String,
 }
 
 fn git_info(project_root: &Path) -> GitInfo {
@@ -34,13 +33,93 @@ fn git_info(project_root: &Path) -> GitInfo {
     let branch = run(&["rev-parse", "--abbrev-ref", "HEAD"])
         .filter(|b| b != "HEAD");
 
-    let commit_sha = run(&["rev-parse", "HEAD"])
+    let head_sha = run(&["rev-parse", "HEAD"])
         .unwrap_or_else(|| "unknown".into());
 
-    let author = run(&["config", "user.name"])
-        .unwrap_or_else(|| "unknown".into());
+    GitInfo { repo_name, branch, head_sha }
+}
 
-    GitInfo { repo_name, branch, commit_sha, author }
+fn get_commit_author(project_root: &Path, commit_sha: &str) -> String {
+    Command::new("git")
+        .args(["log", "-1", "--format=%aN", commit_sha])
+        .current_dir(project_root)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".into())
+}
+
+fn last_pushed_sha_path(project_root: &Path) -> PathBuf {
+    project_root
+        .join(".tracevault")
+        .join("cache")
+        .join(".last_pushed_sha")
+}
+
+fn read_last_pushed_sha(project_root: &Path) -> Option<String> {
+    fs::read_to_string(last_pushed_sha_path(project_root))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn write_last_pushed_sha(project_root: &Path, sha: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let path = last_pushed_sha_path(project_root);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&path, sha)?;
+    Ok(())
+}
+
+/// Returns commit SHAs in chronological order (oldest first) that haven't been pushed yet.
+fn get_unpushed_commits(project_root: &Path, last_pushed: Option<&str>, head_sha: &str) -> Vec<String> {
+    let last_pushed = match last_pushed {
+        Some(sha) => sha,
+        None => return vec![head_sha.to_string()], // First push: just HEAD
+    };
+
+    if last_pushed == head_sha {
+        return vec![]; // No new commits
+    }
+
+    // Verify last_pushed SHA still exists in history (handles rebase/force-push)
+    let exists = Command::new("git")
+        .args(["cat-file", "-t", last_pushed])
+        .current_dir(project_root)
+        .output()
+        .ok()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if !exists {
+        return vec![head_sha.to_string()]; // Fallback: SHA gone after rebase
+    }
+
+    // Get all commits between last_pushed and HEAD, oldest first
+    let output = Command::new("git")
+        .args(["rev-list", "--reverse", &format!("{last_pushed}..HEAD")])
+        .current_dir(project_root)
+        .output()
+        .ok();
+
+    match output {
+        Some(o) if o.status.success() => {
+            let shas: Vec<String> = String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if shas.is_empty() {
+                vec![]
+            } else {
+                shas
+            }
+        }
+        _ => vec![head_sha.to_string()], // Fallback
+    }
 }
 
 struct SessionSummary {
@@ -100,12 +179,71 @@ fn summarize_session(session_dir: &Path) -> Option<SessionSummary> {
     })
 }
 
+struct ModelTokens {
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_tokens: i64,
+    cache_creation_tokens: i64,
+    requests: i64,
+}
+
 struct TranscriptData {
     transcript: Option<serde_json::Value>,
     model: Option<String>,
     input_tokens: Option<i64>,
     output_tokens: Option<i64>,
     total_tokens: Option<i64>,
+    model_usage: Option<serde_json::Value>,
+}
+
+fn accumulate_usage(model_tokens: &mut HashMap<String, ModelTokens>, model: &str, usage: &serde_json::Value) {
+    let entry = model_tokens.entry(model.to_string()).or_insert(ModelTokens {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_tokens: 0,
+        cache_creation_tokens: 0,
+        requests: 0,
+    });
+    entry.requests += 1;
+    if let Some(n) = usage.get("input_tokens").and_then(|v| v.as_i64()) {
+        entry.input_tokens += n;
+    }
+    if let Some(n) = usage.get("output_tokens").and_then(|v| v.as_i64()) {
+        entry.output_tokens += n;
+    }
+    if let Some(n) = usage.get("cache_read_input_tokens").and_then(|v| v.as_i64()) {
+        entry.cache_read_tokens += n;
+    }
+    if let Some(n) = usage.get("cache_creation_input_tokens").and_then(|v| v.as_i64()) {
+        entry.cache_creation_tokens += n;
+    }
+}
+
+fn extract_usage_from_message(model_tokens: &mut HashMap<String, ModelTokens>, message: &serde_json::Value) {
+    let model = message.get("model").and_then(|v| v.as_str()).unwrap_or("unknown");
+    if let Some(usage) = message.get("usage") {
+        accumulate_usage(model_tokens, model, usage);
+    }
+}
+
+fn extract_nested_usage(model_tokens: &mut HashMap<String, ModelTokens>, entry: &serde_json::Value) {
+    // Handle subagent progress messages nested in content blocks:
+    // entry.message.content[].data.message (where type == "progress" or data.type == "agent_progress")
+    let content = match entry.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array()) {
+        Some(c) => c,
+        None => return,
+    };
+    for block in content {
+        // Look for tool_result or progress blocks that contain nested assistant messages
+        if let Some(data) = block.get("data") {
+            let data_type = data.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            if data_type == "progress" || data_type == "agent_progress" {
+                if let Some(msg) = data.get("message") {
+                    extract_usage_from_message(model_tokens, msg);
+                }
+            }
+        }
+    }
 }
 
 fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
@@ -115,6 +253,7 @@ fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
         input_tokens: None,
         output_tokens: None,
         total_tokens: None,
+        model_usage: None,
     };
 
     let transcript_path = metadata
@@ -135,7 +274,7 @@ fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
     let mut lines: Vec<serde_json::Value> = Vec::new();
     let mut total_input: i64 = 0;
     let mut total_output: i64 = 0;
-    let mut model_counts: HashMap<String, usize> = HashMap::new();
+    let mut model_tokens: HashMap<String, ModelTokens> = HashMap::new();
 
     for line in content.lines() {
         let entry: serde_json::Value = match serde_json::from_str(line) {
@@ -159,11 +298,14 @@ fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
                     total_input += n;
                 }
             }
-        }
 
-        // Collect model IDs
-        if let Some(model) = entry.get("message").and_then(|m| m.get("model")).and_then(|v| v.as_str()) {
-            *model_counts.entry(model.to_string()).or_insert(0) += 1;
+            // Per-model breakdown from top-level assistant message
+            if let Some(message) = entry.get("message") {
+                extract_usage_from_message(&mut model_tokens, message);
+            }
+
+            // Also check for nested subagent messages
+            extract_nested_usage(&mut model_tokens, &entry);
         }
 
         lines.push(entry);
@@ -173,12 +315,33 @@ fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
         return empty;
     }
 
-    let model = model_counts
-        .into_iter()
-        .max_by_key(|(_, count)| *count)
-        .map(|(name, _)| name);
+    // Primary model = most requests
+    let model = model_tokens
+        .iter()
+        .max_by_key(|(_, t)| t.requests)
+        .map(|(name, _)| name.clone());
 
     let total = total_input + total_output;
+
+    // Build model_usage JSON array
+    let model_usage = if model_tokens.is_empty() {
+        None
+    } else {
+        let arr: Vec<serde_json::Value> = model_tokens
+            .into_iter()
+            .map(|(name, t)| {
+                serde_json::json!({
+                    "model": name,
+                    "input_tokens": t.input_tokens,
+                    "output_tokens": t.output_tokens,
+                    "cache_read_tokens": t.cache_read_tokens,
+                    "cache_creation_tokens": t.cache_creation_tokens,
+                    "requests": t.requests,
+                })
+            })
+            .collect();
+        Some(serde_json::Value::Array(arr))
+    };
 
     TranscriptData {
         transcript: Some(serde_json::Value::Array(lines)),
@@ -186,6 +349,7 @@ fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
         input_tokens: if total > 0 { Some(total_input) } else { None },
         output_tokens: if total > 0 { Some(total_output) } else { None },
         total_tokens: if total > 0 { Some(total) } else { None },
+        model_usage,
     }
 }
 
@@ -259,140 +423,157 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
     let client = ApiClient::new(&server_url, token.as_deref());
 
     let sessions_dir = project_root.join(".tracevault").join("sessions");
-    if !sessions_dir.exists() {
-        println!("No sessions to push.");
-        return Ok(());
-    }
 
     let git = git_info(project_root);
 
-    // Read diff + attribution once (commit-level data)
-    let diff_files = read_git_diff(project_root, &git.commit_sha);
-    let diff_data = diff_files
-        .as_ref()
-        .and_then(|f| serde_json::to_value(f).ok());
-    let attribution = read_gitai_attribution(
-        project_root,
-        &git.commit_sha,
-        diff_files.as_deref().unwrap_or(&[]),
-    );
+    // Step 1: Discover and register all unpushed commits
+    let last_pushed = read_last_pushed_sha(project_root);
+    let unpushed = get_unpushed_commits(project_root, last_pushed.as_deref(), &git.head_sha);
 
-    // Step 1: Register commit (no session_id, with diff_data + attribution)
-    let commit_req = PushTraceRequest {
-        repo_name: git.repo_name.clone(),
-        commit_sha: git.commit_sha.clone(),
-        branch: git.branch.clone(),
-        author: git.author.clone(),
-        model: None,
-        tool: None,
-        session_id: None,
-        total_tokens: None,
-        input_tokens: None,
-        output_tokens: None,
-        estimated_cost_usd: None,
-        api_calls: None,
-        session_data: None,
-        attribution,
-        transcript: None,
-        diff_data,
-    };
+    let mut commits_registered = 0;
+    for sha in &unpushed {
+        let author = get_commit_author(project_root, sha);
+        let diff_files = read_git_diff(project_root, sha);
+        let diff_data = diff_files
+            .as_ref()
+            .and_then(|f| serde_json::to_value(f).ok());
+        let attribution = read_gitai_attribution(
+            project_root,
+            sha,
+            diff_files.as_deref().unwrap_or(&[]),
+        );
 
-    let commit_resp = client.push_trace(commit_req).await
-        .map_err(|e| format!("Failed to register commit: {e}"))?;
-    println!("Registered commit {} -> {}", &git.commit_sha[..8.min(git.commit_sha.len())], commit_resp.commit_id);
+        let commit_req = PushTraceRequest {
+            repo_name: git.repo_name.clone(),
+            commit_sha: sha.clone(),
+            branch: git.branch.clone(),
+            author,
+            model: None,
+            tool: None,
+            session_id: None,
+            total_tokens: None,
+            input_tokens: None,
+            output_tokens: None,
+            estimated_cost_usd: None,
+            api_calls: None,
+            session_data: None,
+            attribution,
+            transcript: None,
+            diff_data,
+            model_usage: None,
+        };
 
-    // Step 2: Push each unpushed session
+        let commit_resp = client.push_trace(commit_req).await
+            .map_err(|e| format!("Failed to register commit {}: {e}", &sha[..8.min(sha.len())]))?;
+        println!("Registered commit {} -> {}", &sha[..8.min(sha.len())], commit_resp.commit_id);
+        commits_registered += 1;
+    }
+
+    if unpushed.is_empty() {
+        println!("No new commits to register.");
+    }
+
+    // Step 2: Push each unpushed session (attached to HEAD)
     let mut pushed = 0;
     let mut failed = 0;
 
-    for entry in fs::read_dir(&sessions_dir)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
-            continue;
-        }
-
-        let session_dir = entry.path();
-        let pushed_marker = session_dir.join(".pushed");
-        if pushed_marker.exists() {
-            continue; // already pushed
-        }
-
-        let summary = match summarize_session(&session_dir) {
-            Some(s) if s.event_count > 0 => s,
-            _ => continue,
-        };
-
-        let meta_path = session_dir.join("metadata.json");
-        let metadata: Option<serde_json::Value> = meta_path
-            .exists()
-            .then(|| fs::read_to_string(&meta_path).ok())
-            .flatten()
-            .and_then(|c| serde_json::from_str(&c).ok());
-
-        let session_data = serde_json::json!({
-            "session_id": entry.file_name().to_string_lossy(),
-            "metadata": metadata,
-            "event_count": summary.event_count,
-            "files_modified": summary.files_modified,
-            "tools_used": summary.tools_used.iter().collect::<Vec<_>>(),
-            "events": summary.events,
-        });
-
-        let transcript_data = read_transcript(&metadata);
-
-        // Prefer model from transcript, fall back to events
-        let model = transcript_data.model
-            .or_else(|| summary.models.iter().next().cloned());
-
-        let session_name = entry.file_name().to_string_lossy().to_string();
-
-        let req = PushTraceRequest {
-            repo_name: git.repo_name.clone(),
-            commit_sha: git.commit_sha.clone(),
-            branch: git.branch.clone(),
-            author: git.author.clone(),
-            model,
-            tool: Some("claude-code".into()),
-            session_id: Some(session_name.clone()),
-            total_tokens: transcript_data.total_tokens,
-            input_tokens: transcript_data.input_tokens,
-            output_tokens: transcript_data.output_tokens,
-            estimated_cost_usd: None,
-            api_calls: Some(summary.event_count as i32),
-            session_data: Some(session_data),
-            attribution: None, // commit-level only
-            transcript: transcript_data.transcript,
-            diff_data: None,   // commit-level only
-        };
-
-        match client.push_trace(req).await {
-            Ok(resp) => {
-                println!(
-                    "Pushed session {} ({} events, {} files) -> {}",
-                    session_name,
-                    summary.event_count,
-                    summary.files_modified.len(),
-                    resp.commit_id,
-                );
-                // Mark as pushed so we don't push again
-                fs::write(&pushed_marker, resp.commit_id.to_string())?;
-                pushed += 1;
+    if sessions_dir.exists() {
+        for entry in fs::read_dir(&sessions_dir)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
             }
-            Err(e) => {
-                eprintln!("Failed to push {session_name}: {e}");
-                failed += 1;
+
+            let session_dir = entry.path();
+            let pushed_marker = session_dir.join(".pushed");
+            if pushed_marker.exists() {
+                continue; // already pushed
+            }
+
+            let summary = match summarize_session(&session_dir) {
+                Some(s) if s.event_count > 0 => s,
+                _ => continue,
+            };
+
+            let meta_path = session_dir.join("metadata.json");
+            let metadata: Option<serde_json::Value> = meta_path
+                .exists()
+                .then(|| fs::read_to_string(&meta_path).ok())
+                .flatten()
+                .and_then(|c| serde_json::from_str(&c).ok());
+
+            let session_data = serde_json::json!({
+                "session_id": entry.file_name().to_string_lossy(),
+                "metadata": metadata,
+                "event_count": summary.event_count,
+                "files_modified": summary.files_modified,
+                "tools_used": summary.tools_used.iter().collect::<Vec<_>>(),
+                "events": summary.events,
+            });
+
+            let transcript_data = read_transcript(&metadata);
+
+            // Prefer model from transcript, fall back to events
+            let model = transcript_data.model
+                .or_else(|| summary.models.iter().next().cloned());
+
+            let session_name = entry.file_name().to_string_lossy().to_string();
+            let author = get_commit_author(project_root, &git.head_sha);
+
+            let req = PushTraceRequest {
+                repo_name: git.repo_name.clone(),
+                commit_sha: git.head_sha.clone(),
+                branch: git.branch.clone(),
+                author,
+                model,
+                tool: Some("claude-code".into()),
+                session_id: Some(session_name.clone()),
+                total_tokens: transcript_data.total_tokens,
+                input_tokens: transcript_data.input_tokens,
+                output_tokens: transcript_data.output_tokens,
+                estimated_cost_usd: None,
+                api_calls: Some(summary.event_count as i32),
+                session_data: Some(session_data),
+                attribution: None, // commit-level only
+                transcript: transcript_data.transcript,
+                diff_data: None,   // commit-level only
+                model_usage: transcript_data.model_usage,
+            };
+
+            match client.push_trace(req).await {
+                Ok(resp) => {
+                    println!(
+                        "Pushed session {} ({} events, {} files) -> {}",
+                        session_name,
+                        summary.event_count,
+                        summary.files_modified.len(),
+                        resp.commit_id,
+                    );
+                    // Mark as pushed so we don't push again
+                    fs::write(&pushed_marker, resp.commit_id.to_string())?;
+                    pushed += 1;
+                }
+                Err(e) => {
+                    eprintln!("Failed to push {session_name}: {e}");
+                    failed += 1;
+                }
             }
         }
     }
 
     if pushed > 0 || failed > 0 {
         println!("\nPushed {pushed} session(s), {failed} failed.");
-    } else {
+    } else if sessions_dir.exists() {
         println!("No new sessions to push.");
     }
 
     if failed > 0 {
         return Err(format!("{failed} session(s) failed to push").into());
+    }
+
+    // Only update last_pushed_sha after everything succeeds
+    if commits_registered > 0 || pushed > 0 {
+        write_last_pushed_sha(project_root, &git.head_sha)?;
     }
 
     Ok(())

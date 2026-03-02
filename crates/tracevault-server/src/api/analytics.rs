@@ -235,19 +235,24 @@ pub async fn get_overview(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Model distribution
+    // Model distribution (uses model_usage JSONB with fallback to s.model)
     let models = sqlx::query_as::<_, (String, i64)>(
-        "SELECT COALESCE(s.model, 'unknown'), COUNT(*)
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
-         WHERE r.org_id = $1
-           AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
-         GROUP BY s.model
-         ORDER BY 2 DESC"
+        "WITH model_data AS (
+           SELECT COALESCE(mu.model, s.model, 'unknown') as model
+           FROM sessions s
+           JOIN commits c ON s.commit_id = c.id
+           JOIN repos r ON c.repo_id = r.id
+           LEFT JOIN LATERAL (
+             SELECT elem->>'model' as model
+             FROM jsonb_array_elements(s.model_usage) as elem
+           ) mu ON s.model_usage IS NOT NULL
+           WHERE r.org_id = $1
+             AND ($2::TEXT IS NULL OR r.name = $2)
+             AND ($3::TEXT IS NULL OR c.author = $3)
+             AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
+             AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
+         )
+         SELECT model, COUNT(*) FROM model_data GROUP BY model ORDER BY 2 DESC"
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -459,71 +464,53 @@ pub async fn get_models(
 ) -> Result<Json<ModelsResponse>, (StatusCode, String)> {
     let org_id = q.effective_org_id(&auth);
 
+    // Common CTE for model_usage JSONB with fallback to s.model
+    let model_cte = "WITH model_data AS (
+           SELECT c.id as commit_id, c.author, c.created_at, r.name as repo_name,
+                  COALESCE(mu.model, s.model, 'unknown') as model,
+                  COALESCE((mu.elem->>'input_tokens')::BIGINT, s.input_tokens, 0)
+                    + COALESCE((mu.elem->>'output_tokens')::BIGINT, s.output_tokens, 0) as tokens,
+                  COALESCE((mu.elem->>'input_tokens')::BIGINT, s.input_tokens, 0) as input_tokens,
+                  COALESCE((mu.elem->>'output_tokens')::BIGINT, s.output_tokens, 0) as output_tokens,
+                  COALESCE((mu.elem->>'requests')::BIGINT, 1) as requests,
+                  s.estimated_cost_usd
+           FROM sessions s
+           JOIN commits c ON s.commit_id = c.id
+           JOIN repos r ON c.repo_id = r.id
+           LEFT JOIN LATERAL (
+             SELECT elem->>'model' as model, elem
+             FROM jsonb_array_elements(s.model_usage) as elem
+           ) mu ON s.model_usage IS NOT NULL
+           WHERE r.org_id = $1
+             AND ($2::TEXT IS NULL OR r.name = $2)
+             AND ($3::TEXT IS NULL OR c.author = $3)
+             AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
+             AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
+         )";
+
     let distribution = sqlx::query_as::<_, (String, i64, i64)>(
-        "SELECT COALESCE(s.model, 'unknown'), COUNT(*), COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0)
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
-         WHERE r.org_id = $1
-           AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
-         GROUP BY s.model
-         ORDER BY 2 DESC"
+        &format!("{model_cte} SELECT model, COUNT(*), COALESCE(CAST(SUM(tokens) AS BIGINT), 0) FROM model_data GROUP BY model ORDER BY 2 DESC")
     )
     .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
     .fetch_all(&state.pool).await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let trends = sqlx::query_as::<_, (String, String, i64)>(
-        "SELECT TO_CHAR(c.created_at::date, 'YYYY-MM-DD'), COALESCE(s.model, 'unknown'), COUNT(*)
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
-         WHERE r.org_id = $1
-           AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
-         GROUP BY c.created_at::date, s.model
-         ORDER BY 1, 2"
+        &format!("{model_cte} SELECT TO_CHAR(created_at::date, 'YYYY-MM-DD'), model, COUNT(*) FROM model_data GROUP BY created_at::date, model ORDER BY 1, 2")
     )
     .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
     .fetch_all(&state.pool).await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let author_model_matrix = sqlx::query_as::<_, (String, String, i64, i64)>(
-        "SELECT c.author, COALESCE(s.model, 'unknown'), COUNT(*), COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0)
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
-         WHERE r.org_id = $1
-           AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
-         GROUP BY c.author, s.model
-         ORDER BY c.author, 3 DESC"
+        &format!("{model_cte} SELECT author, model, COUNT(*), COALESCE(CAST(SUM(tokens) AS BIGINT), 0) FROM model_data GROUP BY author, model ORDER BY author, 3 DESC")
     )
     .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
     .fetch_all(&state.pool).await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let comparison = sqlx::query_as::<_, (String, i64, f64)>(
-        "SELECT COALESCE(s.model, 'unknown'),
-                COALESCE(CAST(AVG(s.total_tokens) AS BIGINT), 0),
-                COALESCE(AVG(s.estimated_cost_usd), 0.0)
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
-         WHERE r.org_id = $1
-           AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
-         GROUP BY s.model
-         ORDER BY 2 DESC"
+        &format!("{model_cte} SELECT model, COALESCE(CAST(AVG(tokens) AS BIGINT), 0), COALESCE(AVG(estimated_cost_usd), 0.0) FROM model_data GROUP BY model ORDER BY 2 DESC")
     )
     .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
     .fetch_all(&state.pool).await
@@ -618,17 +605,26 @@ pub async fn get_authors(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let model_preferences = sqlx::query_as::<_, (String, String, i64)>(
-        "SELECT c.author, COALESCE(s.model, 'unknown'), COUNT(*)
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
-         WHERE r.org_id = $1
-           AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
-         GROUP BY c.author, s.model
-         ORDER BY c.author, 3 DESC"
+        "WITH model_data AS (
+           SELECT c.author,
+                  COALESCE(mu.model, s.model, 'unknown') as model
+           FROM sessions s
+           JOIN commits c ON s.commit_id = c.id
+           JOIN repos r ON c.repo_id = r.id
+           LEFT JOIN LATERAL (
+             SELECT elem->>'model' as model
+             FROM jsonb_array_elements(s.model_usage) as elem
+           ) mu ON s.model_usage IS NOT NULL
+           WHERE r.org_id = $1
+             AND ($2::TEXT IS NULL OR r.name = $2)
+             AND ($3::TEXT IS NULL OR c.author = $3)
+             AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
+             AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
+         )
+         SELECT author, model, COUNT(*)
+         FROM model_data
+         GROUP BY author, model
+         ORDER BY author, 3 DESC"
     )
     .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
     .fetch_all(&state.pool).await
