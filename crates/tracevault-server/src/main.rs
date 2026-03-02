@@ -103,8 +103,23 @@ async fn main() {
             delete(api::api_keys::delete_api_key),
         )
         // Policies
-        .route("/api/v1/policies", get(api::policies::list_policies))
-        .route("/api/v1/policies/evaluate", post(api::policies::evaluate))
+        .route(
+            "/api/v1/repos/{repo_id}/policies",
+            get(api::policies::list_repo_policies),
+        )
+        .route(
+            "/api/v1/repos/{repo_id}/policies",
+            post(api::policies::create_repo_policy),
+        )
+        .route(
+            "/api/v1/repos/{repo_id}/policies/check",
+            post(api::policies::check_policies),
+        )
+        .route("/api/v1/policies/{id}", put(api::policies::update_policy))
+        .route(
+            "/api/v1/policies/{id}",
+            delete(api::policies::delete_policy),
+        )
         // Analytics
         .route(
             "/api/v1/analytics/filters",
