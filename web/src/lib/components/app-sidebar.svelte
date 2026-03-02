@@ -14,6 +14,7 @@
 		{ href: '/repos', label: 'Repos' },
 		{ href: '/traces', label: 'Traces' },
 		{ href: '/analytics', label: 'Analytics' },
+		{ href: '/compliance', label: 'Compliance' },
 		{ href: '/settings', label: 'Settings' }
 	];
 
@@ -25,6 +26,12 @@
 		{ href: '/analytics/attribution', label: 'Attribution' },
 		{ href: '/analytics/sessions', label: 'Sessions' },
 		{ href: '/analytics/cost', label: 'Cost' }
+	];
+
+	const complianceSubItems = [
+		{ href: '/compliance', label: 'Dashboard' },
+		{ href: '/compliance/audit-log', label: 'Audit Log' },
+		{ href: '/compliance/settings', label: 'Settings' }
 	];
 
 	function isActive(href: string): boolean {
@@ -72,6 +79,24 @@
 				<Sidebar.GroupContent>
 					<Sidebar.Menu>
 						{#each analyticsSubItems as item}
+							<Sidebar.MenuItem>
+								<Sidebar.MenuButton isActive={$page.url.pathname === item.href}>
+									{#snippet child({ props })}
+										<a href={item.href} {...props}>{item.label}</a>
+									{/snippet}
+								</Sidebar.MenuButton>
+							</Sidebar.MenuItem>
+						{/each}
+					</Sidebar.Menu>
+				</Sidebar.GroupContent>
+			</Sidebar.Group>
+		{/if}
+		{#if $page.url.pathname.startsWith('/compliance')}
+			<Sidebar.Group>
+				<Sidebar.GroupLabel>Compliance</Sidebar.GroupLabel>
+				<Sidebar.GroupContent>
+					<Sidebar.Menu>
+						{#each complianceSubItems as item}
 							<Sidebar.MenuItem>
 								<Sidebar.MenuButton isActive={$page.url.pathname === item.href}>
 									{#snippet child({ props })}
