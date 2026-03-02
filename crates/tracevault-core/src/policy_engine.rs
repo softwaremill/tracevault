@@ -43,6 +43,11 @@ fn evaluate_policy(policy: &PolicyRule, trace: &TraceRecord) -> PolicyEvaluation
             max_tokens,
             max_cost_usd,
         } => eval_token_budget(trace, *max_tokens, *max_cost_usd),
+        PolicyCondition::ConditionalToolCall {
+            tool_name,
+            min_count,
+            when_files_match: _,
+        } => eval_conditional_tool_call(trace, tool_name, *min_count),
     };
 
     PolicyEvaluation {
@@ -172,6 +177,32 @@ fn eval_token_budget(
         (
             EvalResult::Pass,
             format!("Within budget: {tokens} tokens (${cost:.2})"),
+        )
+    }
+}
+
+fn eval_conditional_tool_call(
+    trace: &TraceRecord,
+    tool_name: &str,
+    min_count: Option<u32>,
+) -> (EvalResult, String) {
+    let min = min_count.unwrap_or(1) as usize;
+    let count = trace
+        .session
+        .tools_used
+        .iter()
+        .filter(|t| t.name.contains(tool_name))
+        .count();
+
+    if count >= min {
+        (
+            EvalResult::Pass,
+            format!("Tool '{}' called {} time(s) (required >= {})", tool_name, count, min),
+        )
+    } else {
+        (
+            EvalResult::Fail,
+            format!("Tool '{}' called {} time(s) (required >= {})", tool_name, count, min),
         )
     }
 }

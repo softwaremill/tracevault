@@ -22,12 +22,18 @@ pub enum PolicyCondition {
     SensitivePathPattern { patterns: Vec<String> },
     RequiredToolCall { tool_names: Vec<String> },
     TokenBudget { max_tokens: Option<u64>, max_cost_usd: Option<f64> },
+    ConditionalToolCall {
+        tool_name: String,
+        min_count: Option<u32>,
+        when_files_match: Option<Vec<String>>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PolicyAction {
     BlockMerge,
+    BlockPush,
     Warn,
     RequireReview,
     Notify,
