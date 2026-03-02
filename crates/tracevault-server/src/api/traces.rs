@@ -24,6 +24,17 @@ pub struct CreateTraceRequest {
     pub transcript: Option<serde_json::Value>,
     pub diff_data: Option<serde_json::Value>,
     pub model_usage: Option<serde_json::Value>,
+    pub duration_ms: Option<i64>,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub ended_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub user_messages: Option<i32>,
+    pub assistant_messages: Option<i32>,
+    pub tool_calls: Option<serde_json::Value>,
+    pub total_tool_calls: Option<i32>,
+    pub cache_read_tokens: Option<i64>,
+    pub cache_write_tokens: Option<i64>,
+    pub compactions: Option<i32>,
+    pub compaction_tokens_saved: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -89,10 +100,29 @@ pub async fn create_trace(
 
     // Optionally upsert session
     let session_db_id = if let Some(sid) = &req.session_id {
+        // Compute cost server-side from model_usage or fallback fields
+        let estimated_cost = crate::pricing::cost_from_model_usage(
+            req.model_usage.as_ref(),
+            req.model.as_deref(),
+            req.input_tokens.unwrap_or(0),
+            req.output_tokens.unwrap_or(0),
+            req.cache_read_tokens.unwrap_or(0),
+            req.cache_write_tokens.unwrap_or(0),
+        );
+        let cost = if estimated_cost > 0.0 {
+            Some(estimated_cost)
+        } else {
+            req.estimated_cost_usd
+        };
+
         let id: Uuid = sqlx::query_scalar(
             "INSERT INTO sessions (commit_id, session_id, model, tool, total_tokens, input_tokens, output_tokens,
-                estimated_cost_usd, api_calls, session_data, transcript, model_usage)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                estimated_cost_usd, api_calls, session_data, transcript, model_usage,
+                duration_ms, started_at, ended_at, user_messages, assistant_messages,
+                tool_calls, total_tool_calls, cache_read_tokens, cache_write_tokens,
+                compactions, compaction_tokens_saved)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                     $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
              ON CONFLICT (commit_id, session_id) DO UPDATE SET
                model = COALESCE(EXCLUDED.model, sessions.model),
                tool = COALESCE(EXCLUDED.tool, sessions.tool),
@@ -103,7 +133,18 @@ pub async fn create_trace(
                api_calls = COALESCE(EXCLUDED.api_calls, sessions.api_calls),
                session_data = COALESCE(EXCLUDED.session_data, sessions.session_data),
                transcript = COALESCE(EXCLUDED.transcript, sessions.transcript),
-               model_usage = COALESCE(EXCLUDED.model_usage, sessions.model_usage)
+               model_usage = COALESCE(EXCLUDED.model_usage, sessions.model_usage),
+               duration_ms = COALESCE(EXCLUDED.duration_ms, sessions.duration_ms),
+               started_at = COALESCE(EXCLUDED.started_at, sessions.started_at),
+               ended_at = COALESCE(EXCLUDED.ended_at, sessions.ended_at),
+               user_messages = COALESCE(EXCLUDED.user_messages, sessions.user_messages),
+               assistant_messages = COALESCE(EXCLUDED.assistant_messages, sessions.assistant_messages),
+               tool_calls = COALESCE(EXCLUDED.tool_calls, sessions.tool_calls),
+               total_tool_calls = COALESCE(EXCLUDED.total_tool_calls, sessions.total_tool_calls),
+               cache_read_tokens = COALESCE(EXCLUDED.cache_read_tokens, sessions.cache_read_tokens),
+               cache_write_tokens = COALESCE(EXCLUDED.cache_write_tokens, sessions.cache_write_tokens),
+               compactions = COALESCE(EXCLUDED.compactions, sessions.compactions),
+               compaction_tokens_saved = COALESCE(EXCLUDED.compaction_tokens_saved, sessions.compaction_tokens_saved)
              RETURNING id"
         )
         .bind(commit_id)
@@ -113,11 +154,22 @@ pub async fn create_trace(
         .bind(req.total_tokens)
         .bind(req.input_tokens)
         .bind(req.output_tokens)
-        .bind(req.estimated_cost_usd)
+        .bind(cost)
         .bind(req.api_calls)
         .bind(&req.session_data)
         .bind(&req.transcript)
         .bind(&req.model_usage)
+        .bind(req.duration_ms)
+        .bind(req.started_at)
+        .bind(req.ended_at)
+        .bind(req.user_messages)
+        .bind(req.assistant_messages)
+        .bind(&req.tool_calls)
+        .bind(req.total_tool_calls)
+        .bind(req.cache_read_tokens)
+        .bind(req.cache_write_tokens)
+        .bind(req.compactions)
+        .bind(req.compaction_tokens_saved)
         .fetch_one(&state.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

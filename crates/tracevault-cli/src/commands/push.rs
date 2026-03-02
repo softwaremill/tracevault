@@ -194,6 +194,17 @@ struct TranscriptData {
     output_tokens: Option<i64>,
     total_tokens: Option<i64>,
     model_usage: Option<serde_json::Value>,
+    duration_ms: Option<i64>,
+    started_at: Option<String>,
+    ended_at: Option<String>,
+    user_messages: Option<i32>,
+    assistant_messages: Option<i32>,
+    tool_calls_map: Option<serde_json::Value>,
+    total_tool_calls: Option<i32>,
+    cache_read_tokens: Option<i64>,
+    cache_write_tokens: Option<i64>,
+    compactions: Option<i32>,
+    compaction_tokens_saved: Option<i64>,
 }
 
 fn accumulate_usage(model_tokens: &mut HashMap<String, ModelTokens>, model: &str, usage: &serde_json::Value) {
@@ -254,6 +265,17 @@ fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
         output_tokens: None,
         total_tokens: None,
         model_usage: None,
+        duration_ms: None,
+        started_at: None,
+        ended_at: None,
+        user_messages: None,
+        assistant_messages: None,
+        tool_calls_map: None,
+        total_tool_calls: None,
+        cache_read_tokens: None,
+        cache_write_tokens: None,
+        compactions: None,
+        compaction_tokens_saved: None,
     };
 
     let transcript_path = metadata
@@ -275,6 +297,14 @@ fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
     let mut total_input: i64 = 0;
     let mut total_output: i64 = 0;
     let mut model_tokens: HashMap<String, ModelTokens> = HashMap::new();
+    let mut first_timestamp: Option<String> = None;
+    let mut last_timestamp: Option<String> = None;
+    let mut user_message_count: i32 = 0;
+    let mut assistant_message_count: i32 = 0;
+    let mut tool_calls_map: HashMap<String, i32> = HashMap::new();
+    let mut total_tool_call_count: i32 = 0;
+    let mut compaction_count: i32 = 0;
+    let mut compaction_tokens_saved_total: i64 = 0;
 
     for line in content.lines() {
         let entry: serde_json::Value = match serde_json::from_str(line) {
@@ -282,8 +312,22 @@ fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
             Err(_) => continue,
         };
 
-        // Extract token usage from assistant messages
-        if entry.get("type").and_then(|v| v.as_str()) == Some("assistant") {
+        // Track timestamps
+        if let Some(ts) = entry.get("timestamp").and_then(|v| v.as_str()) {
+            if first_timestamp.is_none() {
+                first_timestamp = Some(ts.to_string());
+            }
+            last_timestamp = Some(ts.to_string());
+        }
+
+        // Count messages by type and extract token usage
+        let entry_type = entry.get("type").and_then(|v| v.as_str());
+        if entry_type == Some("user") {
+            user_message_count += 1;
+        }
+        if entry_type == Some("assistant") {
+            assistant_message_count += 1;
+
             if let Some(usage) = entry.get("message").and_then(|m| m.get("usage")) {
                 if let Some(n) = usage.get("input_tokens").and_then(|v| v.as_i64()) {
                     total_input += n;
@@ -306,6 +350,29 @@ fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
 
             // Also check for nested subagent messages
             extract_nested_usage(&mut model_tokens, &entry);
+
+            // Count tool calls in content blocks
+            if let Some(content) = entry.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array()) {
+                for block in content {
+                    if block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
+                        if let Some(name) = block.get("name").and_then(|v| v.as_str()) {
+                            *tool_calls_map.entry(name.to_string()).or_insert(0) += 1;
+                            total_tool_call_count += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Track compactions
+        if entry.get("compactMetadata").is_some() {
+            compaction_count += 1;
+        }
+        if let Some(micro) = entry.get("microcompactMetadata") {
+            compaction_count += 1;
+            if let Some(saved) = micro.get("tokensSaved").and_then(|v| v.as_i64()) {
+                compaction_tokens_saved_total += saved;
+            }
         }
 
         lines.push(entry);
@@ -322,6 +389,23 @@ fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
         .map(|(name, _)| name.clone());
 
     let total = total_input + total_output;
+
+    // Compute duration
+    let duration_ms = match (&first_timestamp, &last_timestamp) {
+        (Some(first), Some(last)) => {
+            let start = chrono::DateTime::parse_from_rfc3339(first).ok();
+            let end = chrono::DateTime::parse_from_rfc3339(last).ok();
+            match (start, end) {
+                (Some(s), Some(e)) => Some((e - s).num_milliseconds()),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+
+    // Sum cache tokens across all models
+    let total_cache_read: i64 = model_tokens.values().map(|t| t.cache_read_tokens).sum();
+    let total_cache_write: i64 = model_tokens.values().map(|t| t.cache_creation_tokens).sum();
 
     // Build model_usage JSON array
     let model_usage = if model_tokens.is_empty() {
@@ -350,6 +434,17 @@ fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
         output_tokens: if total > 0 { Some(total_output) } else { None },
         total_tokens: if total > 0 { Some(total) } else { None },
         model_usage,
+        duration_ms,
+        started_at: first_timestamp,
+        ended_at: last_timestamp,
+        user_messages: if user_message_count > 0 { Some(user_message_count) } else { None },
+        assistant_messages: if assistant_message_count > 0 { Some(assistant_message_count) } else { None },
+        tool_calls_map: if tool_calls_map.is_empty() { None } else { serde_json::to_value(&tool_calls_map).ok() },
+        total_tool_calls: if total_tool_call_count > 0 { Some(total_tool_call_count) } else { None },
+        cache_read_tokens: if total_cache_read > 0 { Some(total_cache_read) } else { None },
+        cache_write_tokens: if total_cache_write > 0 { Some(total_cache_write) } else { None },
+        compactions: if compaction_count > 0 { Some(compaction_count) } else { None },
+        compaction_tokens_saved: if compaction_tokens_saved_total > 0 { Some(compaction_tokens_saved_total) } else { None },
     }
 }
 
@@ -461,6 +556,17 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
             transcript: None,
             diff_data,
             model_usage: None,
+            duration_ms: None,
+            started_at: None,
+            ended_at: None,
+            user_messages: None,
+            assistant_messages: None,
+            tool_calls: None,
+            total_tool_calls: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            compactions: None,
+            compaction_tokens_saved: None,
         };
 
         let commit_resp = client.push_trace(commit_req).await
@@ -538,6 +644,17 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
                 transcript: transcript_data.transcript,
                 diff_data: None,   // commit-level only
                 model_usage: transcript_data.model_usage,
+                duration_ms: transcript_data.duration_ms,
+                started_at: transcript_data.started_at.clone(),
+                ended_at: transcript_data.ended_at.clone(),
+                user_messages: transcript_data.user_messages,
+                assistant_messages: transcript_data.assistant_messages,
+                tool_calls: transcript_data.tool_calls_map.clone(),
+                total_tool_calls: transcript_data.total_tool_calls,
+                cache_read_tokens: transcript_data.cache_read_tokens,
+                cache_write_tokens: transcript_data.cache_write_tokens,
+                compactions: transcript_data.compactions,
+                compaction_tokens_saved: transcript_data.compaction_tokens_saved,
             };
 
             match client.push_trace(req).await {

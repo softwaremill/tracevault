@@ -17,6 +17,16 @@
 		{ href: '/settings', label: 'Settings' }
 	];
 
+	const analyticsSubItems = [
+		{ href: '/analytics', label: 'Overview' },
+		{ href: '/analytics/tokens', label: 'Tokens' },
+		{ href: '/analytics/models', label: 'Models' },
+		{ href: '/analytics/authors', label: 'Authors' },
+		{ href: '/analytics/attribution', label: 'Attribution' },
+		{ href: '/analytics/sessions', label: 'Sessions' },
+		{ href: '/analytics/cost', label: 'Cost' }
+	];
+
 	function isActive(href: string): boolean {
 		return $page.url.pathname.startsWith(href);
 	}
@@ -56,6 +66,24 @@
 				</Sidebar.Menu>
 			</Sidebar.GroupContent>
 		</Sidebar.Group>
+		{#if $page.url.pathname.startsWith('/analytics')}
+			<Sidebar.Group>
+				<Sidebar.GroupLabel>Analytics</Sidebar.GroupLabel>
+				<Sidebar.GroupContent>
+					<Sidebar.Menu>
+						{#each analyticsSubItems as item}
+							<Sidebar.MenuItem>
+								<Sidebar.MenuButton isActive={$page.url.pathname === item.href}>
+									{#snippet child({ props })}
+										<a href={item.href} {...props}>{item.label}</a>
+									{/snippet}
+								</Sidebar.MenuButton>
+							</Sidebar.MenuItem>
+						{/each}
+					</Sidebar.Menu>
+				</Sidebar.GroupContent>
+			</Sidebar.Group>
+		{/if}
 	</Sidebar.Content>
 	<Sidebar.Footer class="p-4">
 		{#if authState.user}

@@ -54,6 +54,14 @@
 		total_tokens: number;
 		created_at: string;
 	}
+	interface SessionTimePoint {
+		date: string;
+		count: number;
+	}
+	interface HourlyActivity {
+		hour: number;
+		count: number;
+	}
 	interface OverviewResponse {
 		total_commits: number;
 		total_sessions: number;
@@ -63,7 +71,17 @@
 		active_authors: number;
 		estimated_cost_usd: number;
 		ai_percentage: number | null;
+		total_duration_ms: number;
+		avg_session_duration_ms: number | null;
+		total_tool_calls: number;
+		total_compactions: number;
+		total_compaction_tokens_saved: number;
+		total_cache_read_tokens: number;
+		total_cache_write_tokens: number;
+		cache_savings_usd: number;
 		tokens_over_time: TimeSeriesPoint[];
+		sessions_over_time: SessionTimePoint[];
+		hourly_activity: HourlyActivity[];
 		top_repos: RepoTokens[];
 		model_distribution: ModelCount[];
 		recent_commits: RecentCommit[];
@@ -102,6 +120,17 @@
 
 	function fmtDate(iso: string): string {
 		return new Date(iso).toLocaleDateString();
+	}
+
+	function fmtDuration(ms: number | null): string {
+		if (ms == null) return '-';
+		const totalSeconds = Math.floor(ms / 1000);
+		const hours = Math.floor(totalSeconds / 3600);
+		const minutes = Math.floor((totalSeconds % 3600) / 60);
+		const seconds = totalSeconds % 60;
+		if (hours >= 1) return `${hours}h ${minutes}m`;
+		if (minutes >= 1) return `${minutes}m ${seconds}s`;
+		return `${seconds}s`;
 	}
 
 	function tokensChartData(d: OverviewResponse) {
@@ -148,6 +177,37 @@
 				{
 					data: d.model_distribution.map((m) => m.count),
 					backgroundColor: COLORS.slice(0, d.model_distribution.length)
+				}
+			]
+		};
+	}
+
+	function hourlyActivityChartData(d: OverviewResponse) {
+		const hours = Array.from({ length: 24 }, (_, i) => i);
+		const counts = hours.map((h) => d.hourly_activity.find((a) => a.hour === h)?.count ?? 0);
+		return {
+			labels: hours.map((h) => String(h)),
+			datasets: [
+				{
+					label: 'Sessions',
+					data: counts,
+					backgroundColor: '#8b5cf6'
+				}
+			]
+		};
+	}
+
+	function sessionsOverTimeChartData(d: OverviewResponse) {
+		return {
+			labels: d.sessions_over_time.map((p) => p.date),
+			datasets: [
+				{
+					label: 'Sessions',
+					data: d.sessions_over_time.map((p) => p.count),
+					borderColor: '#f59e0b',
+					backgroundColor: 'rgba(245,158,11,0.1)',
+					fill: true,
+					tension: 0.3
 				}
 			]
 		};
@@ -219,6 +279,33 @@
 			</Card.Root>
 		</div>
 
+		<div class="grid grid-cols-2 gap-4 md:grid-cols-3">
+			<Card.Root>
+				<Card.Header class="pb-2">
+					<Card.Description>Avg Session Duration</Card.Description>
+				</Card.Header>
+				<Card.Content>
+					<p class="text-2xl font-bold">{fmtDuration(data.avg_session_duration_ms)}</p>
+				</Card.Content>
+			</Card.Root>
+			<Card.Root>
+				<Card.Header class="pb-2">
+					<Card.Description>Total Tool Calls</Card.Description>
+				</Card.Header>
+				<Card.Content>
+					<p class="text-2xl font-bold">{fmtNum(data.total_tool_calls)}</p>
+				</Card.Content>
+			</Card.Root>
+			<Card.Root>
+				<Card.Header class="pb-2">
+					<Card.Description>Cache Savings</Card.Description>
+				</Card.Header>
+				<Card.Content>
+					<p class="text-2xl font-bold">{fmtCost(data.cache_savings_usd)}</p>
+				</Card.Content>
+			</Card.Root>
+		</div>
+
 		<div class="grid gap-6 lg:grid-cols-2">
 			<Card.Root>
 				<Card.Header>
@@ -251,6 +338,50 @@
 							type="bar"
 							data={reposChartData(data)}
 							options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
+						/>
+					{:else}
+						<p class="text-muted-foreground text-sm">No data</p>
+					{/if}
+				</Card.Content>
+			</Card.Root>
+		</div>
+
+		<div class="grid gap-6 lg:grid-cols-2">
+			<Card.Root>
+				<Card.Header>
+					<Card.Title>
+						<a href="/analytics/sessions" class="hover:underline">Hourly Activity</a>
+					</Card.Title>
+				</Card.Header>
+				<Card.Content>
+					{#if data.hourly_activity.length > 0}
+						<Chart
+							type="bar"
+							data={hourlyActivityChartData(data)}
+							options={{
+								responsive: true,
+								plugins: { legend: { display: false } },
+								scales: { x: { title: { display: true, text: 'Hour of Day' } }, y: { title: { display: true, text: 'Sessions' } } }
+							}}
+						/>
+					{:else}
+						<p class="text-muted-foreground text-sm">No data</p>
+					{/if}
+				</Card.Content>
+			</Card.Root>
+
+			<Card.Root>
+				<Card.Header>
+					<Card.Title>
+						<a href="/analytics/sessions" class="hover:underline">Sessions Over Time</a>
+					</Card.Title>
+				</Card.Header>
+				<Card.Content>
+					{#if data.sessions_over_time.length > 0}
+						<Chart
+							type="line"
+							data={sessionsOverTimeChartData(data)}
+							options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
 						/>
 					{:else}
 						<p class="text-muted-foreground text-sm">No data</p>

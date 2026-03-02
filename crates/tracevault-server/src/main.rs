@@ -11,6 +11,7 @@ mod auth;
 mod config;
 mod db;
 mod extractors;
+pub mod pricing;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -128,6 +129,14 @@ async fn main() {
         .route(
             "/api/v1/analytics/attribution",
             get(api::analytics::get_attribution),
+        )
+        .route(
+            "/api/v1/analytics/sessions",
+            get(api::analytics::get_sessions),
+        )
+        .route(
+            "/api/v1/analytics/cost",
+            get(api::analytics::get_cost),
         )
         // GitHub
         .route("/api/v1/github/webhook", post(api::github::webhook))

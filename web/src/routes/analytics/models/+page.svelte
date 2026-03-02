@@ -54,6 +54,9 @@
 		model: string;
 		avg_tokens: number;
 		avg_cost: number;
+		cache_read_tokens: number;
+		cache_write_tokens: number;
+		avg_duration_ms: number | null;
 	}
 	interface ModelsResponse {
 		distribution: ModelDistribution[];
@@ -87,6 +90,17 @@
 		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
 		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
 		return String(n);
+	}
+
+	function fmtDuration(ms: number | null): string {
+		if (ms == null) return '-';
+		const totalSeconds = Math.floor(ms / 1000);
+		const hours = Math.floor(totalSeconds / 3600);
+		const minutes = Math.floor((totalSeconds % 3600) / 60);
+		const seconds = totalSeconds % 60;
+		if (hours >= 1) return `${hours}h ${minutes}m`;
+		if (minutes >= 1) return `${minutes}m ${seconds}s`;
+		return `${seconds}s`;
 	}
 
 	function distributionChartData(d: ModelsResponse) {
@@ -234,6 +248,9 @@
 								<Table.Head>Model</Table.Head>
 								<Table.Head>Avg Tokens</Table.Head>
 								<Table.Head>Avg Cost</Table.Head>
+								<Table.Head>Cache Read</Table.Head>
+								<Table.Head>Cache Write</Table.Head>
+								<Table.Head>Avg Duration</Table.Head>
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
@@ -242,6 +259,9 @@
 									<Table.Cell><Badge variant="outline">{row.model}</Badge></Table.Cell>
 									<Table.Cell class="font-mono text-sm">{fmtNum(row.avg_tokens)}</Table.Cell>
 									<Table.Cell class="font-mono text-sm">${row.avg_cost.toFixed(4)}</Table.Cell>
+									<Table.Cell class="font-mono text-sm">{fmtNum(row.cache_read_tokens)}</Table.Cell>
+									<Table.Cell class="font-mono text-sm">{fmtNum(row.cache_write_tokens)}</Table.Cell>
+									<Table.Cell class="font-mono text-sm">{fmtDuration(row.avg_duration_ms)}</Table.Cell>
 								</Table.Row>
 							{/each}
 						</Table.Body>

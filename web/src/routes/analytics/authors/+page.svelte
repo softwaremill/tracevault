@@ -38,6 +38,9 @@
 		cost: number;
 		ai_pct: number | null;
 		last_active: string;
+		avg_duration_ms: number | null;
+		total_tool_calls: number;
+		total_compactions: number;
 	}
 	interface AuthorTimeline {
 		date: string;
@@ -84,6 +87,17 @@
 
 	function fmtDate(iso: string): string {
 		return new Date(iso).toLocaleDateString();
+	}
+
+	function fmtDuration(ms: number | null): string {
+		if (ms == null) return '-';
+		const totalSeconds = Math.floor(ms / 1000);
+		const hours = Math.floor(totalSeconds / 3600);
+		const minutes = Math.floor((totalSeconds % 3600) / 60);
+		const seconds = totalSeconds % 60;
+		if (hours >= 1) return `${hours}h ${minutes}m`;
+		if (minutes >= 1) return `${minutes}m ${seconds}s`;
+		return `${seconds}s`;
 	}
 
 	function timelineChartData(d: AuthorsResponse) {
@@ -134,6 +148,9 @@
 								<Table.Head>Tokens</Table.Head>
 								<Table.Head>Cost</Table.Head>
 								<Table.Head>AI %</Table.Head>
+								<Table.Head>Avg Duration</Table.Head>
+								<Table.Head>Tool Calls</Table.Head>
+								<Table.Head>Compactions</Table.Head>
 								<Table.Head>Last Active</Table.Head>
 								<Table.Head>Models</Table.Head>
 							</Table.Row>
@@ -149,6 +166,9 @@
 									<Table.Cell>
 										{row.ai_pct != null ? `${row.ai_pct.toFixed(1)}%` : 'N/A'}
 									</Table.Cell>
+									<Table.Cell class="font-mono text-sm">{fmtDuration(row.avg_duration_ms)}</Table.Cell>
+									<Table.Cell class="font-mono text-sm">{fmtNum(row.total_tool_calls)}</Table.Cell>
+									<Table.Cell>{row.total_compactions}</Table.Cell>
 									<Table.Cell>{fmtDate(row.last_active)}</Table.Cell>
 									<Table.Cell>
 										<div class="flex flex-wrap gap-1">

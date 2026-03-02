@@ -27,6 +27,17 @@ pub struct PushTraceRequest {
     pub transcript: Option<serde_json::Value>,
     pub diff_data: Option<serde_json::Value>,
     pub model_usage: Option<serde_json::Value>,
+    pub duration_ms: Option<i64>,
+    pub started_at: Option<String>,
+    pub ended_at: Option<String>,
+    pub user_messages: Option<i32>,
+    pub assistant_messages: Option<i32>,
+    pub tool_calls: Option<serde_json::Value>,
+    pub total_tool_calls: Option<i32>,
+    pub cache_read_tokens: Option<i64>,
+    pub cache_write_tokens: Option<i64>,
+    pub compactions: Option<i32>,
+    pub compaction_tokens_saved: Option<i64>,
 }
 
 #[derive(Deserialize)]

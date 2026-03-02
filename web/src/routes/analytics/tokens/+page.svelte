@@ -51,6 +51,9 @@
 		time_series: TokenTimePoint[];
 		by_repo: RepoTokenDetail[];
 		by_author: AuthorTokens[];
+		cache_read_tokens: number;
+		cache_write_tokens: number;
+		cache_savings_usd: number;
 	}
 
 	let data: TokensResponse | null = $state(null);
@@ -148,6 +151,33 @@
 	{:else if error}
 		<p class="text-destructive">{error}</p>
 	{:else if data}
+		<div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+			<Card.Root>
+				<Card.Header class="pb-2">
+					<Card.Description>Cache Read Tokens</Card.Description>
+				</Card.Header>
+				<Card.Content>
+					<p class="text-2xl font-bold">{fmtNum(data.cache_read_tokens)}</p>
+				</Card.Content>
+			</Card.Root>
+			<Card.Root>
+				<Card.Header class="pb-2">
+					<Card.Description>Cache Write Tokens</Card.Description>
+				</Card.Header>
+				<Card.Content>
+					<p class="text-2xl font-bold">{fmtNum(data.cache_write_tokens)}</p>
+				</Card.Content>
+			</Card.Root>
+			<Card.Root>
+				<Card.Header class="pb-2">
+					<Card.Description>Cache Savings</Card.Description>
+				</Card.Header>
+				<Card.Content>
+					<p class="text-2xl font-bold">${data.cache_savings_usd.toFixed(2)}</p>
+				</Card.Content>
+			</Card.Root>
+		</div>
+
 		<Card.Root>
 			<Card.Header>
 				<Card.Title>Tokens Over Time</Card.Title>

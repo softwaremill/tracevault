@@ -1,0 +1,11 @@
+ALTER TABLE sessions ADD COLUMN duration_ms BIGINT;
+ALTER TABLE sessions ADD COLUMN started_at TIMESTAMPTZ;
+ALTER TABLE sessions ADD COLUMN ended_at TIMESTAMPTZ;
+ALTER TABLE sessions ADD COLUMN user_messages INTEGER;
+ALTER TABLE sessions ADD COLUMN assistant_messages INTEGER;
+ALTER TABLE sessions ADD COLUMN tool_calls JSONB;
+ALTER TABLE sessions ADD COLUMN total_tool_calls INTEGER;
+ALTER TABLE sessions ADD COLUMN cache_read_tokens BIGINT;
+ALTER TABLE sessions ADD COLUMN cache_write_tokens BIGINT;
+ALTER TABLE sessions ADD COLUMN compactions INTEGER;
+ALTER TABLE sessions ADD COLUMN compaction_tokens_saved BIGINT;
