@@ -1,0 +1,45 @@
+crates/tracevault-cli/src/commands/push.rs
+  291773e174bbb95e 4,12,36,39-52,54-106,108-121,429-443,446,448,450-456,458-463,466-470,472-474,476-478,480,487-490,492-494,497-498,502-515,518-543,550-551,555-559,566,574-576
+  a397284d73f4d5db 182-189,196-226,229-246,256,277,302-304,307-308,318-322,326-344,352
+crates/tracevault-server/src/api/traces.rs
+  a397284d73f4d5db 26,94-95,105-106,120
+crates/tracevault-cli/src/api_client.rs
+  a397284d73f4d5db 29
+crates/tracevault-server/migrations/006_model_usage.sql
+  a397284d73f4d5db 1
+crates/tracevault-server/src/api/analytics.rs
+  a397284d73f4d5db 238,240-241,245-248,254-255,467-476,480-483,489-490,492,499,506,513,608-610,614-617,623-627
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "cc00fa661a276bccb3a9a6d0cb14f2ba65b20185",
+  "prompts": {
+    "291773e174bbb95e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "629fb3e9-7f77-4415-b8ff-2be06983e25c",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 217,
+      "total_deletions": 123,
+      "accepted_lines": 193,
+      "overriden_lines": 0
+    },
+    "a397284d73f4d5db": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8f8b2fa7-8e21-485b-b508-e857f6879f34",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 169,
+      "total_deletions": 81,
+      "accepted_lines": 142,
+      "overriden_lines": 0
+    }
+  }
+}
