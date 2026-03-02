@@ -69,6 +69,41 @@ pub struct DeviceStatusResponse {
     pub org_name: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct CheckPoliciesRequest {
+    pub sessions: Vec<SessionCheckData>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionCheckData {
+    pub session_id: String,
+    pub tool_calls: Option<serde_json::Value>,
+    pub files_modified: Option<Vec<String>>,
+    pub total_tool_calls: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CheckPoliciesResponse {
+    pub passed: bool,
+    pub results: Vec<CheckResultItem>,
+    pub blocked: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CheckResultItem {
+    pub rule_name: String,
+    pub result: String,
+    pub action: String,
+    pub severity: String,
+    pub details: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RepoListItem {
+    pub id: uuid::Uuid,
+    pub name: String,
+}
+
 impl ApiClient {
     pub fn new(base_url: &str, api_key: Option<&str>) -> Self {
         Self {
@@ -169,6 +204,49 @@ impl ApiClient {
             return Err(format!("Server returned {status}: {body}").into());
         }
         Ok(())
+    }
+
+    pub async fn list_repos(&self) -> Result<Vec<RepoListItem>, Box<dyn Error>> {
+        let mut builder = self.client.get(format!("{}/api/v1/repos", self.base_url));
+        if let Some(key) = &self.api_key {
+            builder = builder.header("Authorization", format!("Bearer {key}"));
+        }
+
+        let resp = builder.send().await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Failed to list repos ({status}): {body}").into());
+        }
+
+        let repos: Vec<RepoListItem> = resp.json().await?;
+        Ok(repos)
+    }
+
+    pub async fn check_policies(
+        &self,
+        repo_id: &uuid::Uuid,
+        req: CheckPoliciesRequest,
+    ) -> Result<CheckPoliciesResponse, Box<dyn Error>> {
+        let mut builder = self.client.post(format!(
+            "{}/api/v1/repos/{}/policies/check",
+            self.base_url, repo_id
+        ));
+        if let Some(key) = &self.api_key {
+            builder = builder.header("Authorization", format!("Bearer {key}"));
+        }
+
+        let resp = builder.json(&req).send().await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Policy check failed ({status}): {body}").into());
+        }
+
+        let result: CheckPoliciesResponse = resp.json().await?;
+        Ok(result)
     }
 }
 

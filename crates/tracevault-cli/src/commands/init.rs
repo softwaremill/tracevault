@@ -113,7 +113,7 @@ fn install_git_hook(project_root: &Path) -> Result<(), io::Error> {
 
     let hook_path = hooks_dir.join("pre-push");
     let tracevault_block = format!(
-        "{HOOK_MARKER}\ntracevault sync 2>/dev/null || true\ntracevault push || {{ echo \"tracevault: push failed, git push blocked.\"; exit 1; }}\n"
+        "{HOOK_MARKER}\ntracevault sync 2>/dev/null || true\ntracevault check || {{ echo \"tracevault: policy check failed, push blocked.\"; exit 1; }}\ntracevault push || {{ echo \"tracevault: push failed, git push blocked.\"; exit 1; }}\n"
     );
 
     if hook_path.exists() {
