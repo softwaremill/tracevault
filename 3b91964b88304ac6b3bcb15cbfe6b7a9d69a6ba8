@@ -1,0 +1,53 @@
+crates/tracevault-server/migrations/007_session_metrics.sql
+  291773e174bbb95e 1-11
+web/src/routes/analytics/tokens/+page.svelte
+  291773e174bbb95e 54-56,154-180
+crates/tracevault-server/src/api/traces.rs
+  291773e174bbb95e 27-37,103-117,120-125,136-147,157,162-172
+crates/tracevault-server/src/pricing.rs
+  291773e174bbb95e 1-107
+web/src/routes/analytics/+page.svelte
+  291773e174bbb95e 57-64,74-81,83-84,125-135,184-214,282-308,353-392
+web/src/lib/components/app-sidebar.svelte
+  291773e174bbb95e 20-29,69-86
+crates/tracevault-cli/src/commands/push.rs
+  291773e174bbb95e 197-207,268-278,300-307,315-330,353-375,393-409,437-447,559-569,647-657
+web/src/routes/analytics/authors/+page.svelte
+  291773e174bbb95e 41-43,92-102,151-153,169-171
+docs/plans/2026-03-02-session-analytics-implementation-plan.md
+  291773e174bbb95e 1-820
+docs/plans/2026-03-02-session-analytics-design.md
+  291773e174bbb95e 1-185
+web/src/routes/analytics/sessions/+page.svelte
+  291773e174bbb95e 1-311
+web/src/routes/analytics/models/+page.svelte
+  291773e174bbb95e 57-59,95-105,251-253,262-264
+crates/tracevault-server/src/main.rs
+  291773e174bbb95e 14,133-140
+web/src/routes/analytics/cost/+page.svelte
+  291773e174bbb95e 1-254
+crates/tracevault-server/src/api/analytics.rs
+  291773e174bbb95e 100-107,109-110,116-125,163-164,172-179,319-367,377-384,386-387,403-405,505-528,533-535,576-578,597-600,636-637,647-648,671-673,697,705-708,766-768,905-1242
+crates/tracevault-cli/src/api_client.rs
+  291773e174bbb95e 30-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "3b91964b88304ac6b3bcb15cbfe6b7a9d69a6ba8",
+  "prompts": {
+    "291773e174bbb95e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "629fb3e9-7f77-4415-b8ff-2be06983e25c",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 2594,
+      "total_deletions": 17,
+      "accepted_lines": 2593,
+      "overriden_lines": 0
+    }
+  }
+}
