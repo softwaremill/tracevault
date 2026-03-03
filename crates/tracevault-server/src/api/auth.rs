@@ -86,6 +86,12 @@ pub async fn register(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    crate::audit::log(&state.pool, crate::audit::user_action(
+        org_id, user_id,
+        "user.create", "user", Some(user_id),
+        Some(serde_json::json!({"email": &req.email})),
+    )).await;
+
     Ok((
         StatusCode::CREATED,
         Json(RegisterResponse {
@@ -157,6 +163,12 @@ pub async fn login(
     .execute(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    crate::audit::log(&state.pool, crate::audit::user_action(
+        org_id, user_id,
+        "user.login", "user", Some(user_id),
+        None,
+    )).await;
 
     Ok(Json(LoginResponse {
         token: raw_token,

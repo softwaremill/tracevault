@@ -136,10 +136,18 @@ pub async fn create_repo_policy(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    let policy_id = row.0;
+
+    crate::audit::log(&state.pool, crate::audit::user_action(
+        auth.org_id, auth.user_id,
+        "policy.create", "policy", Some(policy_id),
+        Some(serde_json::json!({"name": &req.name})),
+    )).await;
+
     Ok((
         StatusCode::CREATED,
         Json(PolicyResponse {
-            id: row.0,
+            id: policy_id,
             org_id: auth.org_id,
             repo_id: Some(repo_id),
             name: req.name,
@@ -187,19 +195,27 @@ pub async fn update_policy(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     match row {
-        Some(r) => Ok(Json(PolicyResponse {
-            id,
-            org_id: r.0,
-            repo_id: r.1,
-            name: r.2,
-            description: r.3,
-            condition: r.4,
-            action: r.5,
-            severity: r.6,
-            enabled: r.7,
-            created_at: r.8,
-            updated_at: r.9,
-        })),
+        Some(r) => {
+            crate::audit::log(&state.pool, crate::audit::user_action(
+                auth.org_id, auth.user_id,
+                "policy.update", "policy", Some(id),
+                None,
+            )).await;
+
+            Ok(Json(PolicyResponse {
+                id,
+                org_id: r.0,
+                repo_id: r.1,
+                name: r.2,
+                description: r.3,
+                condition: r.4,
+                action: r.5,
+                severity: r.6,
+                enabled: r.7,
+                created_at: r.8,
+                updated_at: r.9,
+            }))
+        }
         None => Err((StatusCode::NOT_FOUND, "Policy not found".into())),
     }
 }
@@ -221,6 +237,12 @@ pub async fn delete_policy(
     if result.rows_affected() == 0 {
         return Err((StatusCode::NOT_FOUND, "Policy not found".into()));
     }
+
+    crate::audit::log(&state.pool, crate::audit::user_action(
+        auth.org_id, auth.user_id,
+        "policy.delete", "policy", Some(id),
+        None,
+    )).await;
 
     Ok(StatusCode::OK)
 }
@@ -333,6 +355,12 @@ pub async fn check_policies(
     }
 
     let all_passed = results.iter().all(|r| r.result == "pass");
+
+    crate::audit::log(&state.pool, crate::audit::user_action(
+        auth.org_id, auth.user_id,
+        "policy.check", "commit", None,
+        Some(serde_json::json!({"passed": all_passed, "blocked": has_block_failure})),
+    )).await;
 
     Ok(Json(CheckResponse {
         passed: all_passed,
