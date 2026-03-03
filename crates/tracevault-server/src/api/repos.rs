@@ -108,6 +108,7 @@ pub struct RepoResponse {
     pub id: Uuid,
     pub name: String,
     pub github_url: Option<String>,
+    pub clone_status: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -115,8 +116,8 @@ pub async fn list_repos(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Vec<RepoResponse>>, (StatusCode, String)> {
-    let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, chrono::DateTime<chrono::Utc>)>(
-        "SELECT id, name, github_url, created_at FROM repos WHERE org_id = $1 ORDER BY name",
+    let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, String, chrono::DateTime<chrono::Utc>)>(
+        "SELECT id, name, github_url, clone_status, created_at FROM repos WHERE org_id = $1 ORDER BY name",
     )
     .bind(auth.org_id)
     .fetch_all(&state.pool)
@@ -129,7 +130,8 @@ pub async fn list_repos(
             id: r.0,
             name: r.1,
             github_url: r.2,
-            created_at: r.3,
+            clone_status: r.3,
+            created_at: r.4,
         })
         .collect();
 

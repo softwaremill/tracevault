@@ -36,15 +36,26 @@
 		updated_at: string;
 	}
 
+	interface Repo {
+		id: string;
+		name: string;
+		github_url: string | null;
+		clone_status: string;
+		created_at: string;
+	}
+
 	let commits: CommitListItem[] = $state([]);
 	let policies: Policy[] = $state([]);
+	let repo: Repo | null = $state(null);
 	let repoName = $state('');
 	let loading = $state(true);
 	let policiesLoading = $state(true);
 	let error = $state('');
 	let policiesError = $state('');
+	let syncing = $state(false);
 
 	const repoId = $derived($page.params.id);
+	const cloneStatus = $derived(repo?.clone_status ?? 'pending');
 
 	// Create policy dialog state
 	let createOpen = $state(false);
@@ -63,8 +74,41 @@
 	let newToolNames = $state('');
 
 	onMount(async () => {
-		await Promise.all([loadCommits(), loadPolicies()]);
+		await Promise.all([loadRepo(), loadCommits(), loadPolicies()]);
 	});
+
+	async function loadRepo() {
+		try {
+			const repos = await api.get<Repo[]>('/api/v1/repos');
+			repo = repos.find((r) => r.id === repoId) ?? null;
+			if (repo) repoName = repo.name;
+		} catch {
+			// non-critical, name stays as id
+		}
+	}
+
+	async function handleSync() {
+		syncing = true;
+		try {
+			const result = await api.post<{ status: string }>(`/api/v1/repos/${repoId}/sync`);
+			if (result.status === 'cloning') {
+				// Poll until ready
+				const poll = setInterval(async () => {
+					await loadRepo();
+					if (repo?.clone_status === 'ready') {
+						clearInterval(poll);
+						syncing = false;
+					}
+				}, 3000);
+			} else {
+				await loadRepo();
+				syncing = false;
+			}
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Sync failed';
+			syncing = false;
+		}
+	}
 
 	async function loadCommits() {
 		try {
@@ -209,15 +253,44 @@
 			<span class="text-muted-foreground">/</span>
 			<h1 class="text-2xl font-bold">{repoName || repoId}</h1>
 		</div>
-		<a
-			href="/repos/{repoId}/code"
-			class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-		>
-			<svg class="h-4 w-4" viewBox="0 0 16 16" fill="currentColor">
-				<path d="M4.72 3.22a.75.75 0 011.06 1.06L2.06 8l3.72 3.72a.75.75 0 11-1.06 1.06L.47 8.53a.75.75 0 010-1.06l4.25-4.25zm6.56 0a.75.75 0 10-1.06 1.06L13.94 8l-3.72 3.72a.75.75 0 101.06 1.06l4.25-4.25a.75.75 0 000-1.06l-4.25-4.25z" />
-			</svg>
-			Browse Code
-		</a>
+		<div class="flex items-center gap-2">
+			{#if cloneStatus === 'ready'}
+				<a
+					href="/repos/{repoId}/code"
+					class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+				>
+					<svg class="h-4 w-4" viewBox="0 0 16 16" fill="currentColor">
+						<path d="M4.72 3.22a.75.75 0 011.06 1.06L2.06 8l3.72 3.72a.75.75 0 11-1.06 1.06L.47 8.53a.75.75 0 010-1.06l4.25-4.25zm6.56 0a.75.75 0 10-1.06 1.06L13.94 8l-3.72 3.72a.75.75 0 101.06 1.06l4.25-4.25a.75.75 0 000-1.06l-4.25-4.25z" />
+					</svg>
+					Browse Code
+				</a>
+			{:else if cloneStatus === 'cloning' || syncing}
+				<span class="inline-flex items-center gap-2 rounded-md bg-muted px-4 py-2 text-sm font-medium text-muted-foreground">
+					<svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M6.34 6.34L3.51 3.51" />
+					</svg>
+					Cloning repository...
+				</span>
+			{:else}
+				<button
+					onclick={handleSync}
+					disabled={syncing || !repo?.github_url}
+					class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+				>
+					<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+					</svg>
+					Sync Repository
+				</button>
+				{#if !repo?.github_url}
+					<span class="text-xs text-muted-foreground">No GitHub URL configured</span>
+				{:else if cloneStatus === 'error'}
+					<Badge variant="destructive">Clone failed</Badge>
+				{:else}
+					<Badge variant="secondary">Not cloned</Badge>
+				{/if}
+			{/if}
+		</div>
 	</div>
 
 	<!-- Policies Section -->
