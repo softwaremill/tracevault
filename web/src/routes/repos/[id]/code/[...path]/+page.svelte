@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
 	import type { BranchInfo, TreeEntry, BlobResponse, StoryResponse } from '$lib/types/code';
@@ -11,7 +10,7 @@
 
 	const repoId = $derived($page.params.id);
 	const filePath = $derived($page.params.path);
-	let gitRef = $derived($page.url.searchParams.get('ref') || 'main');
+	const refFromUrl = $derived($page.url.searchParams.get('ref'));
 
 	let branches = $state<BranchInfo[]>([]);
 	let treeEntries = $state<TreeEntry[]>([]);
@@ -19,25 +18,46 @@
 	let isDirectory = $state(true);
 	let loading = $state(true);
 	let error = $state('');
+	let resolvedRef = $state('');
 
 	// Story state
 	let story = $state<StoryResponse | null>(null);
 	let storyLoading = $state(false);
+	let storyError = $state('');
 	let selectedLine = $state<number | null>(null);
 
-	onMount(async () => {
+	// Re-run when path or ref changes (onMount only fires once, not on SvelteKit navigation)
+	$effect(() => {
+		const currentPath = filePath;
+		const currentRefFromUrl = refFromUrl;
+		loadContent(currentPath, currentRefFromUrl);
+	});
+
+	async function loadContent(path: string, urlRef: string | null) {
+		loading = true;
+		error = '';
+		blob = null;
+		treeEntries = [];
+		isDirectory = true;
+		story = null;
+		selectedLine = null;
+
 		try {
-			branches = await api.get<BranchInfo[]>(`/api/v1/repos/${repoId}/code/branches`);
+			if (branches.length === 0) {
+				branches = await api.get<BranchInfo[]>(`/api/v1/repos/${repoId}/code/branches`);
+			}
+			const defaultBranch = branches.find((br) => br.is_default)?.name ?? branches[0]?.name ?? 'HEAD';
+			resolvedRef = urlRef || defaultBranch;
 
 			// Try as tree first, fall back to blob
 			try {
 				treeEntries = await api.get<TreeEntry[]>(
-					`/api/v1/repos/${repoId}/code/tree?ref=${encodeURIComponent(gitRef)}&path=${encodeURIComponent(filePath)}`
+					`/api/v1/repos/${repoId}/code/tree?ref=${encodeURIComponent(resolvedRef)}&path=${encodeURIComponent(path)}`
 				);
 				isDirectory = true;
 			} catch {
 				blob = await api.get<BlobResponse>(
-					`/api/v1/repos/${repoId}/code/blob?ref=${encodeURIComponent(gitRef)}&path=${encodeURIComponent(filePath)}`
+					`/api/v1/repos/${repoId}/code/blob?ref=${encodeURIComponent(resolvedRef)}&path=${encodeURIComponent(path)}`
 				);
 				isDirectory = false;
 			}
@@ -46,11 +66,14 @@
 		} finally {
 			loading = false;
 		}
-	});
+	}
+
+	const gitRef = $derived(resolvedRef);
 
 	async function handleLineClick(line: number) {
 		selectedLine = line;
 		storyLoading = true;
+		storyError = '';
 		story = null;
 		try {
 			story = await api.post<StoryResponse>(`/api/v1/repos/${repoId}/story`, {
@@ -59,7 +82,7 @@
 				line
 			});
 		} catch (e) {
-			console.error('Story generation failed:', e);
+			storyError = e instanceof Error ? e.message : 'Story generation failed';
 		}
 		storyLoading = false;
 	}
@@ -67,6 +90,7 @@
 	async function handleRegenerate() {
 		if (!selectedLine) return;
 		storyLoading = true;
+		storyError = '';
 		story = null;
 		try {
 			story = await api.post<StoryResponse>(`/api/v1/repos/${repoId}/story?force=true`, {
@@ -75,7 +99,7 @@
 				line: selectedLine
 			});
 		} catch (e) {
-			console.error('Story regeneration failed:', e);
+			storyError = e instanceof Error ? e.message : 'Story regeneration failed';
 		}
 		storyLoading = false;
 	}
@@ -123,9 +147,11 @@
 <StoryPanel
 	{story}
 	loading={storyLoading}
+	error={storyError}
 	onClose={() => {
 		story = null;
 		storyLoading = false;
+		storyError = '';
 		selectedLine = null;
 	}}
 	onRegenerate={handleRegenerate}

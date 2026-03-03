@@ -10,8 +10,16 @@ pub struct StoryContext {
 }
 
 #[derive(Debug, serde::Serialize)]
+pub struct SessionRef {
+    pub id: Uuid,
+    pub session_id: String,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
 pub struct ChangeEntry {
     pub commit_sha: String,
+    pub commit_uuid: Option<Uuid>,
     pub author: String,
     pub date: String,
     pub message: String,
@@ -19,6 +27,7 @@ pub struct ChangeEntry {
     pub session_transcript_excerpt: Option<String>,
     pub ai_percentage: Option<f64>,
     pub model: Option<String>,
+    pub sessions: Vec<SessionRef>,
 }
 
 /// Intermediate struct for git data extracted synchronously
@@ -104,8 +113,11 @@ pub async fn gather_story_context(
     // 2. Enrich with TraceVault DB data (async)
     let mut changes = Vec::new();
     for gc in &git_commits {
-        let tv_data = sqlx::query_as::<_, (Option<serde_json::Value>, Option<serde_json::Value>)>(
-            "SELECT c.attribution, s.transcript FROM commits c LEFT JOIN sessions s ON s.commit_id = c.id WHERE c.repo_id = $1 AND c.commit_sha = $2 LIMIT 1",
+        // Fetch commit UUID, attribution, and first transcript for context
+        let tv_data = sqlx::query_as::<_, (Uuid, Option<serde_json::Value>, Option<serde_json::Value>)>(
+            "SELECT c.id, c.attribution, s.transcript \
+             FROM commits c LEFT JOIN sessions s ON s.commit_id = c.id \
+             WHERE c.repo_id = $1 AND c.commit_sha = $2 LIMIT 1",
         )
         .bind(repo_id)
         .bind(&gc.sha)
@@ -114,32 +126,45 @@ pub async fn gather_story_context(
         .ok()
         .flatten();
 
-        let (ai_percentage, session_excerpt, model) = if let Some((attr, transcript)) = &tv_data {
-            let pct = attr
-                .as_ref()
-                .and_then(|a| a.get("ai_percentage"))
-                .and_then(|v| v.as_f64());
-            let excerpt =
-                transcript
+        let (commit_uuid, ai_percentage, session_excerpt, model, sessions) =
+            if let Some((c_id, attr, transcript)) = &tv_data {
+                let pct = attr
                     .as_ref()
-                    .and_then(|t| extract_relevant_excerpt(t, file_path, &scope.name));
-            let model = sqlx::query_scalar::<_, Option<String>>(
-                "SELECT s.model FROM sessions s JOIN commits c ON c.id = s.commit_id WHERE c.repo_id = $1 AND c.commit_sha = $2 LIMIT 1",
-            )
-            .bind(repo_id)
-            .bind(&gc.sha)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten()
-            .flatten();
-            (pct, excerpt, model)
-        } else {
-            (None, None, None)
-        };
+                    .and_then(|a| a.get("ai_percentage"))
+                    .and_then(|v| v.as_f64());
+                let excerpt =
+                    transcript
+                        .as_ref()
+                        .and_then(|t| extract_relevant_excerpt(t, file_path, &scope.name));
+
+                // Fetch all sessions for this commit
+                let session_rows = sqlx::query_as::<_, (Uuid, String, Option<String>)>(
+                    "SELECT s.id, s.session_id, s.model \
+                     FROM sessions s WHERE s.commit_id = $1 ORDER BY s.created_at",
+                )
+                .bind(c_id)
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default();
+
+                let model = session_rows.first().and_then(|r| r.2.clone());
+                let sessions: Vec<SessionRef> = session_rows
+                    .into_iter()
+                    .map(|(id, sid, m)| SessionRef {
+                        id,
+                        session_id: sid,
+                        model: m,
+                    })
+                    .collect();
+
+                (Some(*c_id), pct, excerpt, model, sessions)
+            } else {
+                (None, None, None, None, vec![])
+            };
 
         changes.push(ChangeEntry {
             commit_sha: gc.sha.clone(),
+            commit_uuid,
             author: gc.author.clone(),
             date: gc.date.clone(),
             message: gc.message.clone(),
@@ -147,6 +172,7 @@ pub async fn gather_story_context(
             session_transcript_excerpt: session_excerpt,
             ai_percentage,
             model,
+            sessions,
         });
     }
 

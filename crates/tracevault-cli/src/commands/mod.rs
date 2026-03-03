@@ -6,3 +6,4 @@ pub mod logout;
 pub mod push;
 pub mod stats;
 pub mod sync;
+pub mod verify;

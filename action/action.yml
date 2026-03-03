@@ -1,5 +1,5 @@
-name: "TraceVault Check"
-description: "Evaluate AI code governance policies on pull requests"
+name: "TraceVault Verify"
+description: "Verify AI code governance traces and policies on pull requests and pushes"
 branding:
   icon: shield
   color: blue
@@ -7,16 +7,14 @@ branding:
 inputs:
   server-url:
     description: "TraceVault server URL"
-    required: false
-    default: ""
+    required: true
   api-key:
     description: "TraceVault API key"
+    required: true
+  version:
+    description: "TraceVault CLI version to install (default: latest)"
     required: false
-    default: ""
-  policies:
-    description: "Comma-separated list of policies to enforce (default: all)"
-    required: false
-    default: "all"
+    default: "latest"
 
 runs:
   using: "composite"
@@ -24,62 +22,73 @@ runs:
     - name: Install TraceVault CLI
       shell: bash
       run: |
-        # Download latest tracevault binary
-        # For MVP: build from source or download release binary
-        echo "Installing TraceVault CLI..."
-        if ! command -v tracevault &> /dev/null; then
-          echo "::warning::TraceVault CLI not found. Install it or add it to the release."
+        VERSION="${{ inputs.version }}"
+        if [ "$VERSION" = "latest" ]; then
+          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/softwaremill/tracevault/releases/latest \
+            | grep "browser_download_url.*tracevault-.*linux-x86_64" \
+            | head -1 \
+            | cut -d '"' -f 4)
+        else
+          DOWNLOAD_URL="https://github.com/softwaremill/tracevault/releases/download/${VERSION}/tracevault-linux-x86_64"
         fi
 
-    - name: Check traces and evaluate policies
+        if [ -z "$DOWNLOAD_URL" ]; then
+          echo "::error::Could not determine download URL for TraceVault CLI"
+          exit 1
+        fi
+
+        echo "Downloading TraceVault CLI from ${DOWNLOAD_URL}..."
+        curl -sL "$DOWNLOAD_URL" -o /usr/local/bin/tracevault
+        chmod +x /usr/local/bin/tracevault
+        tracevault --version
+
+    - name: Detect commit range
+      id: commits
+      shell: bash
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          RANGE="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+        else
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.event.after }}"
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            # New branch push — verify only the head commit
+            RANGE="$AFTER~1..$AFTER"
+          else
+            RANGE="${BEFORE}..${AFTER}"
+          fi
+        fi
+        echo "range=${RANGE}" >> "$GITHUB_OUTPUT"
+        echo "Commit range: ${RANGE}"
+
+    - name: Verify commits
       shell: bash
       env:
         TRACEVAULT_SERVER_URL: ${{ inputs.server-url }}
         TRACEVAULT_API_KEY: ${{ inputs.api-key }}
       run: |
-        echo "## TraceVault Report" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
+        RANGE="${{ steps.commits.outputs.range }}"
 
-        # Read git notes for tracevault data
-        git fetch origin refs/notes/tracevault:refs/notes/tracevault 2>/dev/null || true
+        echo "## TraceVault Verification" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
 
-        # Get commits in this PR
-        BASE_SHA="${{ github.event.pull_request.base.sha }}"
-        HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-
-        COMMITS=$(git log --format=%H ${BASE_SHA}..${HEAD_SHA} 2>/dev/null || echo "")
-
-        if [ -z "$COMMITS" ]; then
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Status | No commits found in PR |" >> $GITHUB_STEP_SUMMARY
-          exit 0
-        fi
-
-        TRACE_COUNT=0
-        TOTAL_AI_PCT=0
-        TOTAL_TOKENS=0
-
-        for SHA in $COMMITS; do
-          NOTE=$(git notes --ref=tracevault show $SHA 2>/dev/null || echo "")
-          if [ -n "$NOTE" ]; then
-            TRACE_COUNT=$((TRACE_COUNT + 1))
-          fi
-        done
-
-        COMMIT_COUNT=$(echo "$COMMITS" | wc -l | tr -d ' ')
-
-        echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-        echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Commits | $COMMIT_COUNT |" >> $GITHUB_STEP_SUMMARY
-        echo "| Traces found | $TRACE_COUNT |" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-
-        # Policy evaluation
-        echo "### Policy Results" >> $GITHUB_STEP_SUMMARY
-
-        if [ "$TRACE_COUNT" -eq 0 ] && [ "$COMMIT_COUNT" -gt 0 ]; then
-          echo "- :warning: No traces found for $COMMIT_COUNT commit(s)" >> $GITHUB_STEP_SUMMARY
+        if tracevault verify --range "$RANGE" 2>&1 | tee /tmp/tracevault-output.txt; then
+          echo "| Result | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Verification | :white_check_mark: Passed |" >> "$GITHUB_STEP_SUMMARY"
         else
-          echo "- :white_check_mark: Traces present for $TRACE_COUNT/$COMMIT_COUNT commit(s)" >> $GITHUB_STEP_SUMMARY
+          echo "| Result | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Verification | :x: Failed |" >> "$GITHUB_STEP_SUMMARY"
         fi
+
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "<details><summary>Details</summary>" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo '```' >> "$GITHUB_STEP_SUMMARY"
+        cat /tmp/tracevault-output.txt >> "$GITHUB_STEP_SUMMARY"
+        echo '```' >> "$GITHUB_STEP_SUMMARY"
+        echo "</details>" >> "$GITHUB_STEP_SUMMARY"
+
+        # Re-run to get the exit code (tee masks it)
+        tracevault verify --range "$RANGE"

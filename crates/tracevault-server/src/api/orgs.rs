@@ -239,3 +239,172 @@ pub async fn change_role(
 
     Ok(StatusCode::OK)
 }
+
+// --- LLM Settings ---
+
+#[derive(Serialize)]
+pub struct LlmSettingsResponse {
+    pub provider: Option<String>,
+    pub has_api_key: bool,
+    pub model: Option<String>,
+    pub base_url: Option<String>,
+}
+
+pub async fn get_llm_settings(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(org_id): Path<Uuid>,
+) -> Result<Json<LlmSettingsResponse>, (StatusCode, String)> {
+    if auth.org_id != org_id {
+        return Err((StatusCode::FORBIDDEN, "Access denied".into()));
+    }
+    if auth.role != "owner" && auth.role != "admin" {
+        return Err((StatusCode::FORBIDDEN, "Requires admin role".into()));
+    }
+
+    let row = sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>, Option<String>)>(
+        "SELECT llm_provider, llm_api_key_encrypted, llm_model, llm_base_url
+         FROM org_compliance_settings WHERE org_id = $1",
+    )
+    .bind(org_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if let Some(r) = row {
+        Ok(Json(LlmSettingsResponse {
+            provider: r.0,
+            has_api_key: r.1.is_some(),
+            model: r.2,
+            base_url: r.3,
+        }))
+    } else {
+        Ok(Json(LlmSettingsResponse {
+            provider: None,
+            has_api_key: false,
+            model: None,
+            base_url: None,
+        }))
+    }
+}
+
+#[derive(Deserialize)]
+pub struct UpdateLlmSettingsRequest {
+    pub provider: Option<String>,
+    pub api_key: Option<String>,
+    pub model: Option<String>,
+    pub base_url: Option<String>,
+}
+
+pub async fn update_llm_settings(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(org_id): Path<Uuid>,
+    Json(req): Json<UpdateLlmSettingsRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    if auth.org_id != org_id {
+        return Err((StatusCode::FORBIDDEN, "Access denied".into()));
+    }
+    if auth.role != "owner" && auth.role != "admin" {
+        return Err((StatusCode::FORBIDDEN, "Requires admin role".into()));
+    }
+
+    if let Some(ref provider) = req.provider {
+        if provider != "anthropic" && provider != "openai" {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Provider must be 'anthropic' or 'openai'".into(),
+            ));
+        }
+    }
+
+    // Encrypt API key if provided
+    let (encrypted_key, nonce) = if let Some(ref api_key) = req.api_key {
+        let enc_key = state.encryption_key.as_ref().ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Encryption key not configured on server".into(),
+        ))?;
+        let (ct, n) = crate::encryption::encrypt(api_key, enc_key)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Encryption error: {e}")))?;
+        (Some(ct), Some(n))
+    } else {
+        (None, None)
+    };
+
+    // Upsert: ensure row exists for this org
+    sqlx::query(
+        "INSERT INTO org_compliance_settings (org_id) VALUES ($1) ON CONFLICT (org_id) DO NOTHING",
+    )
+    .bind(org_id)
+    .execute(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Build dynamic UPDATE
+    let mut set_clauses = vec!["updated_at = NOW()".to_string()];
+    let mut param_idx = 2u32; // $1 is org_id
+
+    if req.provider.is_some() {
+        set_clauses.push(format!("llm_provider = ${param_idx}"));
+        param_idx += 1;
+    }
+    if encrypted_key.is_some() {
+        set_clauses.push(format!("llm_api_key_encrypted = ${param_idx}"));
+        param_idx += 1;
+        set_clauses.push(format!("llm_api_key_nonce = ${param_idx}"));
+        param_idx += 1;
+    }
+    if req.model.is_some() {
+        set_clauses.push(format!("llm_model = ${param_idx}"));
+        param_idx += 1;
+    }
+    if req.base_url.is_some() {
+        set_clauses.push(format!("llm_base_url = ${param_idx}"));
+    }
+
+    let sql = format!(
+        "UPDATE org_compliance_settings SET {} WHERE org_id = $1",
+        set_clauses.join(", ")
+    );
+
+    let mut query = sqlx::query(&sql).bind(org_id);
+
+    if let Some(ref provider) = req.provider {
+        query = query.bind(provider);
+    }
+    if let Some(ref ek) = encrypted_key {
+        query = query.bind(ek);
+        query = query.bind(nonce.as_ref().unwrap());
+    }
+    if let Some(ref model) = req.model {
+        query = query.bind(model);
+    }
+    if let Some(ref base_url) = req.base_url {
+        query = query.bind(base_url);
+    }
+
+    query
+        .execute(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    crate::audit::log(
+        &state.pool,
+        crate::audit::user_action(
+            auth.org_id,
+            auth.user_id,
+            "llm_settings.update",
+            "org",
+            Some(org_id),
+            Some(serde_json::json!({
+                "provider": req.provider,
+                "model": req.model,
+                "base_url": req.base_url,
+                "api_key_changed": req.api_key.is_some(),
+            })),
+        ),
+    )
+    .await;
+
+    Ok(StatusCode::OK)
+}

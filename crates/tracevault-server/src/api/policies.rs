@@ -369,12 +369,12 @@ pub async fn check_policies(
     }))
 }
 
-struct EvalOutcome {
-    passed: bool,
-    details: String,
+pub(crate) struct EvalOutcome {
+    pub passed: bool,
+    pub details: String,
 }
 
-fn evaluate_condition(
+pub(crate) fn evaluate_condition(
     condition: &serde_json::Value,
     tool_calls: &std::collections::HashMap<String, i64>,
     files_modified: &[String],

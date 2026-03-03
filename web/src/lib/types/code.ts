@@ -28,6 +28,20 @@ export interface BlameHunk {
 	message: string | null;
 }
 
+export interface SessionRef {
+	id: string;
+	session_id: string;
+	model: string | null;
+}
+
+export interface CommitRef {
+	sha: string;
+	id: string | null;
+	message: string;
+	author: string;
+	sessions: SessionRef[];
+}
+
 export interface StoryResponse {
 	story: string;
 	function_name: string;
@@ -35,6 +49,7 @@ export interface StoryResponse {
 	line_range: [number, number];
 	commits_analyzed: string[];
 	sessions_referenced: string[];
+	references: CommitRef[];
 	cached: boolean;
 	generated_at: string;
 }

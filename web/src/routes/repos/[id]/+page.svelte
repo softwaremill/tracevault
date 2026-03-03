@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { api } from '$lib/api';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
@@ -56,6 +56,7 @@
 
 	const repoId = $derived($page.params.id);
 	const cloneStatus = $derived(repo?.clone_status ?? 'pending');
+	let pollTimer: ReturnType<typeof setInterval> | null = $state(null);
 
 	// Create policy dialog state
 	let createOpen = $state(false);
@@ -87,16 +88,20 @@
 		}
 	}
 
+	onDestroy(() => {
+		if (pollTimer) clearInterval(pollTimer);
+	});
+
 	async function handleSync() {
 		syncing = true;
 		try {
 			const result = await api.post<{ status: string }>(`/api/v1/repos/${repoId}/sync`);
 			if (result.status === 'cloning') {
-				// Poll until ready
-				const poll = setInterval(async () => {
+				pollTimer = setInterval(async () => {
 					await loadRepo();
 					if (repo?.clone_status === 'ready') {
-						clearInterval(poll);
+						if (pollTimer) clearInterval(pollTimer);
+						pollTimer = null;
 						syncing = false;
 					}
 				}, 3000);
@@ -290,6 +295,16 @@
 					<Badge variant="secondary">Not cloned</Badge>
 				{/if}
 			{/if}
+			<a
+				href="/repos/{repoId}/settings"
+				class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
+			>
+				<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+					<circle cx="12" cy="12" r="3" />
+				</svg>
+				Settings
+			</a>
 		</div>
 	</div>
 

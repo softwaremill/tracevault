@@ -108,29 +108,30 @@ impl StoryLlm for OpenAiLlm {
     }
 }
 
-pub fn create_llm(config: &crate::config::ServerConfig) -> Option<Box<dyn StoryLlm>> {
-    let provider = config.llm_provider.as_deref()?;
-    let api_key = config.llm_api_key.clone()?;
-    let model = config.llm_model.clone().unwrap_or_else(|| match provider {
+pub fn create_llm_from_params(
+    provider: &str,
+    api_key: String,
+    model: Option<String>,
+    base_url: Option<String>,
+) -> Option<Box<dyn StoryLlm>> {
+    let model = model.unwrap_or_else(|| match provider {
         "anthropic" => "claude-sonnet-4-20250514".to_string(),
         "openai" => "gpt-4o".to_string(),
         _ => "unknown".to_string(),
     });
 
     match provider {
-        "anthropic" => Some(Box::new(AnthropicLlm::new(
-            api_key,
-            model,
-            config.llm_base_url.clone(),
-        ))),
-        "openai" => Some(Box::new(OpenAiLlm::new(
-            api_key,
-            model,
-            config.llm_base_url.clone(),
-        ))),
+        "anthropic" => Some(Box::new(AnthropicLlm::new(api_key, model, base_url))),
+        "openai" => Some(Box::new(OpenAiLlm::new(api_key, model, base_url))),
         _ => {
             tracing::warn!("Unknown LLM provider: {provider}");
             None
         }
     }
+}
+
+pub fn create_llm(config: &crate::config::ServerConfig) -> Option<Box<dyn StoryLlm>> {
+    let provider = config.llm_provider.as_deref()?;
+    let api_key = config.llm_api_key.clone()?;
+    create_llm_from_params(provider, api_key, config.llm_model.clone(), config.llm_base_url.clone())
 }

@@ -38,6 +38,15 @@ enum Cli {
     },
     /// Log out from the TraceVault server
     Logout,
+    /// Verify commits are registered and sealed on the TraceVault server
+    Verify {
+        /// Comma-separated list of commit SHAs
+        #[arg(long)]
+        commits: Option<String>,
+        /// Git commit range (e.g. abc1234..def5678)
+        #[arg(long)]
+        range: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -96,6 +105,13 @@ async fn main() {
         Cli::Logout => {
             if let Err(e) = commands::logout::logout().await {
                 eprintln!("Logout error: {e}");
+            }
+        }
+        Cli::Verify { commits, range } => {
+            let cwd = env::current_dir().expect("Cannot determine current directory");
+            if let Err(e) = commands::verify::verify(&cwd, commits.as_deref(), range.as_deref()).await {
+                eprintln!("Verify error: {e}");
+                std::process::exit(1);
             }
         }
     }

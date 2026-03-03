@@ -8,22 +8,23 @@
 	import FileTree from '$lib/components/code/FileTree.svelte';
 
 	const repoId = $derived($page.params.id);
-	let gitRef = $derived($page.url.searchParams.get('ref') || 'main');
+	const refFromUrl = $derived($page.url.searchParams.get('ref'));
 
 	let branches = $state<BranchInfo[]>([]);
 	let entries = $state<TreeEntry[]>([]);
 	let loading = $state(true);
 	let error = $state('');
+	let resolvedRef = $state('');
 
 	onMount(async () => {
 		try {
-			const [b, t] = await Promise.all([
-				api.get<BranchInfo[]>(`/api/v1/repos/${repoId}/code/branches`),
-				api.get<TreeEntry[]>(
-					`/api/v1/repos/${repoId}/code/tree?ref=${encodeURIComponent(gitRef)}`
-				)
-			]);
+			const b = await api.get<BranchInfo[]>(`/api/v1/repos/${repoId}/code/branches`);
 			branches = b;
+			const defaultBranch = b.find((br) => br.is_default)?.name ?? b[0]?.name ?? 'HEAD';
+			resolvedRef = refFromUrl || defaultBranch;
+			const t = await api.get<TreeEntry[]>(
+				`/api/v1/repos/${repoId}/code/tree?ref=${encodeURIComponent(resolvedRef)}`
+			);
 			entries = t;
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load code browser';
@@ -31,6 +32,8 @@
 			loading = false;
 		}
 	});
+
+	const gitRef = $derived(resolvedRef);
 </script>
 
 <svelte:head>

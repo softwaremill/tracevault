@@ -71,6 +71,7 @@
 		<a href="/settings" class="font-semibold underline">Organization</a>
 		<a href="/settings/members" class="text-muted-foreground hover:underline">Members</a>
 		<a href="/settings/api-keys" class="text-muted-foreground hover:underline">API Keys</a>
+		<a href="/settings/llm" class="text-muted-foreground hover:underline">LLM</a>
 	</div>
 
 	{#if error}

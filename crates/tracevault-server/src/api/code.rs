@@ -59,7 +59,7 @@ fn detect_language(path: &str) -> Option<String> {
 }
 
 fn default_ref() -> String {
-    "main".to_string()
+    "HEAD".to_string()
 }
 
 // --- Types ---
@@ -147,6 +147,22 @@ pub struct StoryRequest {
     pub force: bool,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CommitRef {
+    pub sha: String,
+    pub id: Option<String>,
+    pub message: String,
+    pub author: String,
+    pub sessions: Vec<SessionRefResponse>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SessionRefResponse {
+    pub id: String,
+    pub session_id: String,
+    pub model: Option<String>,
+}
+
 #[derive(Serialize, Clone)]
 pub struct StoryResponse {
     pub story: String,
@@ -155,6 +171,7 @@ pub struct StoryResponse {
     pub line_range: [usize; 2],
     pub commits_analyzed: Vec<String>,
     pub sessions_referenced: Vec<String>,
+    pub references: Vec<CommitRef>,
     pub cached: bool,
     pub generated_at: String,
 }
@@ -592,10 +609,16 @@ pub async fn generate_story(
         ));
     }
 
-    let llm = state
-        .llm
-        .as_ref()
-        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "LLM not configured".into()))?;
+    // Try per-org LLM settings first, then fall back to server-level singleton
+    let org_llm = resolve_org_llm(&state, auth.org_id).await;
+    let llm_ref: &dyn crate::llm::StoryLlm = if let Some(ref org) = org_llm {
+        org.as_ref()
+    } else if let Some(ref server) = state.llm {
+        server.as_ref()
+    } else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "LLM not configured".into()));
+    };
+    let llm = llm_ref;
 
     // gather_story_context also uses git2, but it manages its own repo lifetime
     let ctx = crate::story::gather_story_context(
@@ -615,7 +638,34 @@ pub async fn generate_story(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("LLM error: {e}")))?;
 
+    // Build structured references from context
+    let references: Vec<CommitRef> = ctx
+        .changes
+        .iter()
+        .map(|c| CommitRef {
+            sha: c.commit_sha.clone(),
+            id: c.commit_uuid.map(|u| u.to_string()),
+            message: c.message.clone(),
+            author: c.author.clone(),
+            sessions: c
+                .sessions
+                .iter()
+                .map(|s| SessionRefResponse {
+                    id: s.id.to_string(),
+                    session_id: s.session_id.clone(),
+                    model: s.model.clone(),
+                })
+                .collect(),
+        })
+        .collect();
+
     let commits_analyzed: Vec<String> = ctx.changes.iter().map(|c| c.commit_sha.clone()).collect();
+    let sessions_referenced: Vec<String> = ctx
+        .changes
+        .iter()
+        .flat_map(|c| c.sessions.iter().map(|s| s.session_id.clone()))
+        .collect();
+
     save_story_cache(
         &state.pool,
         repo_id,
@@ -627,6 +677,8 @@ pub async fn generate_story(
         &head_sha,
         &story_md,
         &commits_analyzed,
+        &sessions_referenced,
+        &references,
         llm.provider_name(),
         llm.model_name(),
     )
@@ -638,7 +690,8 @@ pub async fn generate_story(
         kind: scope.kind,
         line_range: [scope.start_line, scope.end_line],
         commits_analyzed,
-        sessions_referenced: vec![],
+        sessions_referenced,
+        references,
         cached: false,
         generated_at: chrono::Utc::now().to_rfc3339(),
     }))
@@ -654,8 +707,11 @@ async fn check_story_cache(
     ref_name: &str,
     head_sha: &str,
 ) -> Option<StoryResponse> {
-    let row = sqlx::query_as::<_, (String, String, i32, i32, serde_json::Value, serde_json::Value, String)>(
-        "SELECT story_markdown, function_name, line_range_start, line_range_end, commits_analyzed, sessions_referenced, generated_at::text FROM code_stories WHERE repo_id = $1 AND file_path = $2 AND function_name = $3 AND ref_name = $4 AND head_commit_sha = $5 LIMIT 1",
+    let row = sqlx::query_as::<_, (String, String, i32, i32, serde_json::Value, serde_json::Value, serde_json::Value, String)>(
+        "SELECT story_markdown, function_name, line_range_start, line_range_end, \
+         commits_analyzed, sessions_referenced, references_data, generated_at::text \
+         FROM code_stories WHERE repo_id = $1 AND file_path = $2 AND function_name = $3 \
+         AND ref_name = $4 AND head_commit_sha = $5 LIMIT 1",
     )
     .bind(repo_id)
     .bind(file_path)
@@ -673,8 +729,9 @@ async fn check_story_cache(
         line_range: [row.2 as usize, row.3 as usize],
         commits_analyzed: serde_json::from_value(row.4).unwrap_or_default(),
         sessions_referenced: serde_json::from_value(row.5).unwrap_or_default(),
+        references: serde_json::from_value(row.6).unwrap_or_default(),
         cached: true,
-        generated_at: row.6,
+        generated_at: row.7,
     })
 }
 
@@ -689,6 +746,8 @@ async fn save_story_cache(
     head_sha: &str,
     story: &str,
     commits: &[String],
+    sessions: &[String],
+    references: &[CommitRef],
     provider: &str,
     model: &str,
 ) {
@@ -702,7 +761,10 @@ async fn save_story_cache(
         .ok();
 
     sqlx::query(
-        "INSERT INTO code_stories (repo_id, file_path, function_name, line_range_start, line_range_end, ref_name, head_commit_sha, story_markdown, commits_analyzed, sessions_referenced, llm_provider, llm_model) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'[]',$10,$11)",
+        "INSERT INTO code_stories (repo_id, file_path, function_name, line_range_start, \
+         line_range_end, ref_name, head_commit_sha, story_markdown, commits_analyzed, \
+         sessions_referenced, references_data, llm_provider, llm_model) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
     )
     .bind(repo_id)
     .bind(file_path)
@@ -713,9 +775,36 @@ async fn save_story_cache(
     .bind(head_sha)
     .bind(story)
     .bind(serde_json::json!(commits))
+    .bind(serde_json::json!(sessions))
+    .bind(serde_json::json!(references))
     .bind(provider)
     .bind(model)
     .execute(pool)
     .await
     .ok();
+}
+
+// --- Per-org LLM resolution ---
+
+async fn resolve_org_llm(state: &AppState, org_id: Uuid) -> Option<Box<dyn crate::llm::StoryLlm>> {
+    let enc_key = state.encryption_key.as_deref()?;
+
+    let row = sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)>(
+        "SELECT llm_provider, llm_api_key_encrypted, llm_api_key_nonce, llm_model, llm_base_url
+         FROM org_compliance_settings WHERE org_id = $1",
+    )
+    .bind(org_id)
+    .fetch_optional(&state.pool)
+    .await
+    .ok()??;
+
+    let provider = row.0?;
+    let encrypted_key = row.1?;
+    let nonce = row.2?;
+
+    let api_key = crate::encryption::decrypt(&encrypted_key, &nonce, enc_key)
+        .map_err(|e| tracing::error!("Failed to decrypt org LLM API key: {e}"))
+        .ok()?;
+
+    crate::llm::create_llm_from_params(&provider, api_key, row.3, row.4)
 }

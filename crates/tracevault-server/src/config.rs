@@ -12,6 +12,7 @@ pub struct ServerConfig {
     pub llm_model: Option<String>,
     pub llm_base_url: Option<String>,
     pub repo_fetch_interval_secs: u64,
+    pub encryption_key: Option<String>,
 }
 
 impl ServerConfig {
@@ -36,6 +37,7 @@ impl ServerConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(300),
+            encryption_key: env::var("TRACEVAULT_ENCRYPTION_KEY").ok(),
         }
     }
 

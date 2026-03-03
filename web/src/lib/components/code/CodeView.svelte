@@ -58,7 +58,7 @@
 	}
 </script>
 
-<div class="overflow-x-auto rounded-lg bg-[#0d1117] font-mono text-sm">
+<div class="code-view hljs overflow-x-auto rounded-lg font-mono text-sm">
 	<table class="w-full border-collapse">
 		<tbody>
 			{#each lines as line, i}
@@ -82,3 +82,56 @@
 		</tbody>
 	</table>
 </div>
+
+<style>
+	.code-view {
+		/* Ensure highlight.js theme colors aren't overridden by Tailwind base styles */
+		color: #e6edf3;
+		background: #0d1117;
+	}
+	.code-view :global(.hljs-keyword),
+	.code-view :global(.hljs-selector-tag),
+	.code-view :global(.hljs-literal),
+	.code-view :global(.hljs-section),
+	.code-view :global(.hljs-link) {
+		color: #ff7b72;
+	}
+	.code-view :global(.hljs-string),
+	.code-view :global(.hljs-addition) {
+		color: #a5d6ff;
+	}
+	.code-view :global(.hljs-title),
+	.code-view :global(.hljs-title.class_),
+	.code-view :global(.hljs-title.function_) {
+		color: #d2a8ff;
+	}
+	.code-view :global(.hljs-type),
+	.code-view :global(.hljs-built_in),
+	.code-view :global(.hljs-builtin-name),
+	.code-view :global(.hljs-selector-id),
+	.code-view :global(.hljs-selector-attr),
+	.code-view :global(.hljs-selector-pseudo),
+	.code-view :global(.hljs-params) {
+		color: #ffa657;
+	}
+	.code-view :global(.hljs-number),
+	.code-view :global(.hljs-symbol) {
+		color: #79c0ff;
+	}
+	.code-view :global(.hljs-comment),
+	.code-view :global(.hljs-quote),
+	.code-view :global(.hljs-deletion) {
+		color: #8b949e;
+	}
+	.code-view :global(.hljs-meta),
+	.code-view :global(.hljs-attr) {
+		color: #79c0ff;
+	}
+	.code-view :global(.hljs-variable),
+	.code-view :global(.hljs-template-variable) {
+		color: #ffa657;
+	}
+	.code-view :global(.hljs-punctuation) {
+		color: #e6edf3;
+	}
+</style>

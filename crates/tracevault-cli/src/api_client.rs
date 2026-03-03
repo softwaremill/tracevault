@@ -104,6 +104,41 @@ pub struct RepoListItem {
     pub name: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct CiVerifyRequest {
+    pub commits: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CiVerifyResponse {
+    pub status: String,
+    pub total_commits: usize,
+    pub registered_commits: usize,
+    pub sealed_commits: usize,
+    pub policy_passed_commits: usize,
+    pub results: Vec<CommitVerifyResult>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommitVerifyResult {
+    pub commit_sha: String,
+    pub status: String,
+    pub registered: bool,
+    pub sealed: bool,
+    pub signature_valid: bool,
+    pub chain_valid: bool,
+    pub policy_results: Vec<CiPolicyResult>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CiPolicyResult {
+    pub rule_name: String,
+    pub result: String,
+    pub action: String,
+    pub severity: String,
+    pub details: String,
+}
+
 impl ApiClient {
     pub fn new(base_url: &str, api_key: Option<&str>) -> Self {
         Self {
@@ -222,6 +257,30 @@ impl ApiClient {
 
         let repos: Vec<RepoListItem> = resp.json().await?;
         Ok(repos)
+    }
+
+    pub async fn verify_commits(
+        &self,
+        repo_id: &uuid::Uuid,
+        req: CiVerifyRequest,
+    ) -> Result<CiVerifyResponse, Box<dyn Error>> {
+        let mut builder = self.client.post(format!(
+            "{}/api/v1/repos/{}/ci/verify",
+            self.base_url, repo_id
+        ));
+        if let Some(key) = &self.api_key {
+            builder = builder.header("Authorization", format!("Bearer {key}"));
+        }
+
+        let resp = builder.json(&req).send().await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("CI verify failed ({status}): {body}").into());
+        }
+
+        Ok(resp.json().await?)
     }
 
     pub async fn check_policies(

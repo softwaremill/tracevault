@@ -16,6 +16,7 @@ mod extractors;
 mod llm;
 pub mod permissions;
 pub mod pricing;
+mod encryption;
 mod repo_manager;
 mod signing;
 mod story;
@@ -26,6 +27,7 @@ pub struct AppState {
     pub signing: signing::SigningService,
     pub repo_manager: repo_manager::RepoManager,
     pub llm: Option<Arc<dyn llm::StoryLlm>>,
+    pub encryption_key: Option<String>,
 }
 
 #[tokio::main]
@@ -62,6 +64,7 @@ async fn main() {
     let signing = signing::SigningService::new(cfg.signing_key_seed.as_deref());
     let repo_manager = repo_manager::RepoManager::new(&cfg.repos_dir);
     let llm_instance = llm::create_llm(&cfg).map(|b| Arc::from(b) as Arc<dyn llm::StoryLlm>);
+    let encryption_key = cfg.encryption_key.clone();
 
     let bind_addr = cfg.bind_addr();
 
@@ -91,6 +94,10 @@ async fn main() {
         .route("/api/v1/repos", post(api::repos::register_repo))
         .route("/api/v1/repos/{id}", delete(api::repos::delete_repo))
         .route("/api/v1/repos/{id}/sync", post(api::repos::sync_repo))
+        .route(
+            "/api/v1/repos/{id}/settings",
+            get(api::repos::get_settings).put(api::repos::update_settings),
+        )
         // Code Browser
         .route(
             "/api/v1/repos/{repo_id}/code/branches",
@@ -139,6 +146,11 @@ async fn main() {
         .route(
             "/api/v1/orgs/{id}/members/{user_id}/role",
             put(api::orgs::change_role),
+        )
+        // Org LLM Settings
+        .route(
+            "/api/v1/orgs/{id}/llm-settings",
+            get(api::orgs::get_llm_settings).put(api::orgs::update_llm_settings),
         )
         // API Keys
         .route("/api/v1/api-keys", post(api::api_keys::create_api_key))
@@ -224,6 +236,11 @@ async fn main() {
             "/api/v1/analytics/cost",
             get(api::analytics::get_cost),
         )
+        // CI Verification
+        .route(
+            "/api/v1/repos/{repo_id}/ci/verify",
+            post(api::ci::verify_commits),
+        )
         // GitHub
         .route("/api/v1/github/webhook", post(api::github::webhook))
         .layer(TraceLayer::new_for_http())
@@ -233,6 +250,7 @@ async fn main() {
             signing,
             repo_manager,
             llm: llm_instance,
+            encryption_key,
         });
 
     let listener = tokio::net::TcpListener::bind(&bind_addr)
