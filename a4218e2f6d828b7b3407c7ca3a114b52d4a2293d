@@ -1,0 +1,117 @@
+web/src/routes/repos/[id]/code/+page.svelte
+  58c0fda4e251f656 11,17,21,23-27,35-36
+docs/code-stories.md
+  9bc1c45f50e8927c 1-400
+web/src/routes/repos/[id]/settings/+page.svelte
+  58c0fda4e251f656 1-277
+crates/tracevault-server/src/main.rs
+  9bc1c45f50e8927c 150-154
+  5c50e7dfa8a29964 239-243
+  58c0fda4e251f656 19,30,67,97-100,253
+web/src/lib/types/code.ts
+  9bc1c45f50e8927c 31-44,52
+crates/tracevault-server/src/api/code.rs
+  58c0fda4e251f656 62
+  9bc1c45f50e8927c 150-165,174,612-621,641-661,663-668,680-681,693-694,710-714,732,734,749-750,764-767,778-779,786-810
+web/src/routes/repos/[id]/code/[...path]/+page.svelte
+  58c0fda4e251f656 13,21,26,29-44,46,48-50,55,60,70-71,76,85,93,102,150,154
+crates/tracevault-server/src/story.rs
+  9bc1c45f50e8927c 13-18,22,30,116-120,129-130,133-134,137-138,140-163,167,175
+web/src/routes/settings/+page.svelte
+  9bc1c45f50e8927c 74
+crates/tracevault-cli/src/commands/verify.rs
+  5c50e7dfa8a29964 1-130
+crates/tracevault-cli/src/commands/mod.rs
+  5c50e7dfa8a29964 9
+crates/tracevault-server/src/api/mod.rs
+  5c50e7dfa8a29964 4
+crates/tracevault-cli/src/main.rs
+  5c50e7dfa8a29964 41-49,110-116
+action/action.yml
+  5c50e7dfa8a29964 1-2,10,13-15,17,25-46,49-59,61-62,64,70,72-73,75-78,80-82,85-91,93-94
+web/src/routes/settings/members/+page.svelte
+  9bc1c45f50e8927c 123
+crates/tracevault-server/src/api/orgs.rs
+  9bc1c45f50e8927c 242-410
+crates/tracevault-server/src/api/ci.rs
+  5c50e7dfa8a29964 1-260
+crates/tracevault-server/src/encryption.rs
+  58c0fda4e251f656 1-75
+web/src/lib/components/code/StoryPanel.svelte
+  9bc1c45f50e8927c 19-37,40-53,55-59,109-111,115,117-157,165-335
+  58c0fda4e251f656 8,14,62,103-108,112-113
+web/src/routes/repos/[id]/+page.svelte
+  58c0fda4e251f656 3,59,91-94,100,103-104,298-307
+web/src/lib/components/code/CodeView.svelte
+  58c0fda4e251f656 61,85-137
+crates/tracevault-server/migrations/011_repo_deploy_keys.sql
+  58c0fda4e251f656 1-3
+crates/tracevault-server/src/config.rs
+  58c0fda4e251f656 15,40
+crates/tracevault-server/src/llm.rs
+  9bc1c45f50e8927c 111-117,124-125,132-136
+web/src/routes/settings/api-keys/+page.svelte
+  9bc1c45f50e8927c 92
+crates/tracevault-server/src/api/policies.rs
+  5c50e7dfa8a29964 372-374,377
+web/src/routes/settings/llm/+page.svelte
+  9bc1c45f50e8927c 1-223
+crates/tracevault-server/migrations/012_org_llm_settings.sql
+  9bc1c45f50e8927c 1-7
+crates/tracevault-server/src/repo_manager.rs
+  58c0fda4e251f656 3,12-14,22,24-32,38,68,70,74-96,112,118,128-131,134,137-139,165-166,170-175,177,179-185
+crates/tracevault-server/Cargo.toml
+  58c0fda4e251f656 29
+crates/tracevault-cli/src/api_client.rs
+  5c50e7dfa8a29964 107-141,262-285
+crates/tracevault-server/src/api/repos.rs
+  58c0fda4e251f656 4,41,50-76,92,99,120,189-334
+crates/tracevault-server/migrations/013_story_references.sql
+  9bc1c45f50e8927c 1-2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "a4218e2f6d828b7b3407c7ca3a114b52d4a2293d",
+  "prompts": {
+    "58c0fda4e251f656": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3c314c8b-356f-433d-bd3c-329f1366c7f9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 760,
+      "total_deletions": 51,
+      "accepted_lines": 742,
+      "overriden_lines": 0
+    },
+    "5c50e7dfa8a29964": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e680e8eb-f3be-4f9d-82b3-191831fb509d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 545,
+      "total_deletions": 64,
+      "accepted_lines": 544,
+      "overriden_lines": 0
+    },
+    "9bc1c45f50e8927c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0e185fb6-0c59-48dd-a911-4027e63c3e9a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 1278,
+      "total_deletions": 94,
+      "accepted_lines": 1240,
+      "overriden_lines": 0
+    }
+  }
+}
