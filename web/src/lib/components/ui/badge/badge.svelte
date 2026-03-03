@@ -12,6 +12,20 @@
 				destructive:
 					"bg-destructive [a&]:hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/70 border-transparent text-white",
 				outline: "text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
+				branch:
+					"bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-transparent",
+				author:
+					"bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300 border-transparent",
+				model:
+					"bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-transparent",
+				session:
+					"bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border-transparent",
+				success:
+					"bg-green-500 text-white dark:bg-green-600 border-transparent",
+				error:
+					"bg-red-500 text-white dark:bg-red-600 border-transparent",
+				action:
+					"bg-purple-500 text-white dark:bg-purple-600 border-transparent",
 			},
 		},
 		defaultVariants: {
