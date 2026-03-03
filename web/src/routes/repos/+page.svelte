@@ -60,7 +60,7 @@
 						</Table.Cell>
 						<Table.Cell>
 							{#if repo.github_url}
-								<Badge variant="outline">{repo.github_url}</Badge>
+								<Badge variant="branch">{repo.github_url}</Badge>
 							{:else}
 								<span class="text-muted-foreground">-</span>
 							{/if}
