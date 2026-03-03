@@ -1,0 +1,50 @@
+crates/tracevault-cli/src/commands/push.rs
+  4a861eae24aae54c 553-562,577-581
+  9fdd1402dccf4a8c 2,5,11-36,156,163,175,178-182,211,229,298,301,347,350-354,427-430,480,648,661-692,694-696,706,708-712,763,769-774
+docs/signing-and-chain-integrity.md
+  9fdd1402dccf4a8c 1-154
+docker-compose.yml
+  9fdd1402dccf4a8c 29-32
+scripts/reseal-chain.py
+  9fdd1402dccf4a8c 1-164
+crates/tracevault-server/src/api/compliance.rs
+  9fdd1402dccf4a8c 241
+README.md
+  9fdd1402dccf4a8c 60,62-90,98,103,113,161,377
+  4a861eae24aae54c 3,5-15,21-23,25,31,104-108,110-111,120,122-126,164,167-168,170,178,182,185-220,222-263,266-267,270-278,282,284-332,334-337,339-340,342-344,376,384,386-393,395-397
+crates/tracevault-server/src/api/traces.rs
+  9fdd1402dccf4a8c 126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "ac1e576b7d53328e1ec4223b0c9565ae89bdd516",
+  "prompts": {
+    "4a861eae24aae54c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e31decc8-7699-4d93-90b8-96d53fbeb1f7",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 233,
+      "total_deletions": 50,
+      "accepted_lines": 223,
+      "overriden_lines": 0
+    },
+    "9fdd1402dccf4a8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4f590d3d-3e81-448d-83ba-14631b7fc6cc",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 477,
+      "total_deletions": 41,
+      "accepted_lines": 463,
+      "overriden_lines": 0
+    }
+  }
+}
