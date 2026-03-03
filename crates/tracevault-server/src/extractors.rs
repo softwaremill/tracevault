@@ -66,7 +66,7 @@ impl FromRequestParts<AppState> for AuthUser {
             return Ok(AuthUser {
                 user_id: Uuid::nil(),
                 org_id,
-                role: "member".to_string(),
+                role: "developer".to_string(),
             });
         }
 
