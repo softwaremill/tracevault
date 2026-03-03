@@ -5,6 +5,7 @@ pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub cors_origin: Option<String>,
+    pub signing_key_seed: Option<String>,
 }
 
 impl ServerConfig {
@@ -18,6 +19,7 @@ impl ServerConfig {
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(3000),
             cors_origin: env::var("CORS_ORIGIN").ok(),
+            signing_key_seed: env::var("TRACEVAULT_SIGNING_KEY").ok(),
         }
     }
 

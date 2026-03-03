@@ -7,15 +7,19 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 mod api;
+mod audit;
 mod auth;
 mod config;
 mod db;
 mod extractors;
+pub mod permissions;
 pub mod pricing;
+mod signing;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: sqlx::PgPool,
+    pub signing: signing::SigningService,
 }
 
 #[tokio::main]
@@ -48,6 +52,8 @@ async fn main() {
     } else {
         CorsLayer::permissive()
     };
+
+    let signing = signing::SigningService::new(cfg.signing_key_seed.as_deref());
 
     let bind_addr = cfg.bind_addr();
 
@@ -157,7 +163,7 @@ async fn main() {
         .route("/api/v1/github/webhook", post(api::github::webhook))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
-        .with_state(AppState { pool });
+        .with_state(AppState { pool, signing });
 
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
