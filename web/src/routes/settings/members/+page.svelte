@@ -32,7 +32,7 @@
 	let inviteEmail = $state('');
 	let invitePassword = $state('');
 	let inviteName = $state('');
-	let inviteRole = $state('member');
+	let inviteRole = $state('developer');
 	let inviteError = $state('');
 	let inviteLoading = $state(false);
 
@@ -72,7 +72,7 @@
 			inviteEmail = '';
 			invitePassword = '';
 			inviteName = '';
-			inviteRole = 'member';
+			inviteRole = 'developer';
 			await loadMembers();
 		} catch (err) {
 			inviteError = err instanceof Error ? err.message : 'Failed to invite member';
@@ -168,8 +168,10 @@
 									{inviteRole}
 								</Select.Trigger>
 								<Select.Content>
-									<Select.Item value="member">member</Select.Item>
-									<Select.Item value="admin">admin</Select.Item>
+									<Select.Item value="developer">Developer</Select.Item>
+									<Select.Item value="admin">Admin</Select.Item>
+									<Select.Item value="policy_admin">Policy Admin</Select.Item>
+									<Select.Item value="auditor">Auditor</Select.Item>
 								</Select.Content>
 							</Select.Root>
 						</div>
@@ -216,13 +218,17 @@
 							<Table.Cell>
 								{#if member.role !== 'owner' && member.id !== authState.user?.user_id}
 									<div class="flex gap-1">
-										<Button
-											variant="outline"
-											size="sm"
-											onclick={() => changeRole(member.id, member.role === 'admin' ? 'member' : 'admin')}
-										>
-											{member.role === 'admin' ? 'Demote' : 'Promote'}
-										</Button>
+										<Select.Root type="single" value={member.role} onValueChange={(v) => { if (v) changeRole(member.id, v); }}>
+											<Select.Trigger class="w-32 h-8 text-xs">
+												{member.role}
+											</Select.Trigger>
+											<Select.Content>
+												<Select.Item value="developer">Developer</Select.Item>
+												<Select.Item value="admin">Admin</Select.Item>
+												<Select.Item value="policy_admin">Policy Admin</Select.Item>
+												<Select.Item value="auditor">Auditor</Select.Item>
+											</Select.Content>
+										</Select.Root>
 										<Button variant="destructive" size="sm" onclick={() => removeMember(member.id)}>
 											Remove
 										</Button>
