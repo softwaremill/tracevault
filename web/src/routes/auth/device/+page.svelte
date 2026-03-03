@@ -44,7 +44,18 @@
 </svelte:head>
 
 <div class="flex min-h-screen items-center justify-center">
-	<Card.Root class="w-full max-w-md">
+	<div class="w-full max-w-md space-y-6">
+		<div class="flex justify-center">
+			<div class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-7 w-7">
+					<circle cx="12" cy="12" r="9" />
+					<line x1="12" y1="3" x2="12" y2="21" />
+					<line x1="3" y1="12" x2="21" y2="12" />
+					<circle cx="12" cy="12" r="3" />
+				</svg>
+			</div>
+		</div>
+		<Card.Root>
 		<Card.Header>
 			<Card.Title class="text-2xl">Approve CLI Login</Card.Title>
 			<Card.Description>
@@ -80,4 +91,5 @@
 			{/if}
 		</Card.Content>
 	</Card.Root>
+	</div>
 </div>
