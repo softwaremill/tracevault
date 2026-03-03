@@ -41,6 +41,8 @@ pub struct CreateTraceRequest {
 pub struct CreateTraceResponse {
     pub commit_id: Uuid,
     pub session_id: Option<Uuid>,
+    pub chain_hash: Option<String>,
+    pub signature: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -78,15 +80,18 @@ pub async fn create_trace(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Upsert commit
-    let commit_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO commits (repo_id, commit_sha, branch, author, diff_data, attribution)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (repo_id, commit_sha) DO UPDATE SET
-           branch = COALESCE(EXCLUDED.branch, commits.branch),
-           diff_data = COALESCE(EXCLUDED.diff_data, commits.diff_data),
-           attribution = COALESCE(EXCLUDED.attribution, commits.attribution)
-         RETURNING id"
+    // Insert commit (append-only — no UPDATE on conflict)
+    let commit_row = sqlx::query_as::<_, (Uuid, bool)>(
+        "WITH ins AS (
+            INSERT INTO commits (repo_id, commit_sha, branch, author, diff_data, attribution)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (repo_id, commit_sha) DO NOTHING
+            RETURNING id, true AS is_new
+        )
+        SELECT id, is_new FROM ins
+        UNION ALL
+        SELECT id, false AS is_new FROM commits WHERE repo_id = $1 AND commit_sha = $2
+        LIMIT 1"
     )
     .bind(repo_id)
     .bind(&req.commit_sha)
@@ -98,7 +103,54 @@ pub async fn create_trace(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Optionally upsert session
+    let (commit_id, commit_is_new) = commit_row;
+
+    // Seal the commit if it's new
+    let mut resp_chain_hash = None;
+    let mut resp_signature = None;
+
+    if commit_is_new {
+        let canonical = serde_json::json!({
+            "commit_sha": &req.commit_sha,
+            "branch": &req.branch,
+            "author": &req.author,
+            "repo_id": repo_id,
+        });
+        let canonical_bytes = serde_json::to_vec(&canonical).unwrap();
+        let record_hash = state.signing.record_hash(&canonical_bytes);
+
+        // Get previous chain hash
+        let prev: Option<String> = sqlx::query_scalar(
+            "SELECT chain_hash FROM commits
+             WHERE repo_id = $1 AND sealed_at IS NOT NULL
+             ORDER BY sealed_at DESC LIMIT 1"
+        )
+        .bind(repo_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+        let chain_hash = state.signing.chain_hash(prev.as_deref(), &record_hash);
+        let signature = state.signing.sign(&record_hash);
+
+        sqlx::query(
+            "UPDATE commits SET record_hash = $1, chain_hash = $2, prev_chain_hash = $3,
+             signature = $4, sealed_at = NOW() WHERE id = $5"
+        )
+        .bind(&record_hash)
+        .bind(&chain_hash)
+        .bind(&prev)
+        .bind(&signature)
+        .bind(commit_id)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+        resp_chain_hash = Some(chain_hash);
+        resp_signature = Some(signature);
+    }
+
+    // Optionally insert session (append-only)
     let session_db_id = if let Some(sid) = &req.session_id {
         // Compute cost server-side from model_usage or fallback fields
         let estimated_cost = crate::pricing::cost_from_model_usage(
@@ -115,37 +167,22 @@ pub async fn create_trace(
             req.estimated_cost_usd
         };
 
-        let id: Uuid = sqlx::query_scalar(
-            "INSERT INTO sessions (commit_id, session_id, model, tool, total_tokens, input_tokens, output_tokens,
-                estimated_cost_usd, api_calls, session_data, transcript, model_usage,
-                duration_ms, started_at, ended_at, user_messages, assistant_messages,
-                tool_calls, total_tool_calls, cache_read_tokens, cache_write_tokens,
-                compactions, compaction_tokens_saved)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                     $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
-             ON CONFLICT (commit_id, session_id) DO UPDATE SET
-               model = COALESCE(EXCLUDED.model, sessions.model),
-               tool = COALESCE(EXCLUDED.tool, sessions.tool),
-               total_tokens = COALESCE(EXCLUDED.total_tokens, sessions.total_tokens),
-               input_tokens = COALESCE(EXCLUDED.input_tokens, sessions.input_tokens),
-               output_tokens = COALESCE(EXCLUDED.output_tokens, sessions.output_tokens),
-               estimated_cost_usd = COALESCE(EXCLUDED.estimated_cost_usd, sessions.estimated_cost_usd),
-               api_calls = COALESCE(EXCLUDED.api_calls, sessions.api_calls),
-               session_data = COALESCE(EXCLUDED.session_data, sessions.session_data),
-               transcript = COALESCE(EXCLUDED.transcript, sessions.transcript),
-               model_usage = COALESCE(EXCLUDED.model_usage, sessions.model_usage),
-               duration_ms = COALESCE(EXCLUDED.duration_ms, sessions.duration_ms),
-               started_at = COALESCE(EXCLUDED.started_at, sessions.started_at),
-               ended_at = COALESCE(EXCLUDED.ended_at, sessions.ended_at),
-               user_messages = COALESCE(EXCLUDED.user_messages, sessions.user_messages),
-               assistant_messages = COALESCE(EXCLUDED.assistant_messages, sessions.assistant_messages),
-               tool_calls = COALESCE(EXCLUDED.tool_calls, sessions.tool_calls),
-               total_tool_calls = COALESCE(EXCLUDED.total_tool_calls, sessions.total_tool_calls),
-               cache_read_tokens = COALESCE(EXCLUDED.cache_read_tokens, sessions.cache_read_tokens),
-               cache_write_tokens = COALESCE(EXCLUDED.cache_write_tokens, sessions.cache_write_tokens),
-               compactions = COALESCE(EXCLUDED.compactions, sessions.compactions),
-               compaction_tokens_saved = COALESCE(EXCLUDED.compaction_tokens_saved, sessions.compaction_tokens_saved)
-             RETURNING id"
+        let session_row = sqlx::query_as::<_, (Uuid, bool)>(
+            "WITH ins AS (
+                INSERT INTO sessions (commit_id, session_id, model, tool, total_tokens, input_tokens, output_tokens,
+                    estimated_cost_usd, api_calls, session_data, transcript, model_usage,
+                    duration_ms, started_at, ended_at, user_messages, assistant_messages,
+                    tool_calls, total_tool_calls, cache_read_tokens, cache_write_tokens,
+                    compactions, compaction_tokens_saved)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                        $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+                ON CONFLICT (commit_id, session_id) DO NOTHING
+                RETURNING id, true AS is_new
+            )
+            SELECT id, is_new FROM ins
+            UNION ALL
+            SELECT id, false AS is_new FROM sessions WHERE commit_id = $1 AND session_id = $2
+            LIMIT 1"
         )
         .bind(commit_id)
         .bind(sid)
@@ -173,14 +210,49 @@ pub async fn create_trace(
         .fetch_one(&state.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        Some(id)
+
+        let (session_db_id, session_is_new) = session_row;
+
+        // Seal the session if new
+        if session_is_new {
+            let canonical = serde_json::json!({
+                "session_id": sid,
+                "commit_id": commit_id,
+                "model": &req.model,
+                "tool": &req.tool,
+            });
+            let canonical_bytes = serde_json::to_vec(&canonical).unwrap();
+            let record_hash = state.signing.record_hash(&canonical_bytes);
+            let signature = state.signing.sign(&record_hash);
+
+            sqlx::query(
+                "UPDATE sessions SET record_hash = $1, signature = $2, sealed_at = NOW() WHERE id = $3"
+            )
+            .bind(&record_hash)
+            .bind(&signature)
+            .bind(session_db_id)
+            .execute(&state.pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        }
+
+        Some(session_db_id)
     } else {
         None
     };
 
+    // Audit log
+    crate::audit::log(&state.pool, crate::audit::user_action(
+        auth.org_id, auth.user_id,
+        "trace.create", "commit", Some(commit_id),
+        Some(serde_json::json!({"commit_sha": &req.commit_sha, "session_count": if req.session_id.is_some() { 1 } else { 0 }})),
+    )).await;
+
     Ok((StatusCode::CREATED, Json(CreateTraceResponse {
         commit_id,
         session_id: session_db_id,
+        chain_hash: resp_chain_hash,
+        signature: resp_signature,
     })))
 }
 
