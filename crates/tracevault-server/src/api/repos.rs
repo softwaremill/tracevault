@@ -61,25 +61,46 @@ pub async fn sync_repo(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .ok_or((StatusCode::NOT_FOUND, "Repo not found".into()))?;
 
-    if repo.0 != "ready" {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!("Repo clone status is: {}", repo.0),
-        ));
+    match repo.0.as_str() {
+        "ready" => {
+            // Already cloned — just fetch latest
+            state
+                .repo_manager
+                .fetch_repo(repo_id)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+            sqlx::query("UPDATE repos SET last_fetched_at = now() WHERE id = $1")
+                .bind(repo_id)
+                .execute(&state.pool)
+                .await
+                .ok();
+
+            Ok(Json(serde_json::json!({"status": "synced"})))
+        }
+        "pending" | "error" => {
+            // Not yet cloned or previous clone failed — trigger clone
+            let github_url = repo.1.ok_or((
+                StatusCode::BAD_REQUEST,
+                "Repo has no github_url set. Update the repo with a github_url first.".into(),
+            ))?;
+
+            let pool = state.pool.clone();
+            let repo_mgr = state.repo_manager.clone();
+            tokio::spawn(async move {
+                if let Err(e) = repo_mgr.clone_repo(&pool, repo_id, &github_url).await {
+                    tracing::error!("Failed to clone repo {repo_id}: {e}");
+                }
+            });
+
+            Ok(Json(serde_json::json!({"status": "cloning"})))
+        }
+        "cloning" => {
+            Ok(Json(serde_json::json!({"status": "cloning"})))
+        }
+        other => {
+            Err((StatusCode::BAD_REQUEST, format!("Unknown clone status: {other}")))
+        }
     }
-
-    state
-        .repo_manager
-        .fetch_repo(repo_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    sqlx::query("UPDATE repos SET last_fetched_at = now() WHERE id = $1")
-        .bind(repo_id)
-        .execute(&state.pool)
-        .await
-        .ok();
-
-    Ok(Json(serde_json::json!({"status": "synced"})))
 }
 
 #[derive(Debug, Serialize)]
