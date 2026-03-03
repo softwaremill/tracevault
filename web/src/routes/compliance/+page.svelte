@@ -149,10 +149,10 @@
 						<div class="flex items-center gap-2 mb-2">
 							<Badge
 								variant={chainStatus.status === 'pass'
-									? 'default'
+									? 'success'
 									: chainStatus.status === 'never_run'
 										? 'secondary'
-										: 'destructive'}
+										: 'error'}
 							>
 								{chainStatus.status === 'pass'
 									? 'Verified'
@@ -192,7 +192,7 @@
 				<Card.Content>
 					{#if settings}
 						<Badge
-							variant={settings.compliance_mode !== 'none' ? 'default' : 'secondary'}
+							variant={settings.compliance_mode !== 'none' ? 'success' : 'secondary'}
 							class="text-lg px-3 py-1"
 						>
 							{modeLabel(settings.compliance_mode)}
@@ -274,7 +274,7 @@
 										>{formatDate(entry.created_at)}</Table.Cell
 									>
 									<Table.Cell>
-										<Badge variant="outline">{entry.action}</Badge>
+										<Badge variant="action">{entry.action}</Badge>
 									</Table.Cell>
 									<Table.Cell class="text-xs font-mono"
 										>{entry.resource_type}</Table.Cell
