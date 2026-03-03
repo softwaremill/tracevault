@@ -87,8 +87,9 @@ pub async fn list_members(
     if auth.org_id != id {
         return Err((StatusCode::FORBIDDEN, "Access denied".into()));
     }
-    if auth.role != "owner" && auth.role != "admin" {
-        return Err((StatusCode::FORBIDDEN, "Requires admin role".into()));
+    if !crate::permissions::has_permission(&auth.role, crate::permissions::Permission::UserManage)
+       && !crate::permissions::has_permission(&auth.role, crate::permissions::Permission::AuditLogView) {
+        return Err((StatusCode::FORBIDDEN, "Requires admin or auditor role".into()));
     }
 
     let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, String, chrono::DateTime<chrono::Utc>)>(
@@ -134,11 +135,11 @@ pub async fn invite_member(
         return Err((StatusCode::FORBIDDEN, "Requires admin role".into()));
     }
 
-    let role = req.role.unwrap_or_else(|| "member".into());
-    if role != "member" && role != "admin" {
+    let role = req.role.unwrap_or_else(|| "developer".into());
+    if !crate::permissions::is_valid_role(&role) || role == "owner" {
         return Err((
             StatusCode::BAD_REQUEST,
-            "Role must be 'member' or 'admin'".into(),
+            "Role must be one of: admin, policy_admin, developer, auditor".into(),
         ));
     }
 
@@ -215,10 +216,10 @@ pub async fn change_role(
     if auth.org_id != org_id || auth.role != "owner" {
         return Err((StatusCode::FORBIDDEN, "Requires owner role".into()));
     }
-    if !["member", "admin"].contains(&req.role.as_str()) {
+    if !crate::permissions::is_valid_role(&req.role) || req.role == "owner" {
         return Err((
             StatusCode::BAD_REQUEST,
-            "Role must be 'member' or 'admin'".into(),
+            "Role must be one of: admin, policy_admin, developer, auditor".into(),
         ));
     }
 
@@ -229,6 +230,12 @@ pub async fn change_role(
         .execute(&state.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    crate::audit::log(&state.pool, crate::audit::user_action(
+        auth.org_id, auth.user_id,
+        "role.change", "user", Some(user_id),
+        Some(serde_json::json!({"new_role": &req.role})),
+    )).await;
 
     Ok(StatusCode::OK)
 }
