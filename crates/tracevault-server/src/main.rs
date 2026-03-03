@@ -126,6 +126,32 @@ async fn main() {
             "/api/v1/policies/{id}",
             delete(api::policies::delete_policy),
         )
+        // Compliance
+        .route(
+            "/api/v1/orgs/{id}/compliance",
+            get(api::compliance::get_compliance_settings)
+                .put(api::compliance::update_compliance_settings),
+        )
+        .route(
+            "/api/v1/orgs/{id}/compliance/public-key",
+            get(api::compliance::get_public_key),
+        )
+        .route(
+            "/api/v1/orgs/{id}/compliance/verify-chain",
+            post(api::compliance::verify_chain),
+        )
+        .route(
+            "/api/v1/orgs/{id}/compliance/chain-status",
+            get(api::compliance::get_chain_status),
+        )
+        .route(
+            "/api/v1/orgs/{id}/audit-log",
+            get(api::compliance::list_audit_log),
+        )
+        .route(
+            "/api/v1/traces/{id}/verify",
+            get(api::compliance::verify_trace),
+        )
         // Analytics
         .route(
             "/api/v1/analytics/filters",
