@@ -203,10 +203,21 @@
 </svelte:head>
 
 <div class="space-y-6">
-	<div class="flex items-center gap-2">
-		<a href="/repos" class="text-muted-foreground hover:underline">Repos</a>
-		<span class="text-muted-foreground">/</span>
-		<h1 class="text-2xl font-bold">{repoName || repoId}</h1>
+	<div class="flex items-center justify-between">
+		<div class="flex items-center gap-2">
+			<a href="/repos" class="text-muted-foreground hover:underline">Repos</a>
+			<span class="text-muted-foreground">/</span>
+			<h1 class="text-2xl font-bold">{repoName || repoId}</h1>
+		</div>
+		<a
+			href="/repos/{repoId}/code"
+			class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+		>
+			<svg class="h-4 w-4" viewBox="0 0 16 16" fill="currentColor">
+				<path d="M4.72 3.22a.75.75 0 011.06 1.06L2.06 8l3.72 3.72a.75.75 0 11-1.06 1.06L.47 8.53a.75.75 0 010-1.06l4.25-4.25zm6.56 0a.75.75 0 10-1.06 1.06L13.94 8l-3.72 3.72a.75.75 0 101.06 1.06l4.25-4.25a.75.75 0 000-1.06l-4.25-4.25z" />
+			</svg>
+			Browse Code
+		</a>
 	</div>
 
 	<!-- Policies Section -->
