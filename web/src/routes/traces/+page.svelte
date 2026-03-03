@@ -73,10 +73,10 @@
 								{commit.commit_sha.slice(0, 8)}
 							</a>
 						</Table.Cell>
-						<Table.Cell>{commit.author}</Table.Cell>
+						<Table.Cell><Badge variant="author">{commit.author}</Badge></Table.Cell>
 						<Table.Cell>
 							{#if commit.branch}
-								<Badge variant="outline">{commit.branch}</Badge>
+								<Badge variant="branch">{commit.branch}</Badge>
 							{:else}
 								<span class="text-muted-foreground">-</span>
 							{/if}
