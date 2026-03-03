@@ -85,14 +85,7 @@
 	<!-- Header: Logo -->
 	<div class="flex h-14 items-center border-b px-3 {expanded ? 'justify-between' : 'justify-center'}">
 		<a href="/repos" class="flex items-center gap-2">
-			<div class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-5 w-5">
-					<circle cx="12" cy="12" r="9" />
-					<line x1="12" y1="3" x2="12" y2="21" />
-					<line x1="3" y1="12" x2="21" y2="12" />
-					<circle cx="12" cy="12" r="3" />
-				</svg>
-			</div>
+			<img src="/logo.png" alt="TraceVault" class="h-8 w-8 rounded-lg" />
 			{#if expanded}
 				<span class="text-lg font-semibold">TraceVault</span>
 			{/if}
