@@ -310,13 +310,34 @@
 		return `${Math.floor(ms / 3_600_000)}h ${Math.floor((ms % 3_600_000) / 60_000)}m`;
 	}
 
+	interface VerifyResponse {
+		commit_id: string;
+		record_hash_valid: boolean;
+		signature_valid: boolean;
+		chain_valid: boolean;
+		sealed_at: string | null;
+	}
+
 	let commit: CommitDetail | null = $state(null);
 	let loading = $state(true);
 	let error = $state('');
 	let expandedSessions: Set<string> = $state(new Set());
 	let expandedEntries: Set<string> = $state(new Set());
+	let verification: VerifyResponse | null = $state(null);
+	let verifyLoading = $state(false);
 
 	const commitId = $derived($page.params.id ?? '');
+
+	async function loadVerification() {
+		verifyLoading = true;
+		try {
+			verification = await api.get<VerifyResponse>(`/api/v1/traces/${commitId}/verify`);
+		} catch {
+			// Verification not available — not an error
+		} finally {
+			verifyLoading = false;
+		}
+	}
 
 	onMount(async () => {
 		try {
@@ -326,6 +347,7 @@
 		} finally {
 			loading = false;
 		}
+		loadVerification();
 	});
 
 	function formatDate(iso: string): string {
@@ -479,6 +501,18 @@
 						<span class="text-muted-foreground">Sessions</span>
 						<span>{commit.sessions.length}</span>
 					</div>
+					{#if verification}
+						<div class="flex items-center gap-2 pt-2">
+							<span class="text-muted-foreground">Integrity</span>
+							{#if verification.signature_valid && verification.chain_valid}
+								<Badge variant="default">Signature Verified</Badge>
+							{:else if verification.sealed_at}
+								<Badge variant="destructive">Verification Failed</Badge>
+							{:else}
+								<Badge variant="secondary">Not Sealed</Badge>
+							{/if}
+						</div>
+					{/if}
 				</Card.Content>
 			</Card.Root>
 
