@@ -1,18 +1,18 @@
 <script lang="ts">
-	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import AppSidebar from '$lib/components/app-sidebar.svelte';
+	import ThemeToggle from '$lib/components/theme-toggle.svelte';
 
 	let { children } = $props();
 </script>
 
-<Sidebar.Provider>
+<div class="flex min-h-screen">
 	<AppSidebar />
-	<Sidebar.Inset>
-		<header class="flex h-14 items-center border-b px-4">
-			<Sidebar.Trigger />
+	<div class="flex flex-1 flex-col">
+		<header class="flex h-14 items-center justify-end border-b px-4">
+			<ThemeToggle />
 		</header>
 		<main class="flex-1 p-6">
 			{@render children?.()}
 		</main>
-	</Sidebar.Inset>
-</Sidebar.Provider>
+	</div>
+</div>
