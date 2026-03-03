@@ -1,21 +1,45 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
+	import { browser } from '$app/environment';
 	import { auth } from '$lib/stores/auth';
-	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
+	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
+	import {
+		FolderGit2,
+		GitCommitHorizontal,
+		BarChart3,
+		ShieldCheck,
+		Settings,
+		LogOut,
+		ChevronsLeft,
+		ChevronsRight
+	} from '@lucide/svelte';
 
 	let authState: { user: { email: string; org_name: string; role: string } | null } = $state({
 		user: null
 	});
 	auth.subscribe((s) => (authState = s));
 
+	let expanded = $state(false);
+
+	if (browser) {
+		expanded = localStorage.getItem('sidebar-expanded') === 'true';
+	}
+
+	function toggleExpanded() {
+		expanded = !expanded;
+		if (browser) {
+			localStorage.setItem('sidebar-expanded', String(expanded));
+		}
+	}
+
 	const navItems = [
-		{ href: '/repos', label: 'Repos' },
-		{ href: '/traces', label: 'Traces' },
-		{ href: '/analytics', label: 'Analytics' },
-		{ href: '/compliance', label: 'Compliance' },
-		{ href: '/settings', label: 'Settings' }
+		{ href: '/repos', label: 'Repos', icon: FolderGit2 },
+		{ href: '/traces', label: 'Traces', icon: GitCommitHorizontal },
+		{ href: '/analytics', label: 'Analytics', icon: BarChart3 },
+		{ href: '/compliance', label: 'Compliance', icon: ShieldCheck },
+		{ href: '/settings', label: 'Settings', icon: Settings }
 	];
 
 	const analyticsSubItems = [
@@ -35,7 +59,11 @@
 	];
 
 	function isActive(href: string): boolean {
-		return $page.url.pathname.startsWith(href);
+		return $page.url.pathname === href || $page.url.pathname.startsWith(href + '/');
+	}
+
+	function isExactActive(href: string): boolean {
+		return $page.url.pathname === href;
 	}
 
 	async function handleLogout() {
@@ -50,72 +78,106 @@
 	}
 </script>
 
-<Sidebar.Root>
-	<Sidebar.Header class="p-4">
-		<a href="/repos" class="text-lg font-semibold">TraceVault</a>
-		{#if authState.user}
-			<p class="text-xs text-muted-foreground">{authState.user.org_name}</p>
+<aside
+	class="flex flex-col border-r bg-sidebar text-sidebar-foreground transition-all duration-200 ease-in-out {expanded ? 'w-60' : 'w-14'}"
+	style="min-height: 100vh;"
+>
+	<!-- Header: Logo -->
+	<div class="flex h-14 items-center border-b px-3 {expanded ? 'justify-between' : 'justify-center'}">
+		<a href="/repos" class="flex items-center gap-2">
+			<div class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-5 w-5">
+					<circle cx="12" cy="12" r="9" />
+					<line x1="12" y1="3" x2="12" y2="21" />
+					<line x1="3" y1="12" x2="21" y2="12" />
+					<circle cx="12" cy="12" r="3" />
+				</svg>
+			</div>
+			{#if expanded}
+				<span class="text-lg font-semibold">TraceVault</span>
+			{/if}
+		</a>
+		{#if expanded}
+			<button onclick={toggleExpanded} class="text-muted-foreground hover:text-foreground p-1">
+				<ChevronsLeft class="h-4 w-4" />
+			</button>
 		{/if}
-	</Sidebar.Header>
-	<Sidebar.Content>
-		<Sidebar.Group>
-			<Sidebar.GroupContent>
-				<Sidebar.Menu>
-					{#each navItems as item}
-						<Sidebar.MenuItem>
-							<Sidebar.MenuButton isActive={isActive(item.href)}>
-								{#snippet child({ props })}
-									<a href={item.href} {...props}>{item.label}</a>
-								{/snippet}
-							</Sidebar.MenuButton>
-						</Sidebar.MenuItem>
-					{/each}
-				</Sidebar.Menu>
-			</Sidebar.GroupContent>
-		</Sidebar.Group>
-		{#if $page.url.pathname.startsWith('/analytics')}
-			<Sidebar.Group>
-				<Sidebar.GroupLabel>Analytics</Sidebar.GroupLabel>
-				<Sidebar.GroupContent>
-					<Sidebar.Menu>
-						{#each analyticsSubItems as item}
-							<Sidebar.MenuItem>
-								<Sidebar.MenuButton isActive={$page.url.pathname === item.href}>
-									{#snippet child({ props })}
-										<a href={item.href} {...props}>{item.label}</a>
-									{/snippet}
-								</Sidebar.MenuButton>
-							</Sidebar.MenuItem>
+	</div>
+
+	<!-- Navigation -->
+	<nav class="flex-1 py-3 px-2 space-y-1">
+		{#each navItems as item}
+			{@const active = isActive(item.href)}
+			{#if expanded}
+				<a
+					href={item.href}
+					class="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors
+						{active ? 'bg-primary text-primary-foreground' : 'text-sidebar-foreground hover:bg-sidebar-accent'}"
+				>
+					<item.icon class="h-5 w-5 shrink-0" />
+					<span>{item.label}</span>
+				</a>
+
+				{#if item.href === '/analytics' && active}
+					<div class="ml-8 space-y-0.5 mt-0.5">
+						{#each analyticsSubItems as sub}
+							<a
+								href={sub.href}
+								class="block rounded-md px-3 py-1.5 text-xs font-medium transition-colors
+									{isExactActive(sub.href) ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'}"
+							>
+								{sub.label}
+							</a>
 						{/each}
-					</Sidebar.Menu>
-				</Sidebar.GroupContent>
-			</Sidebar.Group>
-		{/if}
-		{#if $page.url.pathname.startsWith('/compliance')}
-			<Sidebar.Group>
-				<Sidebar.GroupLabel>Compliance</Sidebar.GroupLabel>
-				<Sidebar.GroupContent>
-					<Sidebar.Menu>
-						{#each complianceSubItems as item}
-							<Sidebar.MenuItem>
-								<Sidebar.MenuButton isActive={$page.url.pathname === item.href}>
-									{#snippet child({ props })}
-										<a href={item.href} {...props}>{item.label}</a>
-									{/snippet}
-								</Sidebar.MenuButton>
-							</Sidebar.MenuItem>
+					</div>
+				{/if}
+
+				{#if item.href === '/compliance' && active}
+					<div class="ml-8 space-y-0.5 mt-0.5">
+						{#each complianceSubItems as sub}
+							<a
+								href={sub.href}
+								class="block rounded-md px-3 py-1.5 text-xs font-medium transition-colors
+									{isExactActive(sub.href) ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'}"
+							>
+								{sub.label}
+							</a>
 						{/each}
-					</Sidebar.Menu>
-				</Sidebar.GroupContent>
-			</Sidebar.Group>
+					</div>
+				{/if}
+			{:else}
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						<a
+							href={item.href}
+							class="flex h-10 w-10 items-center justify-center rounded-md transition-colors
+								{active ? 'bg-primary text-primary-foreground' : 'text-sidebar-foreground hover:bg-sidebar-accent'}"
+						>
+							<item.icon class="h-5 w-5" />
+						</a>
+					</Tooltip.Trigger>
+					<Tooltip.Content side="right">
+						{item.label}
+					</Tooltip.Content>
+				</Tooltip.Root>
+			{/if}
+		{/each}
+	</nav>
+
+	<!-- Footer -->
+	<div class="border-t p-2">
+		{#if !expanded}
+			<button onclick={toggleExpanded} class="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent mx-auto">
+				<ChevronsRight class="h-4 w-4" />
+			</button>
+		{:else}
+			{#if authState.user}
+				<p class="text-xs text-muted-foreground truncate px-3 py-1">{authState.user.email}</p>
+			{/if}
+			<Button variant="ghost" size="sm" class="w-full justify-start gap-2" onclick={handleLogout}>
+				<LogOut class="h-4 w-4" />
+				Log out
+			</Button>
 		{/if}
-	</Sidebar.Content>
-	<Sidebar.Footer class="p-4">
-		{#if authState.user}
-			<p class="text-sm truncate">{authState.user.email}</p>
-		{/if}
-		<Button variant="outline" size="sm" class="w-full mt-2" onclick={handleLogout}>
-			Log out
-		</Button>
-	</Sidebar.Footer>
-</Sidebar.Root>
+	</div>
+</aside>
