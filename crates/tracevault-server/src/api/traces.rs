@@ -123,7 +123,7 @@ pub async fn create_trace(
         let prev: Option<String> = sqlx::query_scalar(
             "SELECT chain_hash FROM commits
              WHERE repo_id = $1 AND sealed_at IS NOT NULL
-             ORDER BY sealed_at DESC LIMIT 1"
+             ORDER BY sealed_at DESC, created_at DESC, id DESC LIMIT 1"
         )
         .bind(repo_id)
         .fetch_optional(&state.pool)

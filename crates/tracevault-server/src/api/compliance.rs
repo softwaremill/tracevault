@@ -238,7 +238,7 @@ pub async fn verify_chain(
         "SELECT c.id, c.record_hash, c.chain_hash, c.prev_chain_hash, c.signature
          FROM commits c JOIN repos r ON c.repo_id = r.id
          WHERE r.org_id = $1 AND c.sealed_at IS NOT NULL
-         ORDER BY c.sealed_at ASC"
+         ORDER BY c.sealed_at ASC, c.created_at ASC, c.id ASC"
     )
     .bind(org_id)
     .fetch_all(&state.pool)

@@ -1,10 +1,39 @@
 use crate::api_client::{resolve_credentials, ApiClient, PushTraceRequest};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tracevault_core::diff::parse_unified_diff;
 use tracevault_core::gitai::{gitai_to_attribution, parse_gitai_note};
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct PushState {
+    last_event_index: usize,
+    last_transcript_index: usize,
+}
+
+fn read_push_state(session_dir: &Path) -> Option<PushState> {
+    let path = session_dir.join(".push_state");
+    let content = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+fn write_push_state(session_dir: &Path, state: &PushState) -> Result<(), Box<dyn std::error::Error>> {
+    let path = session_dir.join(".push_state");
+    let json = serde_json::to_string(state)?;
+    fs::write(path, json)?;
+    Ok(())
+}
+
+fn count_lines(path: &Path) -> usize {
+    let file = match fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return 0,
+    };
+    BufReader::new(file).lines().count()
+}
 
 struct GitInfo {
     repo_name: String,
@@ -124,13 +153,14 @@ fn get_unpushed_commits(project_root: &Path, last_pushed: Option<&str>, head_sha
 
 struct SessionSummary {
     event_count: usize,
+    total_event_count: usize,
     files_modified: Vec<String>,
     tools_used: HashSet<String>,
     models: HashSet<String>,
     events: Vec<serde_json::Value>,
 }
 
-fn summarize_session(session_dir: &Path) -> Option<SessionSummary> {
+fn summarize_session(session_dir: &Path, skip_events: usize) -> Option<SessionSummary> {
     let events_path = session_dir.join("events.jsonl");
     if !events_path.exists() {
         return None;
@@ -142,8 +172,14 @@ fn summarize_session(session_dir: &Path) -> Option<SessionSummary> {
     let mut tools_used = HashSet::new();
     let mut models = HashSet::new();
     let mut events = Vec::new();
+    let mut total_lines = 0usize;
 
     for line in content.lines() {
+        total_lines += 1;
+        if total_lines <= skip_events {
+            continue;
+        }
+
         let event: serde_json::Value = match serde_json::from_str(line) {
             Ok(v) => v,
             Err(_) => continue,
@@ -172,6 +208,7 @@ fn summarize_session(session_dir: &Path) -> Option<SessionSummary> {
 
     Some(SessionSummary {
         event_count: events.len(),
+        total_event_count: total_lines,
         files_modified,
         tools_used,
         models,
@@ -189,6 +226,7 @@ struct ModelTokens {
 
 struct TranscriptData {
     transcript: Option<serde_json::Value>,
+    total_line_count: usize,
     model: Option<String>,
     input_tokens: Option<i64>,
     output_tokens: Option<i64>,
@@ -257,9 +295,10 @@ fn extract_nested_usage(model_tokens: &mut HashMap<String, ModelTokens>, entry: 
     }
 }
 
-fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
+fn read_transcript(metadata: &Option<serde_json::Value>, skip_lines: usize) -> TranscriptData {
     let empty = TranscriptData {
         transcript: None,
+        total_line_count: 0,
         model: None,
         input_tokens: None,
         output_tokens: None,
@@ -305,8 +344,14 @@ fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
     let mut total_tool_call_count: i32 = 0;
     let mut compaction_count: i32 = 0;
     let mut compaction_tokens_saved_total: i64 = 0;
+    let mut total_lines = 0usize;
 
     for line in content.lines() {
+        total_lines += 1;
+        if total_lines <= skip_lines {
+            continue;
+        }
+
         let entry: serde_json::Value = match serde_json::from_str(line) {
             Ok(v) => v,
             Err(_) => continue,
@@ -379,7 +424,10 @@ fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
     }
 
     if lines.is_empty() {
-        return empty;
+        return TranscriptData {
+            total_line_count: total_lines,
+            ..empty
+        };
     }
 
     // Primary model = most requests
@@ -429,6 +477,7 @@ fn read_transcript(metadata: &Option<serde_json::Value>) -> TranscriptData {
 
     TranscriptData {
         transcript: Some(serde_json::Value::Array(lines)),
+        total_line_count: total_lines,
         model,
         input_tokens: if total > 0 { Some(total_input) } else { None },
         output_tokens: if total > 0 { Some(total_output) } else { None },
@@ -501,6 +550,16 @@ fn read_gitai_attribution(
     serde_json::to_value(&attribution).ok()
 }
 
+fn is_gitai_installed() -> bool {
+    Command::new("git")
+        .args(["ai", "--version"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let (server_url, token) = resolve_credentials(project_root);
 
@@ -513,6 +572,13 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
 
     if token.is_none() {
         return Err("Not logged in. Run 'tracevault login' to push traces.".into());
+    }
+
+    if !is_gitai_installed() {
+        eprintln!("Warning: git-ai is not installed. AI attribution data will not be available.");
+        eprintln!("  Install it with: npm install -g @anthropic-ai/git-ai");
+        eprintln!("  See: https://github.com/anthropics/git-ai");
+        eprintln!();
     }
 
     let client = ApiClient::new(&server_url, token.as_deref());
@@ -579,7 +645,7 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
         println!("No new commits to register.");
     }
 
-    // Step 2: Push each unpushed session (attached to HEAD)
+    // Step 2: Push session deltas (attached to HEAD)
     let mut pushed = 0;
     let mut failed = 0;
 
@@ -591,14 +657,43 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
             }
 
             let session_dir = entry.path();
-            let pushed_marker = session_dir.join(".pushed");
-            if pushed_marker.exists() {
-                continue; // already pushed
-            }
 
-            let summary = match summarize_session(&session_dir) {
-                Some(s) if s.event_count > 0 => s,
-                _ => continue,
+            // Determine push state: .push_state > .pushed migration > fresh start
+            let push_state = if let Some(state) = read_push_state(&session_dir) {
+                state
+            } else if session_dir.join(".pushed").exists() {
+                // Migrate from old .pushed marker: treat everything as already pushed
+                let events_path = session_dir.join("events.jsonl");
+                let event_count = count_lines(&events_path);
+
+                let meta_path = session_dir.join("metadata.json");
+                let metadata: Option<serde_json::Value> = meta_path
+                    .exists()
+                    .then(|| fs::read_to_string(&meta_path).ok())
+                    .flatten()
+                    .and_then(|c| serde_json::from_str(&c).ok());
+                let transcript_count = metadata
+                    .as_ref()
+                    .and_then(|m| m.get("transcript_path"))
+                    .and_then(|v| v.as_str())
+                    .map(|p| count_lines(Path::new(p)))
+                    .unwrap_or(0);
+
+                let state = PushState {
+                    last_event_index: event_count,
+                    last_transcript_index: transcript_count,
+                };
+                // Persist migrated state and remove old marker
+                let _ = write_push_state(&session_dir, &state);
+                let _ = fs::remove_file(session_dir.join(".pushed"));
+                state
+            } else {
+                PushState::default()
+            };
+
+            let summary = match summarize_session(&session_dir, push_state.last_event_index) {
+                Some(s) => s,
+                None => continue,
             };
 
             let meta_path = session_dir.join("metadata.json");
@@ -608,6 +703,13 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
                 .flatten()
                 .and_then(|c| serde_json::from_str(&c).ok());
 
+            let transcript_data = read_transcript(&metadata, push_state.last_transcript_index);
+
+            // Skip if no new events AND no new transcript lines
+            if summary.event_count == 0 && transcript_data.transcript.is_none() {
+                continue;
+            }
+
             let session_data = serde_json::json!({
                 "session_id": entry.file_name().to_string_lossy(),
                 "metadata": metadata,
@@ -616,8 +718,6 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
                 "tools_used": summary.tools_used.iter().collect::<Vec<_>>(),
                 "events": summary.events,
             });
-
-            let transcript_data = read_transcript(&metadata);
 
             // Prefer model from transcript, fall back to events
             let model = transcript_data.model
@@ -660,14 +760,18 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
             match client.push_trace(req).await {
                 Ok(resp) => {
                     println!(
-                        "Pushed session {} ({} events, {} files) -> {}",
+                        "Pushed session {} ({} new events, {} files) -> {}",
                         session_name,
                         summary.event_count,
                         summary.files_modified.len(),
                         resp.commit_id,
                     );
-                    // Mark as pushed so we don't push again
-                    fs::write(&pushed_marker, resp.commit_id.to_string())?;
+                    // Update push state with new total counts
+                    let new_state = PushState {
+                        last_event_index: summary.total_event_count,
+                        last_transcript_index: transcript_data.total_line_count,
+                    };
+                    write_push_state(&session_dir, &new_state)?;
                     pushed += 1;
                 }
                 Err(e) => {
