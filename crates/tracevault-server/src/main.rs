@@ -3,6 +3,7 @@ use axum::{
     Router,
 };
 use http::Method;
+use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
@@ -12,14 +13,19 @@ mod auth;
 mod config;
 mod db;
 mod extractors;
+mod llm;
 pub mod permissions;
 pub mod pricing;
+mod repo_manager;
 mod signing;
+mod story;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: sqlx::PgPool,
     pub signing: signing::SigningService,
+    pub repo_manager: repo_manager::RepoManager,
+    pub llm: Option<Arc<dyn llm::StoryLlm>>,
 }
 
 #[tokio::main]
@@ -54,6 +60,8 @@ async fn main() {
     };
 
     let signing = signing::SigningService::new(cfg.signing_key_seed.as_deref());
+    let repo_manager = repo_manager::RepoManager::new(&cfg.repos_dir);
+    let llm_instance = llm::create_llm(&cfg).map(|b| Arc::from(b) as Arc<dyn llm::StoryLlm>);
 
     let bind_addr = cfg.bind_addr();
 
@@ -82,6 +90,37 @@ async fn main() {
         .route("/api/v1/repos", get(api::repos::list_repos))
         .route("/api/v1/repos", post(api::repos::register_repo))
         .route("/api/v1/repos/{id}", delete(api::repos::delete_repo))
+        .route("/api/v1/repos/{id}/sync", post(api::repos::sync_repo))
+        // Code Browser
+        .route(
+            "/api/v1/repos/{repo_id}/code/branches",
+            get(api::code::list_branches),
+        )
+        .route(
+            "/api/v1/repos/{repo_id}/code/tree",
+            get(api::code::get_tree),
+        )
+        .route(
+            "/api/v1/repos/{repo_id}/code/blob",
+            get(api::code::get_blob),
+        )
+        .route(
+            "/api/v1/repos/{repo_id}/code/blame",
+            get(api::code::get_blame),
+        )
+        .route(
+            "/api/v1/repos/{repo_id}/code/commits",
+            get(api::code::list_file_commits),
+        )
+        .route(
+            "/api/v1/repos/{repo_id}/code/info",
+            get(api::code::get_ref_info),
+        )
+        // Story
+        .route(
+            "/api/v1/repos/{repo_id}/story",
+            post(api::code::generate_story),
+        )
         // Orgs
         .route("/api/v1/orgs/{id}", get(api::orgs::get_org))
         .route("/api/v1/orgs/{id}", put(api::orgs::update_org))
@@ -189,7 +228,12 @@ async fn main() {
         .route("/api/v1/github/webhook", post(api::github::webhook))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
-        .with_state(AppState { pool, signing });
+        .with_state(AppState {
+            pool,
+            signing,
+            repo_manager,
+            llm: llm_instance,
+        });
 
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await

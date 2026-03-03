@@ -31,7 +31,55 @@ pub async fn register_repo(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    // Trigger background clone if github_url is provided
+    if let Some(url) = &req.github_url {
+        let pool = state.pool.clone();
+        let repo_mgr = state.repo_manager.clone();
+        let url = url.clone();
+        tokio::spawn(async move {
+            if let Err(e) = repo_mgr.clone_repo(&pool, repo_id, &url).await {
+                tracing::error!("Failed to clone repo {repo_id}: {e}");
+            }
+        });
+    }
+
     Ok((StatusCode::CREATED, Json(RegisterRepoResponse { repo_id })))
+}
+
+pub async fn sync_repo(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(repo_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let repo = sqlx::query_as::<_, (String, Option<String>)>(
+        "SELECT clone_status, github_url FROM repos WHERE id = $1 AND org_id = $2",
+    )
+    .bind(repo_id)
+    .bind(auth.org_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .ok_or((StatusCode::NOT_FOUND, "Repo not found".into()))?;
+
+    if repo.0 != "ready" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("Repo clone status is: {}", repo.0),
+        ));
+    }
+
+    state
+        .repo_manager
+        .fetch_repo(repo_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    sqlx::query("UPDATE repos SET last_fetched_at = now() WHERE id = $1")
+        .bind(repo_id)
+        .execute(&state.pool)
+        .await
+        .ok();
+
+    Ok(Json(serde_json::json!({"status": "synced"})))
 }
 
 #[derive(Debug, Serialize)]

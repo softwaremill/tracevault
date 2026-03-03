@@ -1,6 +1,7 @@
 pub mod analytics;
 pub mod api_keys;
 pub mod auth;
+pub mod code;
 pub mod compliance;
 pub mod github;
 pub mod orgs;
