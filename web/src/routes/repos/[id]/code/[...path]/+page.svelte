@@ -2,11 +2,13 @@
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
 	import type { BranchInfo, TreeEntry, BlobResponse, StoryResponse } from '$lib/types/code';
+	import { features } from '$lib/stores/features';
 	import BranchSelector from '$lib/components/code/BranchSelector.svelte';
 	import BreadcrumbNav from '$lib/components/code/BreadcrumbNav.svelte';
 	import FileTree from '$lib/components/code/FileTree.svelte';
 	import CodeView from '$lib/components/code/CodeView.svelte';
 	import StoryPanel from '$lib/components/code/StoryPanel.svelte';
+	import EnterpriseUpgrade from '$lib/components/enterprise-upgrade.svelte';
 
 	const repoId = $derived($page.params.id);
 	const filePath = $derived($page.params.path);
@@ -134,9 +136,11 @@
 			<span class="text-muted-foreground">
 				{blob.language || 'Plain text'} -- {blob.size} bytes
 			</span>
-			<span class="text-xs text-muted-foreground">Click a line number to generate its story</span>
+			{#if $features.story_generation}
+				<span class="text-xs text-muted-foreground">Click a line number to generate its story</span>
+			{/if}
 		</div>
-		<CodeView content={blob.content} language={blob.language} onLineClick={handleLineClick} />
+		<CodeView content={blob.content} language={blob.language} onLineClick={$features.story_generation ? handleLineClick : undefined} />
 	{:else if blob?.truncated}
 		<p class="text-muted-foreground">File too large to display ({blob.size} bytes)</p>
 	{:else}
@@ -144,15 +148,17 @@
 	{/if}
 </div>
 
-<StoryPanel
-	{story}
-	loading={storyLoading}
-	error={storyError}
-	onClose={() => {
-		story = null;
-		storyLoading = false;
-		storyError = '';
-		selectedLine = null;
-	}}
-	onRegenerate={handleRegenerate}
-/>
+{#if $features.story_generation}
+	<StoryPanel
+		{story}
+		loading={storyLoading}
+		error={storyError}
+		onClose={() => {
+			story = null;
+			storyLoading = false;
+			storyError = '';
+			selectedLine = null;
+		}}
+		onRegenerate={handleRegenerate}
+	/>
+{/if}

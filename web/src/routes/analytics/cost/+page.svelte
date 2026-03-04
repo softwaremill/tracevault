@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
+	import { features } from '$lib/stores/features';
+	import EnterpriseUpgrade from '$lib/components/enterprise-upgrade.svelte';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import Chart from '$lib/components/chart.svelte';
 	import {
@@ -144,6 +146,7 @@
 	<title>Cost Analytics - TraceVault</title>
 </svelte:head>
 
+{#if $features.advanced_analytics}
 <div class="space-y-6">
 	<h1 class="text-2xl font-bold">Cost Analytics</h1>
 
@@ -252,3 +255,6 @@
 		</Card.Root>
 	{/if}
 </div>
+{:else}
+	<EnterpriseUpgrade feature="advanced_analytics" />
+{/if}

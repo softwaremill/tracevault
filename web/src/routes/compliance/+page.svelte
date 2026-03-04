@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import { auth } from '$lib/stores/auth';
+	import { features } from '$lib/stores/features';
+	import EnterpriseUpgrade from '$lib/components/enterprise-upgrade.svelte';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -129,6 +131,7 @@
 	<title>Compliance Dashboard - TraceVault</title>
 </svelte:head>
 
+{#if $features.compliance}
 <div class="space-y-6">
 	<h1 class="text-2xl font-bold">Compliance Dashboard</h1>
 
@@ -291,3 +294,6 @@
 		</Card.Root>
 	{/if}
 </div>
+{:else}
+	<EnterpriseUpgrade feature="compliance" />
+{/if}

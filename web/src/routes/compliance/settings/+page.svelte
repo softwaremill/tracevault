@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import { auth } from '$lib/stores/auth';
+	import { features } from '$lib/stores/features';
+	import EnterpriseUpgrade from '$lib/components/enterprise-upgrade.svelte';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -98,6 +100,7 @@
 	<title>Compliance Settings - TraceVault</title>
 </svelte:head>
 
+{#if $features.compliance}
 <div class="space-y-6 max-w-2xl">
 	<div class="flex items-center gap-2">
 		<a href="/compliance" class="text-muted-foreground hover:underline">Compliance</a>
@@ -244,3 +247,6 @@
 		</Card.Root>
 	{/if}
 </div>
+{:else}
+	<EnterpriseUpgrade feature="compliance" />
+{/if}

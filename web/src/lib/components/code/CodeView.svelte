@@ -38,7 +38,7 @@
 	}: {
 		content: string;
 		language: string | null;
-		onLineClick: (line: number) => void;
+		onLineClick?: (line: number) => void;
 	} = $props();
 
 	let selectedLine = $state<number | null>(null);
@@ -53,6 +53,7 @@
 	const lines = $derived(highlighted.split('\n'));
 
 	function handleLineClick(lineNum: number) {
+		if (!onLineClick) return;
 		selectedLine = lineNum;
 		onLineClick(lineNum);
 	}

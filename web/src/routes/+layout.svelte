@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
 	import { auth } from '$lib/stores/auth';
+	import { features } from '$lib/stores/features';
 
 	let { children } = $props();
 
@@ -15,6 +16,7 @@
 
 	$effect(() => {
 		auth.init();
+		features.init();
 	});
 
 	$effect(() => {

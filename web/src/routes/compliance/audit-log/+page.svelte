@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import { auth } from '$lib/stores/auth';
+	import { features } from '$lib/stores/features';
+	import EnterpriseUpgrade from '$lib/components/enterprise-upgrade.svelte';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -94,6 +96,7 @@
 	<title>Audit Log - TraceVault</title>
 </svelte:head>
 
+{#if $features.audit_trail}
 <div class="space-y-6">
 	<div class="flex items-center gap-2">
 		<a href="/compliance" class="text-muted-foreground hover:underline">Compliance</a>
@@ -224,3 +227,6 @@
 		</Card.Content>
 	</Card.Root>
 </div>
+{:else}
+	<EnterpriseUpgrade feature="audit_trail" />
+{/if}
