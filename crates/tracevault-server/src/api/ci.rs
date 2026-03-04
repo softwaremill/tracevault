@@ -139,13 +139,13 @@ pub async fn verify_commits(
 
         // Verify signature and chain
         let signature_valid = match (&record_hash, &signature) {
-            (Some(rh), Some(sig)) => state.signing.verify(rh, sig),
+            (Some(rh), Some(sig)) => state.extensions.signing.verify(rh, sig),
             _ => false,
         };
 
         let chain_valid = match (&record_hash, &chain_hash) {
             (Some(rh), Some(ch)) => {
-                let expected = state.signing.chain_hash(prev_chain_hash.as_deref(), rh);
+                let expected = state.extensions.signing.chain_hash(prev_chain_hash.as_deref(), rh);
                 expected == *ch
             }
             _ => false,

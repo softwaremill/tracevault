@@ -12,11 +12,12 @@ mod audit;
 mod auth;
 mod config;
 mod db;
+mod encryption;
+pub mod extensions;
 mod extractors;
 mod llm;
 pub mod permissions;
 pub mod pricing;
-mod encryption;
 mod repo_manager;
 mod signing;
 mod story;
@@ -24,10 +25,8 @@ mod story;
 #[derive(Clone)]
 pub struct AppState {
     pub pool: sqlx::PgPool,
-    pub signing: signing::SigningService,
     pub repo_manager: repo_manager::RepoManager,
-    pub llm: Option<Arc<dyn llm::StoryLlm>>,
-    pub encryption_key: Option<String>,
+    pub extensions: extensions::ExtensionRegistry,
 }
 
 #[tokio::main]
@@ -61,15 +60,14 @@ async fn main() {
         CorsLayer::permissive()
     };
 
-    let signing = signing::SigningService::new(cfg.signing_key_seed.as_deref());
     let repo_manager = repo_manager::RepoManager::new(&cfg.repos_dir);
-    let llm_instance = llm::create_llm(&cfg).map(|b| Arc::from(b) as Arc<dyn llm::StoryLlm>);
-    let encryption_key = cfg.encryption_key.clone();
+    let extensions = build_extensions(&cfg);
 
     let bind_addr = cfg.bind_addr();
 
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
+        .route("/api/v1/features", get(api::features::get_features))
         // Auth (public)
         .route("/api/v1/auth/register", post(api::auth::register))
         .route("/api/v1/auth/login", post(api::auth::login))
@@ -247,10 +245,8 @@ async fn main() {
         .layer(cors)
         .with_state(AppState {
             pool,
-            signing,
             repo_manager,
-            llm: llm_instance,
-            encryption_key,
+            extensions,
         });
 
     let listener = tokio::net::TcpListener::bind(&bind_addr)
@@ -258,4 +254,28 @@ async fn main() {
         .unwrap();
     tracing::info!("TraceVault server listening on {}", bind_addr);
     axum::serve(listener, app).await.unwrap();
+}
+
+fn build_extensions(cfg: &config::ServerConfig) -> extensions::ExtensionRegistry {
+    #[cfg(feature = "enterprise")]
+    {
+        tracevault_enterprise::register(cfg)
+    }
+
+    #[cfg(not(feature = "enterprise"))]
+    {
+        let signing = signing::SigningService::new(cfg.signing_key_seed.as_deref());
+        let llm_instance = llm::create_llm(cfg).map(|b| Arc::from(b) as Arc<dyn llm::StoryLlm>);
+
+        let mut ext = extensions::community_registry();
+        ext.signing = Arc::new(extensions::FullSigningProvider::new(signing));
+        ext.pricing = Arc::new(extensions::FullPricingProvider);
+        if let Some(ref key) = cfg.encryption_key {
+            ext.encryption = Arc::new(extensions::FullEncryptionProvider::new(key.clone()));
+        }
+        if let Some(llm) = llm_instance {
+            ext.story = Arc::new(extensions::LlmStoryProvider::new(Arc::from(llm)));
+        }
+        ext
+    }
 }

@@ -87,8 +87,8 @@ pub async fn list_members(
     if auth.org_id != id {
         return Err((StatusCode::FORBIDDEN, "Access denied".into()));
     }
-    if !crate::permissions::has_permission(&auth.role, crate::permissions::Permission::UserManage)
-       && !crate::permissions::has_permission(&auth.role, crate::permissions::Permission::AuditLogView) {
+    if !state.extensions.permissions.has_permission(&auth.role, crate::permissions::Permission::UserManage)
+       && !state.extensions.permissions.has_permission(&auth.role, crate::permissions::Permission::AuditLogView) {
         return Err((StatusCode::FORBIDDEN, "Requires admin or auditor role".into()));
     }
 
@@ -136,7 +136,7 @@ pub async fn invite_member(
     }
 
     let role = req.role.unwrap_or_else(|| "developer".into());
-    if !crate::permissions::is_valid_role(&role) || role == "owner" {
+    if !state.extensions.permissions.is_valid_role(&role) || role == "owner" {
         return Err((
             StatusCode::BAD_REQUEST,
             "Role must be one of: admin, policy_admin, developer, auditor".into(),
@@ -216,7 +216,7 @@ pub async fn change_role(
     if auth.org_id != org_id || auth.role != "owner" {
         return Err((StatusCode::FORBIDDEN, "Requires owner role".into()));
     }
-    if !crate::permissions::is_valid_role(&req.role) || req.role == "owner" {
+    if !state.extensions.permissions.is_valid_role(&req.role) || req.role == "owner" {
         return Err((
             StatusCode::BAD_REQUEST,
             "Role must be one of: admin, policy_admin, developer, auditor".into(),
@@ -320,11 +320,7 @@ pub async fn update_llm_settings(
 
     // Encrypt API key if provided
     let (encrypted_key, nonce) = if let Some(ref api_key) = req.api_key {
-        let enc_key = state.encryption_key.as_ref().ok_or((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Encryption key not configured on server".into(),
-        ))?;
-        let (ct, n) = crate::encryption::encrypt(api_key, enc_key)
+        let (ct, n) = state.extensions.encryption.encrypt(api_key)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Encryption error: {e}")))?;
         (Some(ct), Some(n))
     } else {

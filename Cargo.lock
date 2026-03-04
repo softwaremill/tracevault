@@ -2697,6 +2697,7 @@ dependencies = [
 name = "tracevault-core"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "regex",
  "serde",
@@ -2710,6 +2711,18 @@ dependencies = [
  "tree-sitter-rust",
  "tree-sitter-scala",
  "tree-sitter-typescript",
+ "uuid",
+]
+
+[[package]]
+name = "tracevault-enterprise"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tracevault-core",
  "uuid",
 ]
 
@@ -2737,6 +2750,7 @@ dependencies = [
  "tokio",
  "tower-http",
  "tracevault-core",
+ "tracevault-enterprise",
  "tracing",
  "tracing-subscriber",
  "uuid",

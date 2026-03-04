@@ -1,7 +1,6 @@
 use axum::{extract::{Path, State}, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 use crate::AppState;
-use crate::encryption;
 use uuid::Uuid;
 
 use crate::extractors::AuthUser;
@@ -47,11 +46,11 @@ pub async fn register_repo(
     Ok((StatusCode::CREATED, Json(RegisterRepoResponse { repo_id })))
 }
 
-/// Decrypt the deploy key for a repo if it exists and an encryption key is configured.
+/// Decrypt the deploy key for a repo if it exists and encryption is configured.
 async fn get_deploy_key(
     pool: &sqlx::PgPool,
     repo_id: Uuid,
-    encryption_key: &Option<String>,
+    encryption: &dyn crate::extensions::EncryptionProvider,
 ) -> Result<Option<String>, (StatusCode, String)> {
     let row = sqlx::query_as::<_, (Option<String>, Option<String>)>(
         "SELECT deploy_key_encrypted, deploy_key_nonce FROM repos WHERE id = $1",
@@ -62,11 +61,7 @@ async fn get_deploy_key(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if let Some((Some(ct), Some(nonce))) = row {
-        let enc_key = encryption_key.as_ref().ok_or((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Encryption key not configured but deploy key is stored".into(),
-        ))?;
-        let plaintext = encryption::decrypt(&ct, &nonce, enc_key)
+        let plaintext = encryption.decrypt(&ct, &nonce)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to decrypt deploy key: {e}")))?;
         Ok(Some(plaintext))
     } else {
@@ -89,7 +84,7 @@ pub async fn sync_repo(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .ok_or((StatusCode::NOT_FOUND, "Repo not found".into()))?;
 
-    let deploy_key = get_deploy_key(&state.pool, repo_id, &state.encryption_key).await?;
+    let deploy_key = get_deploy_key(&state.pool, repo_id, state.extensions.encryption.as_ref()).await?;
 
     match repo.0.as_str() {
         "ready" => {
@@ -258,11 +253,7 @@ pub async fn update_settings(
 
     // Encrypt and store deploy key if provided (ignore empty strings)
     if let Some(ref key_pem) = req.deploy_key.filter(|k| !k.trim().is_empty()) {
-        let enc_key = state.encryption_key.as_ref().ok_or((
-            StatusCode::BAD_REQUEST,
-            "Server encryption key not configured. Set TRACEVAULT_ENCRYPTION_KEY.".into(),
-        ))?;
-        let (ct, nonce) = encryption::encrypt(key_pem, enc_key)
+        let (ct, nonce) = state.extensions.encryption.encrypt(key_pem)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Encryption failed: {e}")))?;
 
         sqlx::query("UPDATE repos SET deploy_key_encrypted = $1, deploy_key_nonce = $2 WHERE id = $3")
@@ -292,7 +283,7 @@ pub async fn update_settings(
     if let Some(url) = &github_url {
         match clone_status.as_str() {
             "pending" | "error" => {
-                let deploy_key = get_deploy_key(&state.pool, id, &state.encryption_key).await?;
+                let deploy_key = get_deploy_key(&state.pool, id, state.extensions.encryption.as_ref()).await?;
                 let pool = state.pool.clone();
                 let repo_mgr = state.repo_manager.clone();
                 let url = url.clone();
@@ -310,7 +301,7 @@ pub async fn update_settings(
             }
             "ready" => {
                 // Fetch latest
-                let deploy_key = get_deploy_key(&state.pool, id, &state.encryption_key).await?;
+                let deploy_key = get_deploy_key(&state.pool, id, state.extensions.encryption.as_ref()).await?;
                 state
                     .repo_manager
                     .fetch_repo(id, deploy_key.as_deref())

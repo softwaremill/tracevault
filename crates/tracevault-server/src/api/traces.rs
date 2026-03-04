@@ -117,7 +117,7 @@ pub async fn create_trace(
             "repo_id": repo_id,
         });
         let canonical_bytes = serde_json::to_vec(&canonical).unwrap();
-        let record_hash = state.signing.record_hash(&canonical_bytes);
+        let record_hash = state.extensions.signing.record_hash(&canonical_bytes);
 
         // Get previous chain hash
         let prev: Option<String> = sqlx::query_scalar(
@@ -130,8 +130,8 @@ pub async fn create_trace(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-        let chain_hash = state.signing.chain_hash(prev.as_deref(), &record_hash);
-        let signature = state.signing.sign(&record_hash);
+        let chain_hash = state.extensions.signing.chain_hash(prev.as_deref(), &record_hash);
+        let signature = state.extensions.signing.sign(&record_hash);
 
         sqlx::query(
             "UPDATE commits SET record_hash = $1, chain_hash = $2, prev_chain_hash = $3,
@@ -153,7 +153,7 @@ pub async fn create_trace(
     // Optionally insert session (append-only)
     let session_db_id = if let Some(sid) = &req.session_id {
         // Compute cost server-side from model_usage or fallback fields
-        let estimated_cost = crate::pricing::cost_from_model_usage(
+        let estimated_cost = state.extensions.pricing.cost_from_model_usage(
             req.model_usage.as_ref(),
             req.model.as_deref(),
             req.input_tokens.unwrap_or(0),
@@ -222,8 +222,8 @@ pub async fn create_trace(
                 "tool": &req.tool,
             });
             let canonical_bytes = serde_json::to_vec(&canonical).unwrap();
-            let record_hash = state.signing.record_hash(&canonical_bytes);
-            let signature = state.signing.sign(&record_hash);
+            let record_hash = state.extensions.signing.record_hash(&canonical_bytes);
+            let signature = state.extensions.signing.sign(&record_hash);
 
             sqlx::query(
                 "UPDATE sessions SET record_hash = $1, signature = $2, sealed_at = NOW() WHERE id = $3"

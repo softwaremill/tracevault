@@ -4,6 +4,7 @@ pub mod auth;
 pub mod ci;
 pub mod code;
 pub mod compliance;
+pub mod features;
 pub mod github;
 pub mod orgs;
 pub mod policies;

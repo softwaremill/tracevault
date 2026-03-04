@@ -363,7 +363,7 @@ pub async fn get_overview(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let cache_savings = crate::pricing::estimate_cache_savings("sonnet", kpi.12);
+    let cache_savings = state.extensions.pricing.estimate_cache_savings("sonnet", kpi.12);
 
     Ok(Json(OverviewResponse {
         total_commits: kpi.0,
@@ -524,7 +524,7 @@ pub async fn get_tokens(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let cache_savings = crate::pricing::estimate_cache_savings("sonnet", cache_totals.0);
+    let cache_savings = state.extensions.pricing.estimate_cache_savings("sonnet", cache_totals.0);
 
     Ok(Json(TokensResponse {
         time_series: time_series.into_iter().map(|(d, i, o)| TokenTimePoint { date: d, input: i, output: o }).collect(),
@@ -1125,7 +1125,7 @@ pub async fn get_cost(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Approximate cache savings using Sonnet rates for aggregate
-    let cache_savings = crate::pricing::estimate_cache_savings("sonnet", totals.2);
+    let cache_savings = state.extensions.pricing.estimate_cache_savings("sonnet", totals.2);
 
     // Cost over time (daily)
     let cost_time = sqlx::query_as::<_, (String, f64)>(

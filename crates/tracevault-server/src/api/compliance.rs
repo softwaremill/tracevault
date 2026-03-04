@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::audit;
 use crate::extractors::AuthUser;
-use crate::permissions::{Permission, has_permission};
+use crate::permissions::Permission;
 use crate::AppState;
 
 // --- Compliance Settings ---
@@ -29,7 +29,7 @@ pub async fn get_compliance_settings(
     if auth.org_id != org_id {
         return Err((StatusCode::FORBIDDEN, "Access denied".into()));
     }
-    if !has_permission(&auth.role, Permission::ComplianceView) {
+    if !state.extensions.permissions.has_permission(&auth.role, Permission::ComplianceView) {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
 
@@ -85,7 +85,7 @@ pub async fn update_compliance_settings(
     if auth.org_id != org_id {
         return Err((StatusCode::FORBIDDEN, "Access denied".into()));
     }
-    if !has_permission(&auth.role, Permission::ComplianceManage) {
+    if !state.extensions.permissions.has_permission(&auth.role, Permission::ComplianceManage) {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
 
@@ -166,7 +166,7 @@ pub async fn get_public_key(
     }
     Ok(Json(PublicKeyResponse {
         algorithm: "Ed25519".into(),
-        public_key: state.signing.public_key_b64(),
+        public_key: state.extensions.signing.public_key_b64(),
     }))
 }
 
@@ -189,7 +189,7 @@ pub async fn get_chain_status(
     if auth.org_id != org_id {
         return Err((StatusCode::FORBIDDEN, "Access denied".into()));
     }
-    if !has_permission(&auth.role, Permission::ComplianceView) {
+    if !state.extensions.permissions.has_permission(&auth.role, Permission::ComplianceView) {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
 
@@ -230,7 +230,7 @@ pub async fn verify_chain(
     if auth.org_id != org_id {
         return Err((StatusCode::FORBIDDEN, "Access denied".into()));
     }
-    if !has_permission(&auth.role, Permission::ComplianceView) {
+    if !state.extensions.permissions.has_permission(&auth.role, Permission::ComplianceView) {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
 
@@ -257,7 +257,7 @@ pub async fn verify_chain(
             continue;
         };
 
-        let expected_chain = state.signing.chain_hash(prev_chain_hash.as_deref(), rh);
+        let expected_chain = state.extensions.signing.chain_hash(prev_chain_hash.as_deref(), rh);
         if &expected_chain != ch {
             errors.push(serde_json::json!({"commit_id": id, "error": "chain_hash mismatch"}));
             prev_hash = Some(ch.clone());
@@ -268,7 +268,7 @@ pub async fn verify_chain(
             errors.push(serde_json::json!({"commit_id": id, "error": "prev_chain_hash mismatch"}));
         }
 
-        if !state.signing.verify(rh, sig) {
+        if !state.extensions.signing.verify(rh, sig) {
             errors.push(serde_json::json!({"commit_id": id, "error": "signature verification failed"}));
             prev_hash = Some(ch.clone());
             continue;
@@ -352,7 +352,7 @@ pub async fn list_audit_log(
     if auth.org_id != org_id {
         return Err((StatusCode::FORBIDDEN, "Access denied".into()));
     }
-    if !has_permission(&auth.role, Permission::AuditLogView) {
+    if !state.extensions.permissions.has_permission(&auth.role, Permission::AuditLogView) {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
 
@@ -450,13 +450,13 @@ pub async fn verify_trace(
     let (commit_id, record_hash, chain_hash, prev_chain_hash, signature, sealed_at) = commit;
 
     let signature_valid = match (&record_hash, &signature) {
-        (Some(rh), Some(sig)) => state.signing.verify(rh, sig),
+        (Some(rh), Some(sig)) => state.extensions.signing.verify(rh, sig),
         _ => false,
     };
 
     let chain_valid = match (&record_hash, &chain_hash) {
         (Some(rh), Some(ch)) => {
-            let expected = state.signing.chain_hash(prev_chain_hash.as_deref(), rh);
+            let expected = state.extensions.signing.chain_hash(prev_chain_hash.as_deref(), rh);
             expected == *ch
         }
         _ => false,
