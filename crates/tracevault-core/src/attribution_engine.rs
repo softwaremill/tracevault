@@ -50,16 +50,8 @@ pub fn compute_file_attribution(
             let old_count = old_lines.len() as u32;
 
             let changed = find_changed_lines(&old_lines, &new_lines);
-            let added_count = if line_count > old_count {
-                line_count - old_count
-            } else {
-                0
-            };
-            let deleted_count = if old_count > line_count {
-                old_count - line_count
-            } else {
-                0
-            };
+            let added_count = line_count.saturating_sub(old_count);
+            let deleted_count = old_count.saturating_sub(line_count);
 
             let changed_lines_total: u32 = changed.iter().map(|r| r.end - r.start + 1).sum();
 
@@ -125,7 +117,7 @@ fn find_changed_lines(old: &[&str], new: &[&str]) -> Vec<LineRange> {
     let mut range_start: Option<u32> = None;
 
     for (i, new_line) in new.iter().enumerate() {
-        let is_changed = old.get(i).map_or(true, |old_line| old_line != new_line);
+        let is_changed = old.get(i) != Some(new_line);
 
         if is_changed {
             if range_start.is_none() {

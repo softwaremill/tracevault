@@ -203,12 +203,8 @@ fn install_claude_hooks(project_root: &Path) -> Result<(), io::Error> {
 
     settings_obj.insert("hooks".to_string(), hooks);
 
-    let formatted = serde_json::to_string_pretty(&settings).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::Other,
-            format!("Failed to serialize settings: {e}"),
-        )
-    })?;
+    let formatted = serde_json::to_string_pretty(&settings)
+        .map_err(|e| io::Error::other(format!("Failed to serialize settings: {e}")))?;
     fs::write(&settings_path, formatted)?;
 
     Ok(())

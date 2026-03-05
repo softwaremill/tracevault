@@ -11,7 +11,6 @@ pub struct ServerConfig {
     pub llm_api_key: Option<String>,
     pub llm_model: Option<String>,
     pub llm_base_url: Option<String>,
-    pub repo_fetch_interval_secs: u64,
     pub encryption_key: Option<String>,
 }
 
@@ -33,10 +32,6 @@ impl ServerConfig {
             llm_api_key: env::var("TRACEVAULT_LLM_API_KEY").ok(),
             llm_model: env::var("TRACEVAULT_LLM_MODEL").ok(),
             llm_base_url: env::var("TRACEVAULT_LLM_BASE_URL").ok(),
-            repo_fetch_interval_secs: env::var("TRACEVAULT_REPO_FETCH_INTERVAL")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(300),
             encryption_key: env::var("TRACEVAULT_ENCRYPTION_KEY").ok(),
         }
     }

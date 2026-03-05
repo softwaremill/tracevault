@@ -239,7 +239,16 @@ async fn main() {
 fn build_extensions(cfg: &config::ServerConfig) -> extensions::ExtensionRegistry {
     #[cfg(feature = "enterprise")]
     {
-        tracevault_enterprise::register(cfg)
+        use tracevault_core::extensions::EnterpriseConfig;
+        let enterprise_cfg = EnterpriseConfig {
+            signing_key_seed: cfg.signing_key_seed.clone(),
+            encryption_key: cfg.encryption_key.clone(),
+            llm_provider: cfg.llm_provider.clone(),
+            llm_api_key: cfg.llm_api_key.clone(),
+            llm_model: cfg.llm_model.clone(),
+            llm_base_url: cfg.llm_base_url.clone(),
+        };
+        tracevault_enterprise::register(&enterprise_cfg)
     }
 
     #[cfg(not(feature = "enterprise"))]
@@ -254,7 +263,7 @@ fn build_extensions(cfg: &config::ServerConfig) -> extensions::ExtensionRegistry
             ext.encryption = Arc::new(extensions::FullEncryptionProvider::new(key.clone()));
         }
         if let Some(llm) = llm_instance {
-            ext.story = Arc::new(extensions::LlmStoryProvider::new(Arc::from(llm)));
+            ext.story = Arc::new(extensions::LlmStoryProvider::new(llm));
         }
         ext
     }

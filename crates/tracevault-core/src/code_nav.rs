@@ -60,14 +60,14 @@ fn walk_tree<'a>(
     }
 
     for (node_type, kind) in scope_types {
-        if node.kind() == *node_type {
-            if best.as_ref().map_or(true, |(b, _)| {
+        if node.kind() == *node_type
+            && best.as_ref().is_none_or(|(b, _)| {
                 let b_range = b.end_position().row - b.start_position().row;
                 let n_range = end - start;
                 n_range < b_range
-            }) {
-                *best = Some((node, kind));
-            }
+            })
+        {
+            *best = Some((node, kind));
         }
     }
 

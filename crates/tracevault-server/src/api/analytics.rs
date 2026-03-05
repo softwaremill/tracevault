@@ -1234,10 +1234,10 @@ pub async fn get_sessions(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let tool_frequency: serde_json::Value = serde_json::json!(tool_freq
-        .into_iter()
-        .map(|(k, v)| (k, v))
-        .collect::<std::collections::HashMap<String, i64>>());
+    let tool_frequency: serde_json::Value =
+        serde_json::json!(tool_freq
+            .into_iter()
+            .collect::<std::collections::HashMap<String, i64>>());
 
     Ok(Json(SessionsResponse {
         sessions: sessions

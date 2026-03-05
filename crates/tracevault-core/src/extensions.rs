@@ -4,6 +4,16 @@ use std::sync::Arc;
 
 use crate::permissions::Permission;
 
+/// Configuration passed to enterprise extension registration.
+pub struct EnterpriseConfig {
+    pub signing_key_seed: Option<String>,
+    pub encryption_key: Option<String>,
+    pub llm_provider: Option<String>,
+    pub llm_api_key: Option<String>,
+    pub llm_model: Option<String>,
+    pub llm_base_url: Option<String>,
+}
+
 /// Describes which features are available in this edition.
 #[derive(Debug, Clone, Serialize)]
 pub struct FeatureFlags {

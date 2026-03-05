@@ -32,8 +32,7 @@ pub fn handle_hook_event(json_input: &str, project_root: &Path) -> Result<(), io
         .append(true)
         .open(&events_path)?;
 
-    let event_json =
-        serde_json::to_string(&event).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let event_json = serde_json::to_string(&event).map_err(io::Error::other)?;
     writeln!(file, "{event_json}")?;
 
     // Write session metadata if it doesn't exist

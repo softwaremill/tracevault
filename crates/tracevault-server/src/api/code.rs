@@ -785,6 +785,7 @@ async fn check_story_cache(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn save_story_cache(
     pool: &sqlx::PgPool,
     repo_id: Uuid,

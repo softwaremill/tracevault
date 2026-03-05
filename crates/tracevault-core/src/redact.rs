@@ -9,7 +9,7 @@ const REDACTED: &str = "[REDACTED]";
 
 impl Redactor {
     pub fn new() -> Self {
-        let patterns = vec![
+        let patterns = [
             // AWS Access Key
             r"AKIA[0-9A-Z]{16}",
             // GitHub token

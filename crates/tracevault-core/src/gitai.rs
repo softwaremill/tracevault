@@ -163,7 +163,7 @@ pub fn gitai_to_attribution(log: &GitAiAuthorshipLog, diff_files: &[FileDiff]) -
         let mut human_line_nums: Vec<u32> = Vec::new();
 
         for n in &added_lines {
-            if ai_set.map_or(false, |s| s.contains(n)) {
+            if ai_set.is_some_and(|s| s.contains(n)) {
                 ai_line_nums.push(*n);
             } else {
                 human_line_nums.push(*n);
@@ -189,7 +189,7 @@ pub fn gitai_to_attribution(log: &GitAiAuthorshipLog, diff_files: &[FileDiff]) -
 }
 
 /// Collapse a list of line numbers into contiguous `LineRange`s.
-fn collapse_to_ranges(nums: &mut Vec<u32>) -> Vec<LineRange> {
+fn collapse_to_ranges(nums: &mut [u32]) -> Vec<LineRange> {
     if nums.is_empty() {
         return vec![];
     }

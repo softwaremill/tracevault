@@ -194,7 +194,7 @@ pub async fn update_policy(
     .bind(&req.condition)
     .bind(&req.action)
     .bind(&req.severity)
-    .bind(&req.enabled)
+    .bind(req.enabled)
     .fetch_optional(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
