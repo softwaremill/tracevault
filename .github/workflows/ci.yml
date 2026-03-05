@@ -24,6 +24,23 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+      - name: Create enterprise stub (submodule not available in OSS CI)
+        run: |
+          if [ ! -f enterprise/Cargo.toml ]; then
+            mkdir -p enterprise/src
+            cat > enterprise/Cargo.toml << 'STUB'
+          [package]
+          name = "tracevault-enterprise"
+          version = "0.1.0"
+          edition = "2021"
+          publish = false
+
+          [dependencies]
+          tracevault-core = { path = "../crates/tracevault-core" }
+          async-trait = "0.1"
+          STUB
+            echo "" > enterprise/src/lib.rs
+          fi
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
