@@ -46,7 +46,7 @@
 
 	let commits: CommitListItem[] = $state([]);
 	let policies: Policy[] = $state([]);
-	let repo: Repo | null = $state(null);
+	let repo = $state<Repo | null>(null);
 	let repoName = $state('');
 	let loading = $state(true);
 	let policiesLoading = $state(true);
@@ -54,8 +54,8 @@
 	let policiesError = $state('');
 	let syncing = $state(false);
 
-	const repoId = $derived($page.params.id);
-	const cloneStatus = $derived(repo?.clone_status ?? 'pending');
+	const repoId = $derived($page.params.id ?? '');
+	const cloneStatus = $derived(repo ? repo.clone_status : 'pending');
 	let pollTimer: ReturnType<typeof setInterval> | null = $state(null);
 
 	// Create policy dialog state

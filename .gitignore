@@ -5,3 +5,4 @@
 crates/tracevault-server/data/repos
 .playwright-mcp
 docs/
+screenshots/

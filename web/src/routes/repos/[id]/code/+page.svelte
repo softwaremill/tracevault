@@ -7,7 +7,7 @@
 	import BreadcrumbNav from '$lib/components/code/BreadcrumbNav.svelte';
 	import FileTree from '$lib/components/code/FileTree.svelte';
 
-	const repoId = $derived($page.params.id);
+	const repoId = $derived($page.params.id ?? '');
 	const refFromUrl = $derived($page.url.searchParams.get('ref'));
 
 	let branches = $state<BranchInfo[]>([]);

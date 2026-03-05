@@ -10,8 +10,8 @@
 	import StoryPanel from '$lib/components/code/StoryPanel.svelte';
 	import EnterpriseUpgrade from '$lib/components/enterprise-upgrade.svelte';
 
-	const repoId = $derived($page.params.id);
-	const filePath = $derived($page.params.path);
+	const repoId = $derived($page.params.id ?? '');
+	const filePath = $derived($page.params.path ?? '');
 	const refFromUrl = $derived($page.url.searchParams.get('ref'));
 
 	let branches = $state<BranchInfo[]>([]);
@@ -31,8 +31,7 @@
 	// Re-run when path or ref changes (onMount only fires once, not on SvelteKit navigation)
 	$effect(() => {
 		const currentPath = filePath;
-		const currentRefFromUrl = refFromUrl;
-		loadContent(currentPath, currentRefFromUrl);
+		loadContent(currentPath, refFromUrl);
 	});
 
 	async function loadContent(path: string, urlRef: string | null) {
