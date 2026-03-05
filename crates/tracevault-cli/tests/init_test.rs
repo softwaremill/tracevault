@@ -106,7 +106,7 @@ async fn init_installs_git_pre_push_hook() {
 
     let content = fs::read_to_string(&hook_path).unwrap();
     assert!(content.contains("#!/bin/sh"));
-    assert!(content.contains("# tracevault:auto-push"));
+    assert!(content.contains("# tracevault:enforce"));
     assert!(content.contains("tracevault sync"));
     assert!(content.contains("tracevault push"));
 }
@@ -132,7 +132,7 @@ async fn init_preserves_existing_pre_push_hook() {
     // Existing content preserved
     assert!(content.contains("echo 'existing hook'"));
     // Tracevault appended
-    assert!(content.contains("# tracevault:auto-push"));
+    assert!(content.contains("# tracevault:enforce"));
     assert!(content.contains("tracevault push"));
 }
 
@@ -148,7 +148,7 @@ async fn init_does_not_duplicate_hook_on_reinit() {
         .unwrap();
 
     let content = fs::read_to_string(tmp.path().join(".git/hooks/pre-push")).unwrap();
-    let marker_count = content.matches("# tracevault:auto-push").count();
+    let marker_count = content.matches("# tracevault:enforce").count();
     assert_eq!(
         marker_count, 1,
         "Marker should appear exactly once, found {marker_count}"
