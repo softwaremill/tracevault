@@ -1,0 +1,29 @@
+[workspace]
+git_tag_name = "v{{ version }}"
+changelog_update = true
+semver_check = true
+
+[changelog]
+protect_breaking_commits = true
+commit_parsers = [
+    { message = "^feat", group = "Added" },
+    { message = "^fix", group = "Fixed" },
+    { message = "^refactor", group = "Changed" },
+    { message = "^perf", group = "Performance" },
+    { message = "^docs", group = "Documentation" },
+    { message = "^chore", skip = true },
+    { message = "^ci", skip = true },
+    { message = "^style", skip = true },
+]
+
+[[package]]
+name = "tracevault-core"
+version_group = "tracevault"
+
+[[package]]
+name = "tracevault-cli"
+version_group = "tracevault"
+
+[[package]]
+name = "tracevault-server"
+version_group = "tracevault"

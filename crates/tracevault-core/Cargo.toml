@@ -2,6 +2,12 @@
 name = "tracevault-core"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core library for TraceVault - AI code tracing and attribution"
+readme = "README.md"
+keywords = ["tracing", "attribution", "ai", "code-review"]
+categories = ["development-tools"]
 
 [dependencies]
 serde.workspace = true

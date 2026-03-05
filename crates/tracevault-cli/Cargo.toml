@@ -2,6 +2,12 @@
 name = "tracevault-cli"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CLI tool for TraceVault - AI code tracing and attribution"
+readme = "README.md"
+keywords = ["tracing", "attribution", "ai", "cli"]
+categories = ["command-line-utilities", "development-tools"]
 
 [lib]
 name = "tracevault_cli"
@@ -12,7 +18,7 @@ name = "tracevault"
 path = "src/main.rs"
 
 [dependencies]
-tracevault-core = { path = "../tracevault-core" }
+tracevault-core = { path = "../tracevault-core", version = "0.1" }
 clap = { version = "4", features = ["derive"] }
 chrono.workspace = true
 tokio.workspace = true
