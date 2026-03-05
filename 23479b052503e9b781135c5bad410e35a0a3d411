@@ -1,0 +1,25 @@
+.github/workflows/ci.yml
+  bd438d1750c4e2f0 27-43
+.github/workflows/release-plz.yml
+  bd438d1750c4e2f0 22-38,61-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "23479b052503e9b781135c5bad410e35a0a3d411",
+  "prompts": {
+    "bd438d1750c4e2f0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b8db93aa-03cd-44ca-9262-d37d7dfdaffc",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 51,
+      "total_deletions": 0,
+      "accepted_lines": 51,
+      "overriden_lines": 0
+    }
+  }
+}
