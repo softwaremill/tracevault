@@ -1,6 +1,10 @@
-use axum::{extract::{Path, Query, State}, http::StatusCode, Json};
-use serde::{Deserialize, Serialize};
 use crate::AppState;
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    Json,
+};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::extractors::AuthUser;
@@ -91,7 +95,7 @@ pub async fn create_trace(
         SELECT id, is_new FROM ins
         UNION ALL
         SELECT id, false AS is_new FROM commits WHERE repo_id = $1 AND commit_sha = $2
-        LIMIT 1"
+        LIMIT 1",
     )
     .bind(repo_id)
     .bind(&req.commit_sha)
@@ -123,19 +127,22 @@ pub async fn create_trace(
         let prev: Option<String> = sqlx::query_scalar(
             "SELECT chain_hash FROM commits
              WHERE repo_id = $1 AND sealed_at IS NOT NULL
-             ORDER BY sealed_at DESC, created_at DESC, id DESC LIMIT 1"
+             ORDER BY sealed_at DESC, created_at DESC, id DESC LIMIT 1",
         )
         .bind(repo_id)
         .fetch_optional(&state.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-        let chain_hash = state.extensions.signing.chain_hash(prev.as_deref(), &record_hash);
+        let chain_hash = state
+            .extensions
+            .signing
+            .chain_hash(prev.as_deref(), &record_hash);
         let signature = state.extensions.signing.sign(&record_hash);
 
         sqlx::query(
             "UPDATE commits SET record_hash = $1, chain_hash = $2, prev_chain_hash = $3,
-             signature = $4, sealed_at = NOW() WHERE id = $5"
+             signature = $4, sealed_at = NOW() WHERE id = $5",
         )
         .bind(&record_hash)
         .bind(&chain_hash)
@@ -248,12 +255,15 @@ pub async fn create_trace(
         Some(serde_json::json!({"commit_sha": &req.commit_sha, "session_count": if req.session_id.is_some() { 1 } else { 0 }})),
     )).await;
 
-    Ok((StatusCode::CREATED, Json(CreateTraceResponse {
-        commit_id,
-        session_id: session_db_id,
-        chain_hash: resp_chain_hash,
-        signature: resp_signature,
-    })))
+    Ok((
+        StatusCode::CREATED,
+        Json(CreateTraceResponse {
+            commit_id,
+            session_id: session_db_id,
+            chain_hash: resp_chain_hash,
+            signature: resp_signature,
+        }),
+    ))
 }
 
 pub async fn get_trace(
@@ -275,32 +285,51 @@ pub async fn get_trace(
     .ok_or((StatusCode::NOT_FOUND, "Commit not found".into()))?;
 
     // Fetch sessions for this commit
-    let sessions = sqlx::query_as::<_, (Uuid, String, Option<String>, Option<String>, Option<i64>, Option<i64>, Option<i64>, Option<f64>, Option<i32>, Option<serde_json::Value>, Option<serde_json::Value>, chrono::DateTime<chrono::Utc>)>(
+    let sessions = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<f64>,
+            Option<i32>,
+            Option<serde_json::Value>,
+            Option<serde_json::Value>,
+            chrono::DateTime<chrono::Utc>,
+        ),
+    >(
         "SELECT id, session_id, model, tool, total_tokens, input_tokens, output_tokens,
                 estimated_cost_usd, api_calls, session_data, transcript, created_at
-         FROM sessions WHERE commit_id = $1 ORDER BY created_at ASC"
+         FROM sessions WHERE commit_id = $1 ORDER BY created_at ASC",
     )
     .bind(id)
     .fetch_all(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let sessions_json: Vec<serde_json::Value> = sessions.into_iter().map(|s| {
-        serde_json::json!({
-            "id": s.0,
-            "session_id": s.1,
-            "model": s.2,
-            "tool": s.3,
-            "total_tokens": s.4,
-            "input_tokens": s.5,
-            "output_tokens": s.6,
-            "estimated_cost_usd": s.7,
-            "api_calls": s.8,
-            "session_data": s.9,
-            "transcript": s.10,
-            "created_at": s.11,
+    let sessions_json: Vec<serde_json::Value> = sessions
+        .into_iter()
+        .map(|s| {
+            serde_json::json!({
+                "id": s.0,
+                "session_id": s.1,
+                "model": s.2,
+                "tool": s.3,
+                "total_tokens": s.4,
+                "input_tokens": s.5,
+                "output_tokens": s.6,
+                "estimated_cost_usd": s.7,
+                "api_calls": s.8,
+                "session_data": s.9,
+                "transcript": s.10,
+                "created_at": s.11,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(serde_json::json!({
         "id": commit.0,
@@ -322,7 +351,19 @@ pub async fn list_traces(
 ) -> Result<Json<Vec<CommitListItem>>, (StatusCode, String)> {
     let limit = query.limit.unwrap_or(50).min(200);
 
-    let rows = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, String, i64, Option<i64>, chrono::DateTime<chrono::Utc>)>(
+    let rows = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            Uuid,
+            String,
+            Option<String>,
+            String,
+            i64,
+            Option<i64>,
+            chrono::DateTime<chrono::Utc>,
+        ),
+    >(
         "SELECT c.id, c.repo_id, c.commit_sha, c.branch, c.author,
                 COUNT(s.id) as session_count,
                 CAST(SUM(s.total_tokens) AS BIGINT) as total_tokens,
@@ -336,7 +377,7 @@ pub async fn list_traces(
            AND ($4::TEXT IS NULL OR c.author = $4)
          GROUP BY c.id
          ORDER BY c.created_at DESC
-         LIMIT $5"
+         LIMIT $5",
     )
     .bind(auth.org_id)
     .bind(&query.repo)
@@ -347,16 +388,19 @@ pub async fn list_traces(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let items: Vec<CommitListItem> = rows.into_iter().map(|r| CommitListItem {
-        id: r.0,
-        repo_id: r.1,
-        commit_sha: r.2,
-        branch: r.3,
-        author: r.4,
-        session_count: r.5,
-        total_tokens: r.6,
-        created_at: r.7,
-    }).collect();
+    let items: Vec<CommitListItem> = rows
+        .into_iter()
+        .map(|r| CommitListItem {
+            id: r.0,
+            repo_id: r.1,
+            commit_sha: r.2,
+            branch: r.3,
+            author: r.4,
+            session_count: r.5,
+            total_tokens: r.6,
+            created_at: r.7,
+        })
+        .collect();
 
     Ok(Json(items))
 }

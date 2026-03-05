@@ -52,7 +52,10 @@ index 0000000..abc1234
     assert_eq!(files.len(), 1);
     assert_eq!(files[0].path, "new.txt");
     assert_eq!(files[0].hunks[0].lines.len(), 2);
-    assert!(files[0].hunks[0].lines.iter().all(|l| l.kind == DiffLineKind::Add));
+    assert!(files[0].hunks[0]
+        .lines
+        .iter()
+        .all(|l| l.kind == DiffLineKind::Add));
 }
 
 #[test]
@@ -70,7 +73,10 @@ index abc1234..0000000
     let files = parse_unified_diff(raw);
     assert_eq!(files.len(), 1);
     assert_eq!(files[0].path, "old.txt");
-    assert!(files[0].hunks[0].lines.iter().all(|l| l.kind == DiffLineKind::Delete));
+    assert!(files[0].hunks[0]
+        .lines
+        .iter()
+        .all(|l| l.kind == DiffLineKind::Delete));
 }
 
 #[test]

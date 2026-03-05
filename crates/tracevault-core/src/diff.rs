@@ -96,7 +96,9 @@ fn parse_diff_header(line: &str) -> (String, String) {
     let rest = line.strip_prefix("diff --git ").unwrap_or("");
     if let Some(pos) = rest.rfind(" b/") {
         let a = rest[..pos].strip_prefix("a/").unwrap_or(&rest[..pos]);
-        let b = rest[pos + 1..].strip_prefix("b/").unwrap_or(&rest[pos + 1..]);
+        let b = rest[pos + 1..]
+            .strip_prefix("b/")
+            .unwrap_or(&rest[pos + 1..]);
         (a.to_string(), b.to_string())
     } else {
         let parts: Vec<&str> = rest.splitn(2, ' ').collect();
@@ -201,10 +203,7 @@ fn parse_hunk_header(header: &str) -> Option<(u32, u32, u32, u32)> {
 
 fn parse_range(s: &str) -> (u32, u32) {
     if let Some((start, count)) = s.split_once(',') {
-        (
-            start.parse().unwrap_or(0),
-            count.parse().unwrap_or(0),
-        )
+        (start.parse().unwrap_or(0), count.parse().unwrap_or(0))
     } else {
         (s.parse().unwrap_or(0), 1)
     }

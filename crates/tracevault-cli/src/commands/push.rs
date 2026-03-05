@@ -20,7 +20,10 @@ fn read_push_state(session_dir: &Path) -> Option<PushState> {
     serde_json::from_str(&content).ok()
 }
 
-fn write_push_state(session_dir: &Path, state: &PushState) -> Result<(), Box<dyn std::error::Error>> {
+fn write_push_state(
+    session_dir: &Path,
+    state: &PushState,
+) -> Result<(), Box<dyn std::error::Error>> {
     let path = session_dir.join(".push_state");
     let json = serde_json::to_string(state)?;
     fs::write(path, json)?;
@@ -59,13 +62,15 @@ fn git_info(project_root: &Path) -> GitInfo {
         .map(String::from)
         .unwrap_or_else(|| "unknown".into());
 
-    let branch = run(&["rev-parse", "--abbrev-ref", "HEAD"])
-        .filter(|b| b != "HEAD");
+    let branch = run(&["rev-parse", "--abbrev-ref", "HEAD"]).filter(|b| b != "HEAD");
 
-    let head_sha = run(&["rev-parse", "HEAD"])
-        .unwrap_or_else(|| "unknown".into());
+    let head_sha = run(&["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".into());
 
-    GitInfo { repo_name, branch, head_sha }
+    GitInfo {
+        repo_name,
+        branch,
+        head_sha,
+    }
 }
 
 fn get_commit_author(project_root: &Path, commit_sha: &str) -> String {
@@ -104,7 +109,11 @@ fn write_last_pushed_sha(project_root: &Path, sha: &str) -> Result<(), Box<dyn s
 }
 
 /// Returns commit SHAs in chronological order (oldest first) that haven't been pushed yet.
-fn get_unpushed_commits(project_root: &Path, last_pushed: Option<&str>, head_sha: &str) -> Vec<String> {
+fn get_unpushed_commits(
+    project_root: &Path,
+    last_pushed: Option<&str>,
+    head_sha: &str,
+) -> Vec<String> {
     let last_pushed = match last_pushed {
         Some(sha) => sha,
         None => return vec![head_sha.to_string()], // First push: just HEAD
@@ -194,7 +203,8 @@ fn summarize_session(session_dir: &Path, skip_events: usize) -> Option<SessionSu
         }
 
         // Track unique file modifications
-        if let Some(path) = event.get("tool_input")
+        if let Some(path) = event
+            .get("tool_input")
             .and_then(|v| v.get("file_path"))
             .and_then(|v| v.as_str())
         {
@@ -245,14 +255,20 @@ struct TranscriptData {
     compaction_tokens_saved: Option<i64>,
 }
 
-fn accumulate_usage(model_tokens: &mut HashMap<String, ModelTokens>, model: &str, usage: &serde_json::Value) {
-    let entry = model_tokens.entry(model.to_string()).or_insert(ModelTokens {
-        input_tokens: 0,
-        output_tokens: 0,
-        cache_read_tokens: 0,
-        cache_creation_tokens: 0,
-        requests: 0,
-    });
+fn accumulate_usage(
+    model_tokens: &mut HashMap<String, ModelTokens>,
+    model: &str,
+    usage: &serde_json::Value,
+) {
+    let entry = model_tokens
+        .entry(model.to_string())
+        .or_insert(ModelTokens {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            requests: 0,
+        });
     entry.requests += 1;
     if let Some(n) = usage.get("input_tokens").and_then(|v| v.as_i64()) {
         entry.input_tokens += n;
@@ -260,25 +276,44 @@ fn accumulate_usage(model_tokens: &mut HashMap<String, ModelTokens>, model: &str
     if let Some(n) = usage.get("output_tokens").and_then(|v| v.as_i64()) {
         entry.output_tokens += n;
     }
-    if let Some(n) = usage.get("cache_read_input_tokens").and_then(|v| v.as_i64()) {
+    if let Some(n) = usage
+        .get("cache_read_input_tokens")
+        .and_then(|v| v.as_i64())
+    {
         entry.cache_read_tokens += n;
     }
-    if let Some(n) = usage.get("cache_creation_input_tokens").and_then(|v| v.as_i64()) {
+    if let Some(n) = usage
+        .get("cache_creation_input_tokens")
+        .and_then(|v| v.as_i64())
+    {
         entry.cache_creation_tokens += n;
     }
 }
 
-fn extract_usage_from_message(model_tokens: &mut HashMap<String, ModelTokens>, message: &serde_json::Value) {
-    let model = message.get("model").and_then(|v| v.as_str()).unwrap_or("unknown");
+fn extract_usage_from_message(
+    model_tokens: &mut HashMap<String, ModelTokens>,
+    message: &serde_json::Value,
+) {
+    let model = message
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
     if let Some(usage) = message.get("usage") {
         accumulate_usage(model_tokens, model, usage);
     }
 }
 
-fn extract_nested_usage(model_tokens: &mut HashMap<String, ModelTokens>, entry: &serde_json::Value) {
+fn extract_nested_usage(
+    model_tokens: &mut HashMap<String, ModelTokens>,
+    entry: &serde_json::Value,
+) {
     // Handle subagent progress messages nested in content blocks:
     // entry.message.content[].data.message (where type == "progress" or data.type == "agent_progress")
-    let content = match entry.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array()) {
+    let content = match entry
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_array())
+    {
         Some(c) => c,
         None => return,
     };
@@ -380,10 +415,16 @@ fn read_transcript(metadata: &Option<serde_json::Value>, skip_lines: usize) -> T
                 if let Some(n) = usage.get("output_tokens").and_then(|v| v.as_i64()) {
                     total_output += n;
                 }
-                if let Some(n) = usage.get("cache_creation_input_tokens").and_then(|v| v.as_i64()) {
+                if let Some(n) = usage
+                    .get("cache_creation_input_tokens")
+                    .and_then(|v| v.as_i64())
+                {
                     total_input += n;
                 }
-                if let Some(n) = usage.get("cache_read_input_tokens").and_then(|v| v.as_i64()) {
+                if let Some(n) = usage
+                    .get("cache_read_input_tokens")
+                    .and_then(|v| v.as_i64())
+                {
                     total_input += n;
                 }
             }
@@ -397,7 +438,11 @@ fn read_transcript(metadata: &Option<serde_json::Value>, skip_lines: usize) -> T
             extract_nested_usage(&mut model_tokens, &entry);
 
             // Count tool calls in content blocks
-            if let Some(content) = entry.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array()) {
+            if let Some(content) = entry
+                .get("message")
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_array())
+            {
                 for block in content {
                     if block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
                         if let Some(name) = block.get("name").and_then(|v| v.as_str()) {
@@ -486,18 +531,53 @@ fn read_transcript(metadata: &Option<serde_json::Value>, skip_lines: usize) -> T
         duration_ms,
         started_at: first_timestamp,
         ended_at: last_timestamp,
-        user_messages: if user_message_count > 0 { Some(user_message_count) } else { None },
-        assistant_messages: if assistant_message_count > 0 { Some(assistant_message_count) } else { None },
-        tool_calls_map: if tool_calls_map.is_empty() { None } else { serde_json::to_value(&tool_calls_map).ok() },
-        total_tool_calls: if total_tool_call_count > 0 { Some(total_tool_call_count) } else { None },
-        cache_read_tokens: if total_cache_read > 0 { Some(total_cache_read) } else { None },
-        cache_write_tokens: if total_cache_write > 0 { Some(total_cache_write) } else { None },
-        compactions: if compaction_count > 0 { Some(compaction_count) } else { None },
-        compaction_tokens_saved: if compaction_tokens_saved_total > 0 { Some(compaction_tokens_saved_total) } else { None },
+        user_messages: if user_message_count > 0 {
+            Some(user_message_count)
+        } else {
+            None
+        },
+        assistant_messages: if assistant_message_count > 0 {
+            Some(assistant_message_count)
+        } else {
+            None
+        },
+        tool_calls_map: if tool_calls_map.is_empty() {
+            None
+        } else {
+            serde_json::to_value(&tool_calls_map).ok()
+        },
+        total_tool_calls: if total_tool_call_count > 0 {
+            Some(total_tool_call_count)
+        } else {
+            None
+        },
+        cache_read_tokens: if total_cache_read > 0 {
+            Some(total_cache_read)
+        } else {
+            None
+        },
+        cache_write_tokens: if total_cache_write > 0 {
+            Some(total_cache_write)
+        } else {
+            None
+        },
+        compactions: if compaction_count > 0 {
+            Some(compaction_count)
+        } else {
+            None
+        },
+        compaction_tokens_saved: if compaction_tokens_saved_total > 0 {
+            Some(compaction_tokens_saved_total)
+        } else {
+            None
+        },
     }
 }
 
-fn read_git_diff(project_root: &Path, commit_sha: &str) -> Option<Vec<tracevault_core::diff::FileDiff>> {
+fn read_git_diff(
+    project_root: &Path,
+    commit_sha: &str,
+) -> Option<Vec<tracevault_core::diff::FileDiff>> {
     let output = Command::new("git")
         .args(["diff", &format!("{commit_sha}~1..{commit_sha}")])
         .current_dir(project_root)
@@ -598,11 +678,8 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
         let diff_data = diff_files
             .as_ref()
             .and_then(|f| serde_json::to_value(f).ok());
-        let attribution = read_gitai_attribution(
-            project_root,
-            sha,
-            diff_files.as_deref().unwrap_or(&[]),
-        );
+        let attribution =
+            read_gitai_attribution(project_root, sha, diff_files.as_deref().unwrap_or(&[]));
 
         let commit_req = PushTraceRequest {
             repo_name: git.repo_name.clone(),
@@ -635,9 +712,17 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
             compaction_tokens_saved: None,
         };
 
-        let commit_resp = client.push_trace(commit_req).await
-            .map_err(|e| format!("Failed to register commit {}: {e}", &sha[..8.min(sha.len())]))?;
-        println!("Registered commit {} -> {}", &sha[..8.min(sha.len())], commit_resp.commit_id);
+        let commit_resp = client.push_trace(commit_req).await.map_err(|e| {
+            format!(
+                "Failed to register commit {}: {e}",
+                &sha[..8.min(sha.len())]
+            )
+        })?;
+        println!(
+            "Registered commit {} -> {}",
+            &sha[..8.min(sha.len())],
+            commit_resp.commit_id
+        );
         commits_registered += 1;
     }
 
@@ -720,7 +805,8 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
             });
 
             // Prefer model from transcript, fall back to events
-            let model = transcript_data.model
+            let model = transcript_data
+                .model
                 .or_else(|| summary.models.iter().next().cloned());
 
             let session_name = entry.file_name().to_string_lossy().to_string();
@@ -742,7 +828,7 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
                 session_data: Some(session_data),
                 attribution: None, // commit-level only
                 transcript: transcript_data.transcript,
-                diff_data: None,   // commit-level only
+                diff_data: None, // commit-level only
                 model_usage: transcript_data.model_usage,
                 duration_ms: transcript_data.duration_ms,
                 started_at: transcript_data.started_at.clone(),

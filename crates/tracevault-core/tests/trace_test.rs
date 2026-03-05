@@ -1,7 +1,7 @@
-use tracevault_core::trace::*;
+use chrono::Utc;
 use tracevault_core::attribution::*;
 use tracevault_core::token_usage::*;
-use chrono::Utc;
+use tracevault_core::trace::*;
 use uuid::Uuid;
 
 #[test]

@@ -20,10 +20,8 @@ fn hook_handler_records_event_to_session_dir() {
         }
     });
 
-    let result = tracevault_cli::commands::hook::handle_hook_event(
-        &hook_json.to_string(),
-        tmp.path(),
-    );
+    let result =
+        tracevault_cli::commands::hook::handle_hook_event(&hook_json.to_string(), tmp.path());
     assert!(result.is_ok());
 
     // Check that event was recorded
@@ -71,7 +69,8 @@ fn hook_handler_appends_multiple_events() {
     tracevault_cli::commands::hook::handle_hook_event(&event2.to_string(), tmp.path()).unwrap();
 
     let events_content = fs::read_to_string(
-        tmp.path().join(".tracevault/sessions/multi-event-session/events.jsonl"),
+        tmp.path()
+            .join(".tracevault/sessions/multi-event-session/events.jsonl"),
     )
     .unwrap();
 

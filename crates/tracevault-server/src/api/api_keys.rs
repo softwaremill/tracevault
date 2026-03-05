@@ -1,6 +1,10 @@
-use axum::{extract::{Path, State}, http::StatusCode, Json};
-use serde::Serialize;
 use crate::AppState;
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    Json,
+};
+use serde::Serialize;
 use uuid::Uuid;
 
 use crate::auth::generate_api_key;

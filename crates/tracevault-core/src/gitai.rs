@@ -36,7 +36,9 @@ pub fn parse_gitai_note(note: &str) -> Option<GitAiAuthorshipLog> {
 
     let separator_pos = note.find("\n---\n").or_else(|| note.find("\n---"))?;
     let attestation = &note[..separator_pos];
-    let metadata_str = note[separator_pos..].trim_start_matches('\n').strip_prefix("---")?;
+    let metadata_str = note[separator_pos..]
+        .trim_start_matches('\n')
+        .strip_prefix("---")?;
     let metadata_str = metadata_str.trim();
 
     let metadata: Option<serde_json::Value> = if metadata_str.is_empty() {

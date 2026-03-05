@@ -52,14 +52,13 @@ pub async fn list_repo_policies(
     Path(repo_id): Path<Uuid>,
 ) -> Result<Json<Vec<PolicyResponse>>, (StatusCode, String)> {
     // Verify repo belongs to org
-    let repo_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM repos WHERE id = $1 AND org_id = $2)",
-    )
-    .bind(repo_id)
-    .bind(auth.org_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let repo_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM repos WHERE id = $1 AND org_id = $2)")
+            .bind(repo_id)
+            .bind(auth.org_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if !repo_exists {
         return Err((StatusCode::NOT_FOUND, "Repo not found".into()));
@@ -106,14 +105,13 @@ pub async fn create_repo_policy(
     Json(req): Json<CreatePolicyRequest>,
 ) -> Result<(StatusCode, Json<PolicyResponse>), (StatusCode, String)> {
     // Verify repo belongs to org
-    let repo_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM repos WHERE id = $1 AND org_id = $2)",
-    )
-    .bind(repo_id)
-    .bind(auth.org_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let repo_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM repos WHERE id = $1 AND org_id = $2)")
+            .bind(repo_id)
+            .bind(auth.org_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if !repo_exists {
         return Err((StatusCode::NOT_FOUND, "Repo not found".into()));
@@ -138,11 +136,18 @@ pub async fn create_repo_policy(
 
     let policy_id = row.0;
 
-    crate::audit::log(&state.pool, crate::audit::user_action(
-        auth.org_id, auth.user_id,
-        "policy.create", "policy", Some(policy_id),
-        Some(serde_json::json!({"name": &req.name})),
-    )).await;
+    crate::audit::log(
+        &state.pool,
+        crate::audit::user_action(
+            auth.org_id,
+            auth.user_id,
+            "policy.create",
+            "policy",
+            Some(policy_id),
+            Some(serde_json::json!({"name": &req.name})),
+        ),
+    )
+    .await;
 
     Ok((
         StatusCode::CREATED,
@@ -196,11 +201,18 @@ pub async fn update_policy(
 
     match row {
         Some(r) => {
-            crate::audit::log(&state.pool, crate::audit::user_action(
-                auth.org_id, auth.user_id,
-                "policy.update", "policy", Some(id),
-                None,
-            )).await;
+            crate::audit::log(
+                &state.pool,
+                crate::audit::user_action(
+                    auth.org_id,
+                    auth.user_id,
+                    "policy.update",
+                    "policy",
+                    Some(id),
+                    None,
+                ),
+            )
+            .await;
 
             Ok(Json(PolicyResponse {
                 id,
@@ -238,11 +250,18 @@ pub async fn delete_policy(
         return Err((StatusCode::NOT_FOUND, "Policy not found".into()));
     }
 
-    crate::audit::log(&state.pool, crate::audit::user_action(
-        auth.org_id, auth.user_id,
-        "policy.delete", "policy", Some(id),
-        None,
-    )).await;
+    crate::audit::log(
+        &state.pool,
+        crate::audit::user_action(
+            auth.org_id,
+            auth.user_id,
+            "policy.delete",
+            "policy",
+            Some(id),
+            None,
+        ),
+    )
+    .await;
 
     Ok(StatusCode::OK)
 }
@@ -289,14 +308,13 @@ pub async fn check_policies(
     Json(req): Json<CheckRequest>,
 ) -> Result<Json<CheckResponse>, (StatusCode, String)> {
     // Verify repo belongs to org
-    let repo_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM repos WHERE id = $1 AND org_id = $2)",
-    )
-    .bind(repo_id)
-    .bind(auth.org_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let repo_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM repos WHERE id = $1 AND org_id = $2)")
+            .bind(repo_id)
+            .bind(auth.org_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if !repo_exists {
         return Err((StatusCode::NOT_FOUND, "Repo not found".into()));
@@ -356,11 +374,18 @@ pub async fn check_policies(
 
     let all_passed = results.iter().all(|r| r.result == "pass");
 
-    crate::audit::log(&state.pool, crate::audit::user_action(
-        auth.org_id, auth.user_id,
-        "policy.check", "commit", None,
-        Some(serde_json::json!({"passed": all_passed, "blocked": has_block_failure})),
-    )).await;
+    crate::audit::log(
+        &state.pool,
+        crate::audit::user_action(
+            auth.org_id,
+            auth.user_id,
+            "policy.check",
+            "commit",
+            None,
+            Some(serde_json::json!({"passed": all_passed, "blocked": has_block_failure})),
+        ),
+    )
+    .await;
 
     Ok(Json(CheckResponse {
         passed: all_passed,
@@ -379,10 +404,7 @@ pub(crate) fn evaluate_condition(
     tool_calls: &std::collections::HashMap<String, i64>,
     files_modified: &[String],
 ) -> EvalOutcome {
-    let cond_type = condition
-        .get("type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let cond_type = condition.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
     match cond_type {
         "RequiredToolCall" => {
@@ -442,9 +464,11 @@ pub(crate) fn evaluate_condition(
             let patterns_match = match &file_patterns {
                 None => true, // No patterns = always applies
                 Some(patterns) if patterns.is_empty() => true,
-                Some(patterns) => files_modified
-                    .iter()
-                    .any(|file| patterns.iter().any(|pattern| glob_match::glob_match(pattern, file))),
+                Some(patterns) => files_modified.iter().any(|file| {
+                    patterns
+                        .iter()
+                        .any(|pattern| glob_match::glob_match(pattern, file))
+                }),
             };
 
             if !patterns_match {

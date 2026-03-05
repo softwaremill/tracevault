@@ -52,10 +52,7 @@ async fn main() {
                 Method::DELETE,
                 Method::OPTIONS,
             ])
-            .allow_headers([
-                http::header::CONTENT_TYPE,
-                http::header::AUTHORIZATION,
-            ])
+            .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
     } else {
         CorsLayer::permissive()
     };
@@ -129,14 +126,8 @@ async fn main() {
         // Orgs
         .route("/api/v1/orgs/{id}", get(api::orgs::get_org))
         .route("/api/v1/orgs/{id}", put(api::orgs::update_org))
-        .route(
-            "/api/v1/orgs/{id}/members",
-            get(api::orgs::list_members),
-        )
-        .route(
-            "/api/v1/orgs/{id}/members",
-            post(api::orgs::invite_member),
-        )
+        .route("/api/v1/orgs/{id}/members", get(api::orgs::list_members))
+        .route("/api/v1/orgs/{id}/members", post(api::orgs::invite_member))
         .route(
             "/api/v1/orgs/{id}/members/{user_id}",
             delete(api::orgs::remove_member),
@@ -210,14 +201,8 @@ async fn main() {
             "/api/v1/analytics/overview",
             get(api::analytics::get_overview),
         )
-        .route(
-            "/api/v1/analytics/tokens",
-            get(api::analytics::get_tokens),
-        )
-        .route(
-            "/api/v1/analytics/models",
-            get(api::analytics::get_models),
-        )
+        .route("/api/v1/analytics/tokens", get(api::analytics::get_tokens))
+        .route("/api/v1/analytics/models", get(api::analytics::get_models))
         .route(
             "/api/v1/analytics/authors",
             get(api::analytics::get_authors),
@@ -230,10 +215,7 @@ async fn main() {
             "/api/v1/analytics/sessions",
             get(api::analytics::get_sessions),
         )
-        .route(
-            "/api/v1/analytics/cost",
-            get(api::analytics::get_cost),
-        )
+        .route("/api/v1/analytics/cost", get(api::analytics::get_cost))
         // CI Verification
         .route(
             "/api/v1/repos/{repo_id}/ci/verify",
@@ -249,9 +231,7 @@ async fn main() {
             extensions,
         });
 
-    let listener = tokio::net::TcpListener::bind(&bind_addr)
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();
     tracing::info!("TraceVault server listening on {}", bind_addr);
     axum::serve(listener, app).await.unwrap();
 }

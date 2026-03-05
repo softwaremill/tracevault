@@ -1,8 +1,12 @@
-use axum::{extract::{Query, State}, http::StatusCode, Json};
+use crate::extractors::AuthUser;
+use crate::AppState;
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    Json,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::AppState;
-use crate::extractors::AuthUser;
 
 // Shared query params for all analytics endpoints
 #[derive(Debug, Deserialize)]
@@ -47,19 +51,17 @@ pub async fn get_filters(
     auth: AuthUser,
 ) -> Result<Json<FiltersResponse>, (StatusCode, String)> {
     // Get orgs the user belongs to
-    let orgs = sqlx::query_as::<_, (Uuid, String)>(
-        "SELECT id, name FROM orgs WHERE id = $1"
-    )
-    .bind(auth.org_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let orgs = sqlx::query_as::<_, (Uuid, String)>("SELECT id, name FROM orgs WHERE id = $1")
+        .bind(auth.org_id)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let org_id = auth.org_id;
 
     // Get repos for this org
     let repos = sqlx::query_as::<_, (Uuid, String)>(
-        "SELECT id, name FROM repos WHERE org_id = $1 ORDER BY name"
+        "SELECT id, name FROM repos WHERE org_id = $1 ORDER BY name",
     )
     .bind(org_id)
     .fetch_all(&state.pool)
@@ -71,7 +73,7 @@ pub async fn get_filters(
         "SELECT DISTINCT c.author FROM commits c
          JOIN repos r ON c.repo_id = r.id
          WHERE r.org_id = $1
-         ORDER BY c.author"
+         ORDER BY c.author",
     )
     .bind(org_id)
     .fetch_all(&state.pool)
@@ -79,8 +81,14 @@ pub async fn get_filters(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(FiltersResponse {
-        orgs: orgs.into_iter().map(|(id, name)| OrgOption { id, name }).collect(),
-        repos: repos.into_iter().map(|(id, name)| RepoOption { id, name }).collect(),
+        orgs: orgs
+            .into_iter()
+            .map(|(id, name)| OrgOption { id, name })
+            .collect(),
+        repos: repos
+            .into_iter()
+            .map(|(id, name)| RepoOption { id, name })
+            .collect(),
         authors: authors.into_iter().map(|(a,)| a).collect(),
     }))
 }
@@ -161,7 +169,25 @@ pub async fn get_overview(
     let org_id = q.effective_org_id(&auth);
 
     // KPI: total commits, sessions, tokens, authors, cost, duration, tool_calls, compactions, cache tokens
-    let kpi = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64, f64, i64, Option<i64>, i64, i64, i64, i64, i64)>(
+    let kpi = sqlx::query_as::<
+        _,
+        (
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+            f64,
+            i64,
+            Option<i64>,
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+        ),
+    >(
         "SELECT
             COUNT(DISTINCT c.id),
             COUNT(s.id),
@@ -184,7 +210,7 @@ pub async fn get_overview(
            AND ($2::TEXT IS NULL OR r.name = $2)
            AND ($3::TEXT IS NULL OR c.author = $3)
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)"
+           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -206,7 +232,7 @@ pub async fn get_overview(
            AND ($2::TEXT IS NULL OR r.name = $2)
            AND ($3::TEXT IS NULL OR c.author = $3)
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)"
+           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -231,7 +257,7 @@ pub async fn get_overview(
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
            AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
          GROUP BY c.created_at::date
-         ORDER BY c.created_at::date"
+         ORDER BY c.created_at::date",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -254,7 +280,7 @@ pub async fn get_overview(
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
          GROUP BY r.name
          ORDER BY 2 DESC
-         LIMIT 5"
+         LIMIT 5",
     )
     .bind(org_id)
     .bind(&q.author)
@@ -281,7 +307,7 @@ pub async fn get_overview(
              AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
              AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
          )
-         SELECT model, COUNT(*) FROM model_data GROUP BY model ORDER BY 2 DESC"
+         SELECT model, COUNT(*) FROM model_data GROUP BY model ORDER BY 2 DESC",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -328,7 +354,7 @@ pub async fn get_overview(
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
            AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
          GROUP BY COALESCE(s.started_at, s.created_at)::date
-         ORDER BY 1"
+         ORDER BY 1",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -352,7 +378,7 @@ pub async fn get_overview(
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
            AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
          GROUP BY 1
-         ORDER BY 1"
+         ORDER BY 1",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -363,7 +389,10 @@ pub async fn get_overview(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let cache_savings = state.extensions.pricing.estimate_cache_savings("sonnet", kpi.12);
+    let cache_savings = state
+        .extensions
+        .pricing
+        .estimate_cache_savings("sonnet", kpi.12);
 
     Ok(Json(OverviewResponse {
         total_commits: kpi.0,
@@ -382,14 +411,40 @@ pub async fn get_overview(
         total_cache_read_tokens: kpi.12,
         total_cache_write_tokens: kpi.13,
         cache_savings_usd: cache_savings,
-        tokens_over_time: tokens_time.into_iter().map(|(d, i, o)| TimeSeriesPoint { date: d, input: i, output: o }).collect(),
-        sessions_over_time: sessions_time.into_iter().map(|(d, c)| SessionTimePoint { date: d, count: c }).collect(),
-        hourly_activity: hourly.into_iter().map(|(h, c)| HourlyActivity { hour: h, count: c }).collect(),
-        top_repos: top_repos.into_iter().map(|(r, t)| RepoTokens { repo: r, tokens: t }).collect(),
-        model_distribution: models.into_iter().map(|(m, c)| ModelCount { model: m, count: c }).collect(),
-        recent_commits: recent.into_iter().map(|(sha, author, sc, tt, ca)| RecentCommit {
-            commit_sha: sha, author, session_count: sc, total_tokens: tt, created_at: ca
-        }).collect(),
+        tokens_over_time: tokens_time
+            .into_iter()
+            .map(|(d, i, o)| TimeSeriesPoint {
+                date: d,
+                input: i,
+                output: o,
+            })
+            .collect(),
+        sessions_over_time: sessions_time
+            .into_iter()
+            .map(|(d, c)| SessionTimePoint { date: d, count: c })
+            .collect(),
+        hourly_activity: hourly
+            .into_iter()
+            .map(|(h, c)| HourlyActivity { hour: h, count: c })
+            .collect(),
+        top_repos: top_repos
+            .into_iter()
+            .map(|(r, t)| RepoTokens { repo: r, tokens: t })
+            .collect(),
+        model_distribution: models
+            .into_iter()
+            .map(|(m, c)| ModelCount { model: m, count: c })
+            .collect(),
+        recent_commits: recent
+            .into_iter()
+            .map(|(sha, author, sc, tt, ca)| RecentCommit {
+                commit_sha: sha,
+                author,
+                session_count: sc,
+                total_tokens: tt,
+                created_at: ca,
+            })
+            .collect(),
     }))
 }
 
@@ -447,7 +502,7 @@ pub async fn get_tokens(
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
            AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
          GROUP BY c.created_at::date
-         ORDER BY c.created_at::date"
+         ORDER BY c.created_at::date",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -472,7 +527,7 @@ pub async fn get_tokens(
            AND ($3::TIMESTAMPTZ IS NULL OR c.created_at >= $3)
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
          GROUP BY r.name
-         ORDER BY 2 DESC"
+         ORDER BY 2 DESC",
     )
     .bind(org_id)
     .bind(&q.author)
@@ -492,7 +547,7 @@ pub async fn get_tokens(
            AND ($3::TIMESTAMPTZ IS NULL OR c.created_at >= $3)
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
          GROUP BY c.author
-         ORDER BY 2 DESC"
+         ORDER BY 2 DESC",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -513,7 +568,7 @@ pub async fn get_tokens(
            AND ($2::TEXT IS NULL OR r.name = $2)
            AND ($3::TEXT IS NULL OR c.author = $3)
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)"
+           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -524,12 +579,37 @@ pub async fn get_tokens(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let cache_savings = state.extensions.pricing.estimate_cache_savings("sonnet", cache_totals.0);
+    let cache_savings = state
+        .extensions
+        .pricing
+        .estimate_cache_savings("sonnet", cache_totals.0);
 
     Ok(Json(TokensResponse {
-        time_series: time_series.into_iter().map(|(d, i, o)| TokenTimePoint { date: d, input: i, output: o }).collect(),
-        by_repo: by_repo.into_iter().map(|(r, t, i, o, s)| RepoTokenDetail { repo: r, total: t, input: i, output: o, sessions: s }).collect(),
-        by_author: by_author.into_iter().map(|(a, t)| AuthorTokens { author: a, total: t }).collect(),
+        time_series: time_series
+            .into_iter()
+            .map(|(d, i, o)| TokenTimePoint {
+                date: d,
+                input: i,
+                output: o,
+            })
+            .collect(),
+        by_repo: by_repo
+            .into_iter()
+            .map(|(r, t, i, o, s)| RepoTokenDetail {
+                repo: r,
+                total: t,
+                input: i,
+                output: o,
+                sessions: s,
+            })
+            .collect(),
+        by_author: by_author
+            .into_iter()
+            .map(|(a, t)| AuthorTokens {
+                author: a,
+                total: t,
+            })
+            .collect(),
         cache_read_tokens: cache_totals.0,
         cache_write_tokens: cache_totals.1,
         cache_savings_usd: cache_savings,
@@ -641,12 +721,42 @@ pub async fn get_models(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(ModelsResponse {
-        distribution: distribution.into_iter().map(|(m, c, t)| ModelDistribution { model: m, session_count: c, total_tokens: t }).collect(),
-        trends: trends.into_iter().map(|(d, m, c)| ModelTrend { date: d, model: m, count: c }).collect(),
-        author_model_matrix: author_model_matrix.into_iter().map(|(a, m, s, t)| AuthorModel { author: a, model: m, sessions: s, tokens: t }).collect(),
-        comparison: comparison.into_iter().map(|(m, t, c, cr, cw, d)| ModelComparison {
-            model: m, avg_tokens: t, avg_cost: c, cache_read_tokens: cr, cache_write_tokens: cw, avg_duration_ms: d
-        }).collect(),
+        distribution: distribution
+            .into_iter()
+            .map(|(m, c, t)| ModelDistribution {
+                model: m,
+                session_count: c,
+                total_tokens: t,
+            })
+            .collect(),
+        trends: trends
+            .into_iter()
+            .map(|(d, m, c)| ModelTrend {
+                date: d,
+                model: m,
+                count: c,
+            })
+            .collect(),
+        author_model_matrix: author_model_matrix
+            .into_iter()
+            .map(|(a, m, s, t)| AuthorModel {
+                author: a,
+                model: m,
+                sessions: s,
+                tokens: t,
+            })
+            .collect(),
+        comparison: comparison
+            .into_iter()
+            .map(|(m, t, c, cr, cw, d)| ModelComparison {
+                model: m,
+                avg_tokens: t,
+                avg_cost: c,
+                cache_read_tokens: cr,
+                cache_write_tokens: cw,
+                avg_duration_ms: d,
+            })
+            .collect(),
     }))
 }
 
@@ -730,10 +840,15 @@ pub async fn get_authors(
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
            AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
          GROUP BY c.created_at::date, c.author
-         ORDER BY 1, 2"
+         ORDER BY 1, 2",
     )
-    .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
-    .fetch_all(&state.pool).await
+    .bind(org_id)
+    .bind(&q.repo)
+    .bind(&q.author)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let model_preferences = sqlx::query_as::<_, (String, String, i64)>(
@@ -756,19 +871,51 @@ pub async fn get_authors(
          SELECT author, model, COUNT(*)
          FROM model_data
          GROUP BY author, model
-         ORDER BY author, 3 DESC"
+         ORDER BY author, 3 DESC",
     )
-    .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
-    .fetch_all(&state.pool).await
+    .bind(org_id)
+    .bind(&q.repo)
+    .bind(&q.author)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(AuthorsResponse {
-        leaderboard: leaderboard.into_iter().map(|(a, c, s, t, cost, ai, la, dur, tc, comp)| AuthorLeaderboard {
-            author: a, commits: c, sessions: s, tokens: t, cost, ai_pct: ai, last_active: la,
-            avg_duration_ms: dur, total_tool_calls: tc, total_compactions: comp
-        }).collect(),
-        timeline: timeline.into_iter().map(|(d, a, c)| AuthorTimeline { date: d, author: a, commits: c }).collect(),
-        model_preferences: model_preferences.into_iter().map(|(a, m, s)| AuthorModelPreference { author: a, model: m, sessions: s }).collect(),
+        leaderboard: leaderboard
+            .into_iter()
+            .map(
+                |(a, c, s, t, cost, ai, la, dur, tc, comp)| AuthorLeaderboard {
+                    author: a,
+                    commits: c,
+                    sessions: s,
+                    tokens: t,
+                    cost,
+                    ai_pct: ai,
+                    last_active: la,
+                    avg_duration_ms: dur,
+                    total_tool_calls: tc,
+                    total_compactions: comp,
+                },
+            )
+            .collect(),
+        timeline: timeline
+            .into_iter()
+            .map(|(d, a, c)| AuthorTimeline {
+                date: d,
+                author: a,
+                commits: c,
+            })
+            .collect(),
+        model_preferences: model_preferences
+            .into_iter()
+            .map(|(a, m, s)| AuthorModelPreference {
+                author: a,
+                model: m,
+                sessions: s,
+            })
+            .collect(),
     }))
 }
 
@@ -818,11 +965,11 @@ pub async fn get_attribution(
     let org_id = q.effective_org_id(&auth);
 
     // Only include commits that have attribution data
-    let base_filter = "c.attribution IS NOT NULL AND c.attribution->'summary'->>'ai_percentage' IS NOT NULL";
+    let base_filter =
+        "c.attribution IS NOT NULL AND c.attribution->'summary'->>'ai_percentage' IS NOT NULL";
 
-    let trend = sqlx::query_as::<_, (String, f64)>(
-        &format!(
-            "SELECT TO_CHAR(c.created_at::date, 'YYYY-MM-DD'),
+    let trend = sqlx::query_as::<_, (String, f64)>(&format!(
+        "SELECT TO_CHAR(c.created_at::date, 'YYYY-MM-DD'),
                     AVG((c.attribution->'summary'->>'ai_percentage')::float)
              FROM commits c
              JOIN repos r ON c.repo_id = r.id
@@ -833,10 +980,14 @@ pub async fn get_attribution(
                AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
              GROUP BY c.created_at::date
              ORDER BY 1"
-        )
-    )
-    .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
-    .fetch_all(&state.pool).await
+    ))
+    .bind(org_id)
+    .bind(&q.repo)
+    .bind(&q.author)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let by_repo = sqlx::query_as::<_, (String, f64, i64, i64)>(
@@ -859,9 +1010,8 @@ pub async fn get_attribution(
     .fetch_all(&state.pool).await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let by_author = sqlx::query_as::<_, (String, f64)>(
-        &format!(
-            "SELECT c.author, AVG((c.attribution->'summary'->>'ai_percentage')::float)
+    let by_author = sqlx::query_as::<_, (String, f64)>(&format!(
+        "SELECT c.author, AVG((c.attribution->'summary'->>'ai_percentage')::float)
              FROM commits c
              JOIN repos r ON c.repo_id = r.id
              WHERE r.org_id = $1 AND {base_filter}
@@ -870,10 +1020,13 @@ pub async fn get_attribution(
                AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
              GROUP BY c.author
              ORDER BY 2 DESC"
-        )
-    )
-    .bind(org_id).bind(&q.repo).bind(q.from).bind(q.to)
-    .fetch_all(&state.pool).await
+    ))
+    .bind(org_id)
+    .bind(&q.repo)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let totals = sqlx::query_as::<_, (i64, i64, f64)>(
@@ -896,10 +1049,35 @@ pub async fn get_attribution(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(AttributionResponse {
-        trend: trend.into_iter().map(|(d, ai)| AttributionTrend { date: d, ai_pct: ai, human_pct: 100.0 - ai }).collect(),
-        by_repo: by_repo.into_iter().map(|(r, ai, al, hl)| RepoAttribution { repo: r, ai_pct: ai, ai_lines: al, human_lines: hl }).collect(),
-        by_author: by_author.into_iter().map(|(a, ai)| AuthorAttribution { author: a, ai_pct: ai }).collect(),
-        totals: AttributionTotals { ai_lines: totals.0, human_lines: totals.1, ai_pct: totals.2 },
+        trend: trend
+            .into_iter()
+            .map(|(d, ai)| AttributionTrend {
+                date: d,
+                ai_pct: ai,
+                human_pct: 100.0 - ai,
+            })
+            .collect(),
+        by_repo: by_repo
+            .into_iter()
+            .map(|(r, ai, al, hl)| RepoAttribution {
+                repo: r,
+                ai_pct: ai,
+                ai_lines: al,
+                human_lines: hl,
+            })
+            .collect(),
+        by_author: by_author
+            .into_iter()
+            .map(|(a, ai)| AuthorAttribution {
+                author: a,
+                ai_pct: ai,
+            })
+            .collect(),
+        totals: AttributionTotals {
+            ai_lines: totals.0,
+            human_lines: totals.1,
+            ai_pct: totals.2,
+        },
     }))
 }
 
@@ -961,7 +1139,27 @@ pub async fn get_sessions(
     let offset = q.offset.unwrap_or(0);
 
     // Paginated session list
-    let sessions = sqlx::query_as::<_, (Uuid, String, Option<String>, Option<i64>, Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>, Option<i32>, Option<i32>, Option<serde_json::Value>, Option<i32>, Option<i64>, Option<f64>, Option<i32>, String, String, String)>(
+    let sessions = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            Option<String>,
+            Option<i64>,
+            Option<chrono::DateTime<chrono::Utc>>,
+            Option<chrono::DateTime<chrono::Utc>>,
+            Option<i32>,
+            Option<i32>,
+            Option<serde_json::Value>,
+            Option<i32>,
+            Option<i64>,
+            Option<f64>,
+            Option<i32>,
+            String,
+            String,
+            String,
+        ),
+    >(
         "SELECT s.id, s.session_id, s.model, s.duration_ms, s.started_at, s.ended_at,
                 s.user_messages, s.assistant_messages, s.tool_calls, s.total_tool_calls,
                 s.total_tokens, s.estimated_cost_usd, s.compactions,
@@ -975,7 +1173,7 @@ pub async fn get_sessions(
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
            AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
          ORDER BY s.created_at DESC
-         LIMIT $6 OFFSET $7"
+         LIMIT $6 OFFSET $7",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -1000,7 +1198,7 @@ pub async fn get_sessions(
            AND ($2::TEXT IS NULL OR r.name = $2)
            AND ($3::TEXT IS NULL OR c.author = $3)
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)"
+           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -1025,7 +1223,7 @@ pub async fn get_sessions(
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
            AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
          GROUP BY key
-         ORDER BY 2 DESC"
+         ORDER BY 2 DESC",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -1036,18 +1234,33 @@ pub async fn get_sessions(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let tool_frequency: serde_json::Value = serde_json::json!(
-        tool_freq.into_iter().map(|(k, v)| (k, v)).collect::<std::collections::HashMap<String, i64>>()
-    );
+    let tool_frequency: serde_json::Value = serde_json::json!(tool_freq
+        .into_iter()
+        .map(|(k, v)| (k, v))
+        .collect::<std::collections::HashMap<String, i64>>());
 
     Ok(Json(SessionsResponse {
-        sessions: sessions.into_iter().map(|s| SessionItem {
-            id: s.0, session_id: s.1, model: s.2, duration_ms: s.3,
-            started_at: s.4, ended_at: s.5, user_messages: s.6,
-            assistant_messages: s.7, tool_calls: s.8, total_tool_calls: s.9,
-            total_tokens: s.10, estimated_cost_usd: s.11, compactions: s.12,
-            commit_sha: s.13, author: s.14, repo_name: s.15,
-        }).collect(),
+        sessions: sessions
+            .into_iter()
+            .map(|s| SessionItem {
+                id: s.0,
+                session_id: s.1,
+                model: s.2,
+                duration_ms: s.3,
+                started_at: s.4,
+                ended_at: s.5,
+                user_messages: s.6,
+                assistant_messages: s.7,
+                tool_calls: s.8,
+                total_tool_calls: s.9,
+                total_tokens: s.10,
+                estimated_cost_usd: s.11,
+                compactions: s.12,
+                commit_sha: s.13,
+                author: s.14,
+                repo_name: s.15,
+            })
+            .collect(),
         tool_frequency,
         avg_duration_ms: agg.1,
         avg_messages_per_session: agg.2,
@@ -1113,7 +1326,7 @@ pub async fn get_cost(
            AND ($2::TEXT IS NULL OR r.name = $2)
            AND ($3::TEXT IS NULL OR c.author = $3)
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)"
+           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -1125,7 +1338,10 @@ pub async fn get_cost(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Approximate cache savings using Sonnet rates for aggregate
-    let cache_savings = state.extensions.pricing.estimate_cache_savings("sonnet", totals.2);
+    let cache_savings = state
+        .extensions
+        .pricing
+        .estimate_cache_savings("sonnet", totals.2);
 
     // Cost over time (daily)
     let cost_time = sqlx::query_as::<_, (String, f64)>(
@@ -1140,7 +1356,7 @@ pub async fn get_cost(
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
            AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
          GROUP BY c.created_at::date
-         ORDER BY 1"
+         ORDER BY 1",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -1177,7 +1393,7 @@ pub async fn get_cost(
                 COUNT(*)
          FROM model_data
          GROUP BY model
-         ORDER BY 2 DESC"
+         ORDER BY 2 DESC",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -1199,7 +1415,7 @@ pub async fn get_cost(
            AND ($3::TIMESTAMPTZ IS NULL OR c.created_at >= $3)
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
          GROUP BY r.name
-         ORDER BY 2 DESC"
+         ORDER BY 2 DESC",
     )
     .bind(org_id)
     .bind(&q.author)
@@ -1220,7 +1436,7 @@ pub async fn get_cost(
            AND ($3::TIMESTAMPTZ IS NULL OR c.created_at >= $3)
            AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
          GROUP BY c.author
-         ORDER BY 2 DESC"
+         ORDER BY 2 DESC",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -1234,9 +1450,26 @@ pub async fn get_cost(
         total_cost: totals.0,
         avg_cost_per_session: totals.1,
         cache_savings_usd: cache_savings,
-        cost_over_time: cost_time.into_iter().map(|(d, c)| CostTimePoint { date: d, cost: c }).collect(),
-        cost_by_model: cost_model.into_iter().map(|(m, c, t, s)| ModelCost { model: m, cost: c, tokens: t, sessions: s }).collect(),
-        cost_by_repo: cost_repo.into_iter().map(|(r, c)| RepoCost { repo: r, cost: c }).collect(),
-        cost_by_author: cost_author.into_iter().map(|(a, c)| AuthorCost { author: a, cost: c }).collect(),
+        cost_over_time: cost_time
+            .into_iter()
+            .map(|(d, c)| CostTimePoint { date: d, cost: c })
+            .collect(),
+        cost_by_model: cost_model
+            .into_iter()
+            .map(|(m, c, t, s)| ModelCost {
+                model: m,
+                cost: c,
+                tokens: t,
+                sessions: s,
+            })
+            .collect(),
+        cost_by_repo: cost_repo
+            .into_iter()
+            .map(|(r, c)| RepoCost { repo: r, cost: c })
+            .collect(),
+        cost_by_author: cost_author
+            .into_iter()
+            .map(|(a, c)| AuthorCost { author: a, cost: c })
+            .collect(),
     }))
 }

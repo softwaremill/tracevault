@@ -38,7 +38,10 @@ pub async fn init_in_directory(
     if let Some(url) = server_url {
         config.server_url = Some(url.to_string());
     }
-    fs::write(TracevaultConfig::config_path(project_root), config.to_toml())?;
+    fs::write(
+        TracevaultConfig::config_path(project_root),
+        config.to_toml(),
+    )?;
 
     // Create .tracevault/.gitignore
     fs::write(
@@ -59,11 +62,8 @@ pub async fn init_in_directory(
         eprintln!("Run 'git remote add origin <url>' then 'tracevault sync' to register.");
     }
 
-    let (resolved_url, resolved_token) =
-        crate::api_client::resolve_credentials(project_root);
-    let effective_url = server_url
-        .map(String::from)
-        .or(resolved_url);
+    let (resolved_url, resolved_token) = crate::api_client::resolve_credentials(project_root);
+    let effective_url = server_url.map(String::from).or(resolved_url);
 
     if resolved_token.is_none() {
         eprintln!("Not logged in. Run 'tracevault login' to register this repo with the server.");
@@ -204,7 +204,10 @@ fn install_claude_hooks(project_root: &Path) -> Result<(), io::Error> {
     settings_obj.insert("hooks".to_string(), hooks);
 
     let formatted = serde_json::to_string_pretty(&settings).map_err(|e| {
-        io::Error::new(io::ErrorKind::Other, format!("Failed to serialize settings: {e}"))
+        io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to serialize settings: {e}"),
+        )
     })?;
     fs::write(&settings_path, formatted)?;
 

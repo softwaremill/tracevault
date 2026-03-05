@@ -15,8 +15,8 @@ pub fn handle_hook_from_stdin(project_root: &Path) -> Result<(), io::Error> {
 }
 
 pub fn handle_hook_event(json_input: &str, project_root: &Path) -> Result<(), io::Error> {
-    let event = parse_hook_event(json_input)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let event =
+        parse_hook_event(json_input).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     // Create session directory
     let session_dir = project_root
@@ -32,8 +32,8 @@ pub fn handle_hook_event(json_input: &str, project_root: &Path) -> Result<(), io
         .append(true)
         .open(&events_path)?;
 
-    let event_json = serde_json::to_string(&event)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let event_json =
+        serde_json::to_string(&event).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
     writeln!(file, "{event_json}")?;
 
     // Write session metadata if it doesn't exist

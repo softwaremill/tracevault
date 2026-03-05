@@ -1,6 +1,10 @@
-use axum::{extract::{Path, State}, http::StatusCode, Json};
-use serde::{Deserialize, Serialize};
 use crate::AppState;
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    Json,
+};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth::hash_password;
@@ -87,12 +91,31 @@ pub async fn list_members(
     if auth.org_id != id {
         return Err((StatusCode::FORBIDDEN, "Access denied".into()));
     }
-    if !state.extensions.permissions.has_permission(&auth.role, crate::permissions::Permission::UserManage)
-       && !state.extensions.permissions.has_permission(&auth.role, crate::permissions::Permission::AuditLogView) {
-        return Err((StatusCode::FORBIDDEN, "Requires admin or auditor role".into()));
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, crate::permissions::Permission::UserManage)
+        && !state
+            .extensions
+            .permissions
+            .has_permission(&auth.role, crate::permissions::Permission::AuditLogView)
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Requires admin or auditor role".into(),
+        ));
     }
 
-    let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, String, chrono::DateTime<chrono::Utc>)>(
+    let rows = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            Option<String>,
+            String,
+            chrono::DateTime<chrono::Utc>,
+        ),
+    >(
         "SELECT id, email, name, role, created_at FROM users WHERE org_id = $1 ORDER BY created_at",
     )
     .bind(id)
@@ -231,11 +254,18 @@ pub async fn change_role(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    crate::audit::log(&state.pool, crate::audit::user_action(
-        auth.org_id, auth.user_id,
-        "role.change", "user", Some(user_id),
-        Some(serde_json::json!({"new_role": &req.role})),
-    )).await;
+    crate::audit::log(
+        &state.pool,
+        crate::audit::user_action(
+            auth.org_id,
+            auth.user_id,
+            "role.change",
+            "user",
+            Some(user_id),
+            Some(serde_json::json!({"new_role": &req.role})),
+        ),
+    )
+    .await;
 
     Ok(StatusCode::OK)
 }
@@ -262,7 +292,15 @@ pub async fn get_llm_settings(
         return Err((StatusCode::FORBIDDEN, "Requires admin role".into()));
     }
 
-    let row = sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>, Option<String>)>(
+    let row = sqlx::query_as::<
+        _,
+        (
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
         "SELECT llm_provider, llm_api_key_encrypted, llm_model, llm_base_url
          FROM org_compliance_settings WHERE org_id = $1",
     )
@@ -320,8 +358,12 @@ pub async fn update_llm_settings(
 
     // Encrypt API key if provided
     let (encrypted_key, nonce) = if let Some(ref api_key) = req.api_key {
-        let (ct, n) = state.extensions.encryption.encrypt(api_key)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Encryption error: {e}")))?;
+        let (ct, n) = state.extensions.encryption.encrypt(api_key).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Encryption error: {e}"),
+            )
+        })?;
         (Some(ct), Some(n))
     } else {
         (None, None)

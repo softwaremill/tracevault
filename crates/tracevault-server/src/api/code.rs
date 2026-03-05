@@ -6,11 +6,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{
-    extractors::AuthUser,
-    permissions::Permission,
-    AppState,
-};
+use crate::{extractors::AuthUser, permissions::Permission, AppState};
 
 // --- Helpers ---
 
@@ -183,7 +179,11 @@ pub async fn list_branches(
     auth: AuthUser,
     Path(repo_id): Path<Uuid>,
 ) -> Result<Json<Vec<BranchInfo>>, (StatusCode, String)> {
-    if !state.extensions.permissions.has_permission(&auth.role, Permission::CodeBrowse) {
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, Permission::CodeBrowse)
+    {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
     verify_repo_access(&state, auth.org_id, repo_id).await?;
@@ -236,7 +236,11 @@ pub async fn get_tree(
     Path(repo_id): Path<Uuid>,
     Query(query): Query<TreeQuery>,
 ) -> Result<Json<Vec<TreeEntry>>, (StatusCode, String)> {
-    if !state.extensions.permissions.has_permission(&auth.role, Permission::CodeBrowse) {
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, Permission::CodeBrowse)
+    {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
     verify_repo_access(&state, auth.org_id, repo_id).await?;
@@ -314,7 +318,11 @@ pub async fn get_blob(
     Path(repo_id): Path<Uuid>,
     Query(query): Query<BlobQuery>,
 ) -> Result<Json<BlobResponse>, (StatusCode, String)> {
-    if !state.extensions.permissions.has_permission(&auth.role, Permission::CodeBrowse) {
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, Permission::CodeBrowse)
+    {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
     verify_repo_access(&state, auth.org_id, repo_id).await?;
@@ -375,7 +383,11 @@ pub async fn get_blame(
     Path(repo_id): Path<Uuid>,
     Query(query): Query<BlobQuery>,
 ) -> Result<Json<Vec<BlameHunk>>, (StatusCode, String)> {
-    if !state.extensions.permissions.has_permission(&auth.role, Permission::CodeBrowse) {
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, Permission::CodeBrowse)
+    {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
     verify_repo_access(&state, auth.org_id, repo_id).await?;
@@ -397,7 +409,12 @@ pub async fn get_blame(
             std::path::Path::new(&query.path),
             Some(git2::BlameOptions::new().newest_commit(commit.id())),
         )
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Blame failed: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Blame failed: {e}"),
+            )
+        })?;
 
     let mut hunks = Vec::new();
     for i in 0..blame.len() {
@@ -428,7 +445,11 @@ pub async fn list_file_commits(
     Path(repo_id): Path<Uuid>,
     Query(query): Query<BlobQuery>,
 ) -> Result<Json<Vec<FileCommit>>, (StatusCode, String)> {
-    if !state.extensions.permissions.has_permission(&auth.role, Permission::CodeBrowse) {
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, Permission::CodeBrowse)
+    {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
     verify_repo_access(&state, auth.org_id, repo_id).await?;
@@ -503,7 +524,11 @@ pub async fn get_ref_info(
     Path(repo_id): Path<Uuid>,
     Query(query): Query<RefQuery>,
 ) -> Result<Json<RefInfo>, (StatusCode, String)> {
-    if !state.extensions.permissions.has_permission(&auth.role, Permission::CodeBrowse) {
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, Permission::CodeBrowse)
+    {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
     verify_repo_access(&state, auth.org_id, repo_id).await?;
@@ -537,7 +562,11 @@ pub async fn generate_story(
     Path(repo_id): Path<Uuid>,
     Json(req): Json<StoryRequest>,
 ) -> Result<Json<StoryResponse>, (StatusCode, String)> {
-    if !state.extensions.permissions.has_permission(&auth.role, Permission::CodeBrowse) {
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, Permission::CodeBrowse)
+    {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
 
@@ -595,14 +624,22 @@ pub async fn generate_story(
         )
         .await
         {
-            if state.extensions.permissions.has_permission(&auth.role, Permission::StoryView) {
+            if state
+                .extensions
+                .permissions
+                .has_permission(&auth.role, Permission::StoryView)
+            {
                 return Ok(Json(cached));
             }
         }
     }
 
     // New story generation requires StoryGenerate permission
-    if !state.extensions.permissions.has_permission(&auth.role, Permission::StoryGenerate) {
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, Permission::StoryGenerate)
+    {
         return Err((
             StatusCode::FORBIDDEN,
             "Insufficient permissions to generate stories".into(),
@@ -611,9 +648,8 @@ pub async fn generate_story(
 
     // Try per-org LLM settings first, then fall back to extension story provider
     let org_llm = resolve_org_llm(&state, auth.org_id).await;
-    let org_story: Option<crate::extensions::LlmStoryProvider> = org_llm.map(|llm| {
-        crate::extensions::LlmStoryProvider::new(std::sync::Arc::from(llm))
-    });
+    let org_story: Option<crate::extensions::LlmStoryProvider> =
+        org_llm.map(|llm| crate::extensions::LlmStoryProvider::new(std::sync::Arc::from(llm)));
     let story_provider: &dyn crate::extensions::StoryProvider = if let Some(ref org) = org_story {
         org
     } else if state.extensions.story.is_available() {
@@ -709,7 +745,19 @@ async fn check_story_cache(
     ref_name: &str,
     head_sha: &str,
 ) -> Option<StoryResponse> {
-    let row = sqlx::query_as::<_, (String, String, i32, i32, serde_json::Value, serde_json::Value, serde_json::Value, String)>(
+    let row = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            i32,
+            i32,
+            serde_json::Value,
+            serde_json::Value,
+            serde_json::Value,
+            String,
+        ),
+    >(
         "SELECT story_markdown, function_name, line_range_start, line_range_end, \
          commits_analyzed, sessions_referenced, references_data, generated_at::text \
          FROM code_stories WHERE repo_id = $1 AND file_path = $2 AND function_name = $3 \
@@ -793,7 +841,16 @@ async fn resolve_org_llm(state: &AppState, org_id: Uuid) -> Option<Box<dyn crate
         return None;
     }
 
-    let row = sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)>(
+    let row = sqlx::query_as::<
+        _,
+        (
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
         "SELECT llm_provider, llm_api_key_encrypted, llm_api_key_nonce, llm_model, llm_base_url
          FROM org_compliance_settings WHERE org_id = $1",
     )
@@ -806,7 +863,10 @@ async fn resolve_org_llm(state: &AppState, org_id: Uuid) -> Option<Box<dyn crate
     let encrypted_key = row.1?;
     let nonce = row.2?;
 
-    let api_key = state.extensions.encryption.decrypt(&encrypted_key, &nonce)
+    let api_key = state
+        .extensions
+        .encryption
+        .decrypt(&encrypted_key, &nonce)
         .map_err(|e| tracing::error!("Failed to decrypt org LLM API key: {e}"))
         .ok()?;
 

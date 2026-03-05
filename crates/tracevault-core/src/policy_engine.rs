@@ -33,9 +33,7 @@ fn evaluate_policy(policy: &PolicyRule, trace: &TraceRecord) -> PolicyEvaluation
         PolicyCondition::ModelAllowlist { allowed_models } => {
             eval_model_allowlist(trace, allowed_models)
         }
-        PolicyCondition::SensitivePathPattern { patterns } => {
-            eval_sensitive_paths(trace, patterns)
-        }
+        PolicyCondition::SensitivePathPattern { patterns } => eval_sensitive_paths(trace, patterns),
         PolicyCondition::RequiredToolCall { tool_names } => {
             eval_required_tool_call(trace, tool_names)
         }
@@ -60,8 +58,8 @@ fn evaluate_policy(policy: &PolicyRule, trace: &TraceRecord) -> PolicyEvaluation
 fn eval_trace_completeness(trace: &TraceRecord) -> (EvalResult, String) {
     let has_session = !trace.session.session_id.is_empty();
     let has_model = trace.model.is_some();
-    let has_attribution = !trace.attribution.files.is_empty()
-        || trace.attribution.summary.total_lines_added == 0;
+    let has_attribution =
+        !trace.attribution.files.is_empty() || trace.attribution.summary.total_lines_added == 0;
 
     if has_session && has_model && has_attribution {
         (EvalResult::Pass, "Trace is complete".into())
@@ -105,10 +103,7 @@ fn eval_model_allowlist(trace: &TraceRecord, allowed: &[String]) -> (EvalResult,
         }
         Some(model) => (
             EvalResult::Fail,
-            format!(
-                "Model {model} is not in allowlist: {}",
-                allowed.join(", ")
-            ),
+            format!("Model {model} is not in allowlist: {}", allowed.join(", ")),
         ),
         None => (EvalResult::Fail, "No model specified in trace".into()),
     }
@@ -197,12 +192,18 @@ fn eval_conditional_tool_call(
     if count >= min {
         (
             EvalResult::Pass,
-            format!("Tool '{}' called {} time(s) (required >= {})", tool_name, count, min),
+            format!(
+                "Tool '{}' called {} time(s) (required >= {})",
+                tool_name, count, min
+            ),
         )
     } else {
         (
             EvalResult::Fail,
-            format!("Tool '{}' called {} time(s) (required >= {})", tool_name, count, min),
+            format!(
+                "Tool '{}' called {} time(s) (required >= {})",
+                tool_name, count, min
+            ),
         )
     }
 }
@@ -267,9 +268,7 @@ fn default_policies() -> Vec<PolicyRule> {
             org_id: None,
             name: "Required tool call".into(),
             description: "Trace must show that tests were run".into(),
-            condition: PolicyCondition::RequiredToolCall {
-                tool_names: vec![],
-            },
+            condition: PolicyCondition::RequiredToolCall { tool_names: vec![] },
             action: PolicyAction::Warn,
             severity: PolicySeverity::Low,
             enabled: true,

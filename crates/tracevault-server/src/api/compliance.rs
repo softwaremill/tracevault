@@ -1,4 +1,8 @@
-use axum::{extract::{Path, Query, State}, http::StatusCode, Json};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    Json,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -29,14 +33,30 @@ pub async fn get_compliance_settings(
     if auth.org_id != org_id {
         return Err((StatusCode::FORBIDDEN, "Access denied".into()));
     }
-    if !state.extensions.permissions.has_permission(&auth.role, Permission::ComplianceView) {
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, Permission::ComplianceView)
+    {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
 
-    let row = sqlx::query_as::<_, (Uuid, i32, bool, Option<String>, Option<i32>, String, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>(
+    let row = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            i32,
+            bool,
+            Option<String>,
+            Option<i32>,
+            String,
+            chrono::DateTime<chrono::Utc>,
+            chrono::DateTime<chrono::Utc>,
+        ),
+    >(
         "SELECT org_id, retention_days, signing_enabled, signing_key_id,
                 chain_verification_interval_hours, compliance_mode, created_at, updated_at
-         FROM org_compliance_settings WHERE org_id = $1"
+         FROM org_compliance_settings WHERE org_id = $1",
     )
     .bind(org_id)
     .fetch_optional(&state.pool)
@@ -85,14 +105,24 @@ pub async fn update_compliance_settings(
     if auth.org_id != org_id {
         return Err((StatusCode::FORBIDDEN, "Access denied".into()));
     }
-    if !state.extensions.permissions.has_permission(&auth.role, Permission::ComplianceManage) {
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, Permission::ComplianceManage)
+    {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
 
     let valid_modes = ["none", "sox", "pci_dss", "sr_11_7", "custom"];
     if let Some(mode) = &req.compliance_mode {
         if !valid_modes.contains(&mode.as_str()) {
-            return Err((StatusCode::BAD_REQUEST, format!("Invalid compliance mode. Must be one of: {}", valid_modes.join(", "))));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "Invalid compliance mode. Must be one of: {}",
+                    valid_modes.join(", ")
+                ),
+            ));
         }
     }
 
@@ -105,8 +135,13 @@ pub async fn update_compliance_settings(
     };
     if let Some(days) = req.retention_days {
         if days < min_retention {
-            return Err((StatusCode::BAD_REQUEST,
-                format!("Compliance mode '{}' requires minimum {} days retention", mode, min_retention)));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "Compliance mode '{}' requires minimum {} days retention",
+                    mode, min_retention
+                ),
+            ));
         }
     }
 
@@ -130,11 +165,20 @@ pub async fn update_compliance_settings(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    audit::log(&state.pool, audit::user_action(
-        auth.org_id, auth.user_id,
-        "org.compliance.update", "org", Some(org_id),
-        Some(serde_json::json!({"compliance_mode": mode, "retention_days": req.retention_days})),
-    )).await;
+    audit::log(
+        &state.pool,
+        audit::user_action(
+            auth.org_id,
+            auth.user_id,
+            "org.compliance.update",
+            "org",
+            Some(org_id),
+            Some(
+                serde_json::json!({"compliance_mode": mode, "retention_days": req.retention_days}),
+            ),
+        ),
+    )
+    .await;
 
     Ok(Json(ComplianceSettingsResponse {
         org_id: row.0,
@@ -189,14 +233,27 @@ pub async fn get_chain_status(
     if auth.org_id != org_id {
         return Err((StatusCode::FORBIDDEN, "Access denied".into()));
     }
-    if !state.extensions.permissions.has_permission(&auth.role, Permission::ComplianceView) {
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, Permission::ComplianceView)
+    {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
 
-    let row = sqlx::query_as::<_, (String, i32, i32, Option<serde_json::Value>, Option<chrono::DateTime<chrono::Utc>>)>(
+    let row = sqlx::query_as::<
+        _,
+        (
+            String,
+            i32,
+            i32,
+            Option<serde_json::Value>,
+            Option<chrono::DateTime<chrono::Utc>>,
+        ),
+    >(
         "SELECT status, total_commits, verified_commits, errors, completed_at
          FROM chain_verifications WHERE org_id = $1
-         ORDER BY created_at DESC LIMIT 1"
+         ORDER BY created_at DESC LIMIT 1",
     )
     .bind(org_id)
     .fetch_optional(&state.pool)
@@ -230,15 +287,28 @@ pub async fn verify_chain(
     if auth.org_id != org_id {
         return Err((StatusCode::FORBIDDEN, "Access denied".into()));
     }
-    if !state.extensions.permissions.has_permission(&auth.role, Permission::ComplianceView) {
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, Permission::ComplianceView)
+    {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
 
-    let commits = sqlx::query_as::<_, (Uuid, Option<String>, Option<String>, Option<String>, Option<String>)>(
+    let commits = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
         "SELECT c.id, c.record_hash, c.chain_hash, c.prev_chain_hash, c.signature
          FROM commits c JOIN repos r ON c.repo_id = r.id
          WHERE r.org_id = $1 AND c.sealed_at IS NOT NULL
-         ORDER BY c.sealed_at ASC, c.created_at ASC, c.id ASC"
+         ORDER BY c.sealed_at ASC, c.created_at ASC, c.id ASC",
     )
     .bind(org_id)
     .fetch_all(&state.pool)
@@ -257,7 +327,10 @@ pub async fn verify_chain(
             continue;
         };
 
-        let expected_chain = state.extensions.signing.chain_hash(prev_chain_hash.as_deref(), rh);
+        let expected_chain = state
+            .extensions
+            .signing
+            .chain_hash(prev_chain_hash.as_deref(), rh);
         if &expected_chain != ch {
             errors.push(serde_json::json!({"commit_id": id, "error": "chain_hash mismatch"}));
             prev_hash = Some(ch.clone());
@@ -269,7 +342,9 @@ pub async fn verify_chain(
         }
 
         if !state.extensions.signing.verify(rh, sig) {
-            errors.push(serde_json::json!({"commit_id": id, "error": "signature verification failed"}));
+            errors.push(
+                serde_json::json!({"commit_id": id, "error": "signature verification failed"}),
+            );
             prev_hash = Some(ch.clone());
             continue;
         }
@@ -279,7 +354,11 @@ pub async fn verify_chain(
     }
 
     let status = if errors.is_empty() { "pass" } else { "fail" };
-    let errors_json = if errors.is_empty() { None } else { Some(serde_json::json!(errors)) };
+    let errors_json = if errors.is_empty() {
+        None
+    } else {
+        Some(serde_json::json!(errors))
+    };
 
     sqlx::query(
         "INSERT INTO chain_verifications (org_id, status, total_commits, verified_commits, errors, started_at, completed_at)
@@ -294,11 +373,18 @@ pub async fn verify_chain(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    audit::log(&state.pool, audit::user_action(
-        auth.org_id, auth.user_id,
-        "chain.verify", "org", Some(org_id),
-        Some(serde_json::json!({"status": status, "total": total, "verified": verified})),
-    )).await;
+    audit::log(
+        &state.pool,
+        audit::user_action(
+            auth.org_id,
+            auth.user_id,
+            "chain.verify",
+            "org",
+            Some(org_id),
+            Some(serde_json::json!({"status": status, "total": total, "verified": verified})),
+        ),
+    )
+    .await;
 
     Ok(Json(ChainStatusResponse {
         status: status.into(),
@@ -352,7 +438,11 @@ pub async fn list_audit_log(
     if auth.org_id != org_id {
         return Err((StatusCode::FORBIDDEN, "Access denied".into()));
     }
-    if !state.extensions.permissions.has_permission(&auth.role, Permission::AuditLogView) {
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, Permission::AuditLogView)
+    {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
 
@@ -367,7 +457,7 @@ pub async fn list_audit_log(
            AND ($3::UUID IS NULL OR actor_id = $3)
            AND ($4::TEXT IS NULL OR resource_type = $4)
            AND ($5::TIMESTAMPTZ IS NULL OR created_at >= $5)
-           AND ($6::TIMESTAMPTZ IS NULL OR created_at <= $6)"
+           AND ($6::TIMESTAMPTZ IS NULL OR created_at <= $6)",
     )
     .bind(org_id)
     .bind(&query.action)
@@ -379,7 +469,20 @@ pub async fn list_audit_log(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let rows = sqlx::query_as::<_, (Uuid, Option<Uuid>, String, String, Option<Uuid>, Option<serde_json::Value>, Option<String>, Option<String>, chrono::DateTime<chrono::Utc>)>(
+    let rows = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            Option<Uuid>,
+            String,
+            String,
+            Option<Uuid>,
+            Option<serde_json::Value>,
+            Option<String>,
+            Option<String>,
+            chrono::DateTime<chrono::Utc>,
+        ),
+    >(
         "SELECT id, actor_id, action, resource_type, resource_id, details,
                 host(ip_address)::TEXT, user_agent, created_at
          FROM audit_log
@@ -390,7 +493,7 @@ pub async fn list_audit_log(
            AND ($5::TIMESTAMPTZ IS NULL OR created_at >= $5)
            AND ($6::TIMESTAMPTZ IS NULL OR created_at <= $6)
          ORDER BY created_at DESC
-         LIMIT $7 OFFSET $8"
+         LIMIT $7 OFFSET $8",
     )
     .bind(org_id)
     .bind(&query.action)
@@ -404,19 +507,27 @@ pub async fn list_audit_log(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let entries = rows.into_iter().map(|r| AuditLogEntry {
-        id: r.0,
-        actor_id: r.1,
-        action: r.2,
-        resource_type: r.3,
-        resource_id: r.4,
-        details: r.5,
-        ip_address: r.6,
-        user_agent: r.7,
-        created_at: r.8,
-    }).collect();
+    let entries = rows
+        .into_iter()
+        .map(|r| AuditLogEntry {
+            id: r.0,
+            actor_id: r.1,
+            action: r.2,
+            resource_type: r.3,
+            resource_id: r.4,
+            details: r.5,
+            ip_address: r.6,
+            user_agent: r.7,
+            created_at: r.8,
+        })
+        .collect();
 
-    Ok(Json(AuditLogResponse { entries, total, page, per_page }))
+    Ok(Json(AuditLogResponse {
+        entries,
+        total,
+        page,
+        per_page,
+    }))
 }
 
 // --- Trace Verification ---
@@ -435,10 +546,20 @@ pub async fn verify_trace(
     auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<TraceVerifyResponse>, (StatusCode, String)> {
-    let commit = sqlx::query_as::<_, (Uuid, Option<String>, Option<String>, Option<String>, Option<String>, Option<chrono::DateTime<chrono::Utc>>)>(
+    let commit = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<chrono::DateTime<chrono::Utc>>,
+        ),
+    >(
         "SELECT c.id, c.record_hash, c.chain_hash, c.prev_chain_hash, c.signature, c.sealed_at
          FROM commits c JOIN repos r ON c.repo_id = r.id
-         WHERE c.id = $1 AND r.org_id = $2"
+         WHERE c.id = $1 AND r.org_id = $2",
     )
     .bind(id)
     .bind(auth.org_id)
@@ -456,7 +577,10 @@ pub async fn verify_trace(
 
     let chain_valid = match (&record_hash, &chain_hash) {
         (Some(rh), Some(ch)) => {
-            let expected = state.extensions.signing.chain_hash(prev_chain_hash.as_deref(), rh);
+            let expected = state
+                .extensions
+                .signing
+                .chain_hash(prev_chain_hash.as_deref(), rh);
             expected == *ch
         }
         _ => false,

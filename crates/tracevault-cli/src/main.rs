@@ -109,7 +109,9 @@ async fn main() {
         }
         Cli::Verify { commits, range } => {
             let cwd = env::current_dir().expect("Cannot determine current directory");
-            if let Err(e) = commands::verify::verify(&cwd, commits.as_deref(), range.as_deref()).await {
+            if let Err(e) =
+                commands::verify::verify(&cwd, commits.as_deref(), range.as_deref()).await
+            {
                 eprintln!("Verify error: {e}");
                 std::process::exit(1);
             }

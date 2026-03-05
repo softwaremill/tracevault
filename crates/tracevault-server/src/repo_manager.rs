@@ -125,9 +125,7 @@ impl RepoManager {
             .await
             .map_err(|e| e.to_string())?;
 
-        let temp_key = deploy_key_pem
-            .map(write_temp_key)
-            .transpose()?;
+        let temp_key = deploy_key_pem.map(write_temp_key).transpose()?;
 
         let clone_result = RepoBuilder::new()
             .bare(true)
@@ -168,9 +166,7 @@ impl RepoManager {
         let repo = Repository::open_bare(&path).map_err(|e| e.to_string())?;
         let mut remote = repo.find_remote("origin").map_err(|e| e.to_string())?;
 
-        let temp_key = deploy_key_pem
-            .map(write_temp_key)
-            .transpose()?;
+        let temp_key = deploy_key_pem.map(write_temp_key).transpose()?;
 
         let result = remote.fetch(
             &["refs/heads/*:refs/heads/*", "refs/tags/*:refs/tags/*"],

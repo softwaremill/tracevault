@@ -27,10 +27,7 @@ impl Redactor {
         ];
 
         Self {
-            patterns: patterns
-                .iter()
-                .map(|p| Regex::new(p).unwrap())
-                .collect(),
+            patterns: patterns.iter().map(|p| Regex::new(p).unwrap()).collect(),
             high_entropy_pattern: Regex::new(r"[A-Za-z0-9/+_=\-]{16,}").unwrap(),
         }
     }

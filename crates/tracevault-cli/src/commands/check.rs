@@ -19,10 +19,7 @@ fn git_repo_name(project_root: &Path) -> String {
 }
 
 fn collect_session_data(session_dir: &Path) -> Option<SessionCheckData> {
-    let session_id = session_dir
-        .file_name()?
-        .to_string_lossy()
-        .to_string();
+    let session_id = session_dir.file_name()?.to_string_lossy().to_string();
 
     // Read events.jsonl for files_modified
     let events_path = session_dir.join("events.jsonl");
@@ -136,15 +133,12 @@ pub async fn check_policies(project_root: &Path) -> Result<(), Box<dyn std::erro
     // Resolve repo_id by name
     let repo_name = git_repo_name(project_root);
     let repos = client.list_repos().await?;
-    let repo = repos
-        .iter()
-        .find(|r| r.name == repo_name)
-        .ok_or_else(|| {
-            format!(
-                "Repo '{}' not found on server. Run 'tracevault sync' first.",
-                repo_name
-            )
-        })?;
+    let repo = repos.iter().find(|r| r.name == repo_name).ok_or_else(|| {
+        format!(
+            "Repo '{}' not found on server. Run 'tracevault sync' first.",
+            repo_name
+        )
+    })?;
 
     // Collect session data from unpushed sessions
     let sessions_dir = project_root.join(".tracevault").join("sessions");
@@ -181,9 +175,9 @@ pub async fn check_policies(project_root: &Path) -> Result<(), Box<dyn std::erro
     // Print results
     for r in &result.results {
         let icon = match r.result.as_str() {
-            "pass" => "\x1b[32m✓\x1b[0m",                    // green
+            "pass" => "\x1b[32m✓\x1b[0m",                             // green
             "fail" if r.action == "block_push" => "\x1b[31m✗\x1b[0m", // red
-            "fail" => "\x1b[33m!\x1b[0m",                     // yellow
+            "fail" => "\x1b[33m!\x1b[0m",                             // yellow
             _ => " ",
         };
         println!(

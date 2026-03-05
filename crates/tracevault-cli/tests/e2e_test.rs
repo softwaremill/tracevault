@@ -60,11 +60,7 @@ async fn full_flow_init_hook_and_local_stats() {
     ];
 
     for event in &events {
-        tracevault_cli::commands::hook::handle_hook_event(
-            &event.to_string(),
-            tmp.path(),
-        )
-        .unwrap();
+        tracevault_cli::commands::hook::handle_hook_event(&event.to_string(), tmp.path()).unwrap();
     }
 
     // 3. Verify session data was captured
@@ -86,10 +82,9 @@ async fn full_flow_init_hook_and_local_stats() {
     assert!(events_content.contains("src/main.rs"));
 
     // 6. Verify metadata
-    let metadata: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(session_dir.join("metadata.json")).unwrap(),
-    )
-    .unwrap();
+    let metadata: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(session_dir.join("metadata.json")).unwrap())
+            .unwrap();
     assert_eq!(metadata["session_id"], "e2e-session-001");
 }
 
@@ -124,14 +119,12 @@ async fn multiple_sessions_tracked_independently() {
     tracevault_cli::commands::hook::handle_hook_event(&event2.to_string(), tmp.path()).unwrap();
 
     // Both sessions should have their own directories
-    assert!(
-        tmp.path()
-            .join(".tracevault/sessions/session-aaa/events.jsonl")
-            .exists()
-    );
-    assert!(
-        tmp.path()
-            .join(".tracevault/sessions/session-bbb/events.jsonl")
-            .exists()
-    );
+    assert!(tmp
+        .path()
+        .join(".tracevault/sessions/session-aaa/events.jsonl")
+        .exists());
+    assert!(tmp
+        .path()
+        .join(".tracevault/sessions/session-bbb/events.jsonl")
+        .exists());
 }

@@ -48,7 +48,10 @@ pub async fn sync_repo(project_root: &Path) -> Result<(), Box<dyn std::error::Er
         .await
     {
         Ok(resp) => {
-            println!("Repo synced with server (id: {}, remote: {})", resp.repo_id, remote);
+            println!(
+                "Repo synced with server (id: {}, remote: {})",
+                resp.repo_id, remote
+            );
         }
         Err(e) => {
             eprintln!("Warning: could not sync repo with server: {e}");

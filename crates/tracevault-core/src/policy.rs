@@ -17,11 +17,22 @@ pub struct PolicyRule {
 #[serde(tag = "type")]
 pub enum PolicyCondition {
     TraceCompleteness,
-    AiPercentageThreshold { threshold: f32 },
-    ModelAllowlist { allowed_models: Vec<String> },
-    SensitivePathPattern { patterns: Vec<String> },
-    RequiredToolCall { tool_names: Vec<String> },
-    TokenBudget { max_tokens: Option<u64>, max_cost_usd: Option<f64> },
+    AiPercentageThreshold {
+        threshold: f32,
+    },
+    ModelAllowlist {
+        allowed_models: Vec<String>,
+    },
+    SensitivePathPattern {
+        patterns: Vec<String>,
+    },
+    RequiredToolCall {
+        tool_names: Vec<String>,
+    },
+    TokenBudget {
+        max_tokens: Option<u64>,
+        max_cost_usd: Option<f64>,
+    },
     ConditionalToolCall {
         tool_name: String,
         min_count: Option<u32>,

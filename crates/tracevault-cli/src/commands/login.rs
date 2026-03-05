@@ -35,12 +35,12 @@ pub async fn login(server_url: &str) -> Result<(), Box<dyn std::error::Error>> {
         match client.device_status(&device.token).await {
             Ok(status) => {
                 if status.status == "approved" {
-                    let token = status.token.ok_or(
-                        "Server approved but did not return a session token"
-                    )?;
-                    let email = status.email.ok_or(
-                        "Server approved but did not return an email"
-                    )?;
+                    let token = status
+                        .token
+                        .ok_or("Server approved but did not return a session token")?;
+                    let email = status
+                        .email
+                        .ok_or("Server approved but did not return an email")?;
                     let org_name = status.org_name.ok_or(
                         "You are not a member of any organization. \
                          Please log in via the web interface to create or join an organization first."

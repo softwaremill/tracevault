@@ -62,7 +62,13 @@ fn make_trace(ai_pct: f32, model: &str, tokens: u64, cost: f64, files: Vec<&str>
 #[test]
 fn trace_completeness_passes_for_complete_trace() {
     let engine = PolicyEngine::with_defaults();
-    let trace = make_trace(50.0, "anthropic/claude-opus-4-6", 1000, 0.5, vec!["src/main.rs"]);
+    let trace = make_trace(
+        50.0,
+        "anthropic/claude-opus-4-6",
+        1000,
+        0.5,
+        vec!["src/main.rs"],
+    );
     let results = engine.evaluate(&trace);
     let completeness = results
         .iter()
@@ -74,7 +80,13 @@ fn trace_completeness_passes_for_complete_trace() {
 #[test]
 fn ai_percentage_warns_above_threshold() {
     let engine = PolicyEngine::with_defaults();
-    let trace = make_trace(95.0, "anthropic/claude-opus-4-6", 1000, 0.5, vec!["src/main.rs"]);
+    let trace = make_trace(
+        95.0,
+        "anthropic/claude-opus-4-6",
+        1000,
+        0.5,
+        vec!["src/main.rs"],
+    );
     let results = engine.evaluate(&trace);
     let pct = results
         .iter()

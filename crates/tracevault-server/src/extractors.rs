@@ -54,13 +54,12 @@ impl FromRequestParts<AppState> for AuthUser {
         }
 
         // Fall back to api_keys
-        let api_key_row = sqlx::query_as::<_, (Uuid,)>(
-            "SELECT org_id FROM api_keys WHERE key_hash = $1",
-        )
-        .bind(&token_hash)
-        .fetch_optional(pool)
-        .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error"))?;
+        let api_key_row =
+            sqlx::query_as::<_, (Uuid,)>("SELECT org_id FROM api_keys WHERE key_hash = $1")
+                .bind(&token_hash)
+                .fetch_optional(pool)
+                .await
+                .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error"))?;
 
         if let Some((org_id,)) = api_key_row {
             return Ok(AuthUser {

@@ -61,8 +61,7 @@ pub fn compute_file_attribution(
                 0
             };
 
-            let changed_lines_total: u32 =
-                changed.iter().map(|r| r.end - r.start + 1).sum();
+            let changed_lines_total: u32 = changed.iter().map(|r| r.end - r.start + 1).sum();
 
             let (ai_lines, human_lines) = if is_ai_authored {
                 (changed, vec![])

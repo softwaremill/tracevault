@@ -114,17 +114,18 @@ pub async fn gather_story_context(
     let mut changes = Vec::new();
     for gc in &git_commits {
         // Fetch commit UUID, attribution, and first transcript for context
-        let tv_data = sqlx::query_as::<_, (Uuid, Option<serde_json::Value>, Option<serde_json::Value>)>(
-            "SELECT c.id, c.attribution, s.transcript \
+        let tv_data =
+            sqlx::query_as::<_, (Uuid, Option<serde_json::Value>, Option<serde_json::Value>)>(
+                "SELECT c.id, c.attribution, s.transcript \
              FROM commits c LEFT JOIN sessions s ON s.commit_id = c.id \
              WHERE c.repo_id = $1 AND c.commit_sha = $2 LIMIT 1",
-        )
-        .bind(repo_id)
-        .bind(&gc.sha)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten();
+            )
+            .bind(repo_id)
+            .bind(&gc.sha)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
 
         let (commit_uuid, ai_percentage, session_excerpt, model, sessions) =
             if let Some((c_id, attr, transcript)) = &tv_data {
@@ -132,10 +133,9 @@ pub async fn gather_story_context(
                     .as_ref()
                     .and_then(|a| a.get("ai_percentage"))
                     .and_then(|v| v.as_f64());
-                let excerpt =
-                    transcript
-                        .as_ref()
-                        .and_then(|t| extract_relevant_excerpt(t, file_path, &scope.name));
+                let excerpt = transcript
+                    .as_ref()
+                    .and_then(|t| extract_relevant_excerpt(t, file_path, &scope.name));
 
                 // Fetch all sessions for this commit
                 let session_rows = sqlx::query_as::<_, (Uuid, String, Option<String>)>(

@@ -1,6 +1,6 @@
-use ed25519_dalek::{SigningKey, VerifyingKey, Signer, Verifier, Signature};
-use sha2::{Sha256, Digest};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use sha2::{Digest, Sha256};
 
 #[derive(Clone)]
 pub struct SigningService {
@@ -12,7 +12,9 @@ impl SigningService {
     /// Create from a base64-encoded 32-byte seed, or generate a new key.
     pub fn new(seed_b64: Option<&str>) -> Self {
         let signing_key = if let Some(seed) = seed_b64 {
-            let bytes = BASE64.decode(seed).expect("Invalid base64 signing key seed");
+            let bytes = BASE64
+                .decode(seed)
+                .expect("Invalid base64 signing key seed");
             let seed_bytes: [u8; 32] = bytes.try_into().expect("Signing key seed must be 32 bytes");
             SigningKey::from_bytes(&seed_bytes)
         } else {
@@ -20,7 +22,10 @@ impl SigningService {
             SigningKey::generate(&mut rand::thread_rng())
         };
         let verifying_key = signing_key.verifying_key();
-        Self { signing_key, verifying_key }
+        Self {
+            signing_key,
+            verifying_key,
+        }
     }
 
     /// SHA-256 hash of canonical JSON bytes, returned as hex string.
@@ -56,7 +61,9 @@ impl SigningService {
             Ok(s) => s,
             Err(_) => return false,
         };
-        self.verifying_key.verify(record_hash.as_bytes(), &sig).is_ok()
+        self.verifying_key
+            .verify(record_hash.as_bytes(), &sig)
+            .is_ok()
     }
 
     /// Get the public key as base64 for distribution.

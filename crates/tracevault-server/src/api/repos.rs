@@ -1,6 +1,10 @@
-use axum::{extract::{Path, State}, http::StatusCode, Json};
-use serde::{Deserialize, Serialize};
 use crate::AppState;
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    Json,
+};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::extractors::AuthUser;
@@ -61,8 +65,12 @@ async fn get_deploy_key(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if let Some((Some(ct), Some(nonce))) = row {
-        let plaintext = encryption.decrypt(&ct, &nonce)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to decrypt deploy key: {e}")))?;
+        let plaintext = encryption.decrypt(&ct, &nonce).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to decrypt deploy key: {e}"),
+            )
+        })?;
         Ok(Some(plaintext))
     } else {
         Ok(None)
@@ -84,7 +92,8 @@ pub async fn sync_repo(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .ok_or((StatusCode::NOT_FOUND, "Repo not found".into()))?;
 
-    let deploy_key = get_deploy_key(&state.pool, repo_id, state.extensions.encryption.as_ref()).await?;
+    let deploy_key =
+        get_deploy_key(&state.pool, repo_id, state.extensions.encryption.as_ref()).await?;
 
     match repo.0.as_str() {
         "ready" => {
@@ -112,19 +121,21 @@ pub async fn sync_repo(
             let pool = state.pool.clone();
             let repo_mgr = state.repo_manager.clone();
             tokio::spawn(async move {
-                if let Err(e) = repo_mgr.clone_repo(&pool, repo_id, &github_url, deploy_key.as_deref()).await {
+                if let Err(e) = repo_mgr
+                    .clone_repo(&pool, repo_id, &github_url, deploy_key.as_deref())
+                    .await
+                {
                     tracing::error!("Failed to clone repo {repo_id}: {e}");
                 }
             });
 
             Ok(Json(serde_json::json!({"status": "cloning"})))
         }
-        "cloning" => {
-            Ok(Json(serde_json::json!({"status": "cloning"})))
-        }
-        other => {
-            Err((StatusCode::BAD_REQUEST, format!("Unknown clone status: {other}")))
-        }
+        "cloning" => Ok(Json(serde_json::json!({"status": "cloning"}))),
+        other => Err((
+            StatusCode::BAD_REQUEST,
+            format!("Unknown clone status: {other}"),
+        )),
     }
 }
 
@@ -253,16 +264,22 @@ pub async fn update_settings(
 
     // Encrypt and store deploy key if provided (ignore empty strings)
     if let Some(ref key_pem) = req.deploy_key.filter(|k| !k.trim().is_empty()) {
-        let (ct, nonce) = state.extensions.encryption.encrypt(key_pem)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Encryption failed: {e}")))?;
+        let (ct, nonce) = state.extensions.encryption.encrypt(key_pem).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Encryption failed: {e}"),
+            )
+        })?;
 
-        sqlx::query("UPDATE repos SET deploy_key_encrypted = $1, deploy_key_nonce = $2 WHERE id = $3")
-            .bind(&ct)
-            .bind(&nonce)
-            .bind(id)
-            .execute(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        sqlx::query(
+            "UPDATE repos SET deploy_key_encrypted = $1, deploy_key_nonce = $2 WHERE id = $3",
+        )
+        .bind(&ct)
+        .bind(&nonce)
+        .bind(id)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     }
 
     // Read back current state to decide whether to trigger clone
@@ -283,12 +300,16 @@ pub async fn update_settings(
     if let Some(url) = &github_url {
         match clone_status.as_str() {
             "pending" | "error" => {
-                let deploy_key = get_deploy_key(&state.pool, id, state.extensions.encryption.as_ref()).await?;
+                let deploy_key =
+                    get_deploy_key(&state.pool, id, state.extensions.encryption.as_ref()).await?;
                 let pool = state.pool.clone();
                 let repo_mgr = state.repo_manager.clone();
                 let url = url.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = repo_mgr.clone_repo(&pool, id, &url, deploy_key.as_deref()).await {
+                    if let Err(e) = repo_mgr
+                        .clone_repo(&pool, id, &url, deploy_key.as_deref())
+                        .await
+                    {
                         tracing::error!("Failed to clone repo {id}: {e}");
                     }
                 });
@@ -301,7 +322,8 @@ pub async fn update_settings(
             }
             "ready" => {
                 // Fetch latest
-                let deploy_key = get_deploy_key(&state.pool, id, state.extensions.encryption.as_ref()).await?;
+                let deploy_key =
+                    get_deploy_key(&state.pool, id, state.extensions.encryption.as_ref()).await?;
                 state
                     .repo_manager
                     .fetch_repo(id, deploy_key.as_deref())

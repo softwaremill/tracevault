@@ -2,8 +2,7 @@ use crate::api_client::ApiClient;
 use crate::credentials::Credentials;
 
 pub async fn logout() -> Result<(), Box<dyn std::error::Error>> {
-    let creds =
-        Credentials::load().ok_or("Not logged in. No credentials file found.")?;
+    let creds = Credentials::load().ok_or("Not logged in. No credentials file found.")?;
 
     let client = ApiClient::new(&creds.server_url, Some(&creds.token));
     match client.logout().await {

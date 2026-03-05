@@ -54,14 +54,13 @@ pub async fn verify_commits(
     Json(req): Json<CiVerifyRequest>,
 ) -> Result<Json<CiVerifyResponse>, (StatusCode, String)> {
     // Verify repo belongs to org
-    let repo_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM repos WHERE id = $1 AND org_id = $2)",
-    )
-    .bind(repo_id)
-    .bind(auth.org_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let repo_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM repos WHERE id = $1 AND org_id = $2)")
+            .bind(repo_id)
+            .bind(auth.org_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if !repo_exists {
         return Err((StatusCode::NOT_FOUND, "Repo not found".into()));
@@ -87,14 +86,17 @@ pub async fn verify_commits(
 
     for commit_sha in &req.commits {
         // Look up commit by (repo_id, commit_sha)
-        let commit = sqlx::query_as::<_, (
-            Uuid,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<chrono::DateTime<chrono::Utc>>,
-        )>(
+        let commit = sqlx::query_as::<
+            _,
+            (
+                Uuid,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<chrono::DateTime<chrono::Utc>>,
+            ),
+        >(
             "SELECT id, record_hash, chain_hash, prev_chain_hash, signature, sealed_at
              FROM commits
              WHERE repo_id = $1 AND commit_sha = $2",
@@ -145,7 +147,10 @@ pub async fn verify_commits(
 
         let chain_valid = match (&record_hash, &chain_hash) {
             (Some(rh), Some(ch)) => {
-                let expected = state.extensions.signing.chain_hash(prev_chain_hash.as_deref(), rh);
+                let expected = state
+                    .extensions
+                    .signing
+                    .chain_hash(prev_chain_hash.as_deref(), rh);
                 expected == *ch
             }
             _ => false,
@@ -205,13 +210,12 @@ pub async fn verify_commits(
             });
         }
 
-        let commit_status =
-            if signature_valid && chain_valid && all_policies_passed {
-                policy_passed_count += 1;
-                "pass"
-            } else {
-                "fail"
-            };
+        let commit_status = if signature_valid && chain_valid && all_policies_passed {
+            policy_passed_count += 1;
+            "pass"
+        } else {
+            "fail"
+        };
 
         results.push(CommitVerifyResult {
             commit_sha: commit_sha.clone(),

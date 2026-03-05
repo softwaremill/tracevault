@@ -12,7 +12,10 @@ async fn init_fails_without_git() {
     let tmp = TempDir::new().unwrap();
     let result = tracevault_cli::commands::init::init_in_directory(tmp.path(), None).await;
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("Not a git repository"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Not a git repository"));
 }
 
 #[tokio::test]
@@ -68,11 +71,7 @@ async fn init_merges_into_existing_settings() {
     // Pre-existing settings.json with other config
     let claude_dir = tmp.path().join(".claude");
     fs::create_dir_all(&claude_dir).unwrap();
-    fs::write(
-        claude_dir.join("settings.json"),
-        r#"{"model": "opus"}"#,
-    )
-    .unwrap();
+    fs::write(claude_dir.join("settings.json"), r#"{"model": "opus"}"#).unwrap();
 
     tracevault_cli::commands::init::init_in_directory(tmp.path(), None)
         .await
@@ -119,7 +118,11 @@ async fn init_preserves_existing_pre_push_hook() {
     // Create existing hook
     let hooks_dir = tmp.path().join(".git/hooks");
     fs::create_dir_all(&hooks_dir).unwrap();
-    fs::write(hooks_dir.join("pre-push"), "#!/bin/sh\necho 'existing hook'\n").unwrap();
+    fs::write(
+        hooks_dir.join("pre-push"),
+        "#!/bin/sh\necho 'existing hook'\n",
+    )
+    .unwrap();
 
     tracevault_cli::commands::init::init_in_directory(tmp.path(), None)
         .await
@@ -146,7 +149,10 @@ async fn init_does_not_duplicate_hook_on_reinit() {
 
     let content = fs::read_to_string(tmp.path().join(".git/hooks/pre-push")).unwrap();
     let marker_count = content.matches("# tracevault:auto-push").count();
-    assert_eq!(marker_count, 1, "Marker should appear exactly once, found {marker_count}");
+    assert_eq!(
+        marker_count, 1,
+        "Marker should appear exactly once, found {marker_count}"
+    );
 }
 
 #[tokio::test]

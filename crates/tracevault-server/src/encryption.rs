@@ -1,6 +1,6 @@
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
-    Aes256Gcm, AeadCore,
+    AeadCore, Aes256Gcm,
 };
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 
@@ -66,7 +66,8 @@ mod tests {
     fn round_trip() {
         // 32-byte key encoded as base64
         let key = B64.encode([0xABu8; 32]);
-        let plaintext = "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----";
+        let plaintext =
+            "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----";
 
         let (ct, nonce) = encrypt(plaintext, &key).unwrap();
         let decrypted = decrypt(&ct, &nonce, &key).unwrap();

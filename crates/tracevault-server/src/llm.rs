@@ -133,5 +133,10 @@ pub fn create_llm_from_params(
 pub fn create_llm(config: &crate::config::ServerConfig) -> Option<Box<dyn StoryLlm>> {
     let provider = config.llm_provider.as_deref()?;
     let api_key = config.llm_api_key.clone()?;
-    create_llm_from_params(provider, api_key, config.llm_model.clone(), config.llm_base_url.clone())
+    create_llm_from_params(
+        provider,
+        api_key,
+        config.llm_model.clone(),
+        config.llm_base_url.clone(),
+    )
 }

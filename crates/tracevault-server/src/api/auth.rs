@@ -1,11 +1,9 @@
+use crate::AppState;
 use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
-use crate::AppState;
 use uuid::Uuid;
 
-use crate::auth::{
-    generate_device_token, generate_session_token, hash_password, verify_password,
-};
+use crate::auth::{generate_device_token, generate_session_token, hash_password, verify_password};
 use crate::extractors::AuthUser;
 
 // --- Register ---
@@ -36,8 +34,12 @@ pub async fn register(
         ));
     }
 
-    let password_hash = hash_password(&req.password)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to hash password: {e}")))?;
+    let password_hash = hash_password(&req.password).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to hash password: {e}"),
+        )
+    })?;
 
     // Create org
     let org_id: Uuid = sqlx::query_scalar(
@@ -49,12 +51,11 @@ pub async fn register(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Check if email already taken
-    let existing: Option<(Uuid,)> =
-        sqlx::query_as("SELECT id FROM users WHERE email = $1")
-            .bind(&req.email)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let existing: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE email = $1")
+        .bind(&req.email)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if existing.is_some() {
         return Err((StatusCode::CONFLICT, "Email already registered".into()));
@@ -76,21 +77,26 @@ pub async fn register(
     let (raw_token, token_hash) = generate_session_token();
     let expires_at = chrono::Utc::now() + chrono::Duration::days(30);
 
-    sqlx::query(
-        "INSERT INTO auth_sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)",
-    )
-    .bind(user_id)
-    .bind(&token_hash)
-    .bind(expires_at)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    sqlx::query("INSERT INTO auth_sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)")
+        .bind(user_id)
+        .bind(&token_hash)
+        .bind(expires_at)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    crate::audit::log(&state.pool, crate::audit::user_action(
-        org_id, user_id,
-        "user.create", "user", Some(user_id),
-        Some(serde_json::json!({"email": &req.email})),
-    )).await;
+    crate::audit::log(
+        &state.pool,
+        crate::audit::user_action(
+            org_id,
+            user_id,
+            "user.create",
+            "user",
+            Some(user_id),
+            Some(serde_json::json!({"email": &req.email})),
+        ),
+    )
+    .await;
 
     Ok((
         StatusCode::CREATED,
@@ -131,18 +137,12 @@ pub async fn login(
     .fetch_optional(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((
-        StatusCode::UNAUTHORIZED,
-        "Invalid email or password".into(),
-    ))?;
+    .ok_or((StatusCode::UNAUTHORIZED, "Invalid email or password".into()))?;
 
     let (user_id, org_id, password_hash, role) = row;
 
     if !verify_password(&req.password, &password_hash) {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            "Invalid email or password".into(),
-        ));
+        return Err((StatusCode::UNAUTHORIZED, "Invalid email or password".into()));
     }
 
     let org_name: String = sqlx::query_scalar("SELECT name FROM orgs WHERE id = $1")
@@ -154,21 +154,19 @@ pub async fn login(
     let (raw_token, token_hash) = generate_session_token();
     let expires_at = chrono::Utc::now() + chrono::Duration::days(30);
 
-    sqlx::query(
-        "INSERT INTO auth_sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)",
-    )
-    .bind(user_id)
-    .bind(&token_hash)
-    .bind(expires_at)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    sqlx::query("INSERT INTO auth_sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)")
+        .bind(user_id)
+        .bind(&token_hash)
+        .bind(expires_at)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    crate::audit::log(&state.pool, crate::audit::user_action(
-        org_id, user_id,
-        "user.login", "user", Some(user_id),
-        None,
-    )).await;
+    crate::audit::log(
+        &state.pool,
+        crate::audit::user_action(org_id, user_id, "user.login", "user", Some(user_id), None),
+    )
+    .await;
 
     Ok(Json(LoginResponse {
         token: raw_token,

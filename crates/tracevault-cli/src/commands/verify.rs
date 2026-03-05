@@ -16,7 +16,10 @@ fn git_repo_name(project_root: &Path) -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
-fn expand_range(project_root: &Path, range: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+fn expand_range(
+    project_root: &Path,
+    range: &str,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let output = Command::new("git")
         .args(["rev-list", "--reverse", range])
         .current_dir(project_root)
@@ -44,7 +47,11 @@ pub async fn verify(
     let commit_list = if let Some(range) = range {
         expand_range(project_root, range)?
     } else if let Some(commits) = commits {
-        commits.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+        commits
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
     } else {
         return Err("Provide either --commits or --range".into());
     };
@@ -56,10 +63,14 @@ pub async fn verify(
 
     let (server_url, token) = resolve_credentials(project_root);
 
-    let server_url = match server_url {
-        Some(url) => url,
-        None => return Err("No server URL configured. Set TRACEVAULT_SERVER_URL or run 'tracevault login'.".into()),
-    };
+    let server_url =
+        match server_url {
+            Some(url) => url,
+            None => return Err(
+                "No server URL configured. Set TRACEVAULT_SERVER_URL or run 'tracevault login'."
+                    .into(),
+            ),
+        };
 
     if token.is_none() {
         return Err("No auth token. Set TRACEVAULT_API_KEY or run 'tracevault login'.".into());
@@ -70,15 +81,26 @@ pub async fn verify(
     // Resolve repo_id by name
     let repo_name = git_repo_name(project_root);
     let repos = client.list_repos().await?;
-    let repo = repos
-        .iter()
-        .find(|r| r.name == repo_name)
-        .ok_or_else(|| format!("Repo '{}' not found on server. Run 'tracevault sync' first.", repo_name))?;
+    let repo = repos.iter().find(|r| r.name == repo_name).ok_or_else(|| {
+        format!(
+            "Repo '{}' not found on server. Run 'tracevault sync' first.",
+            repo_name
+        )
+    })?;
 
-    println!("Verifying {} commit(s) for repo '{}'...", commit_list.len(), repo_name);
+    println!(
+        "Verifying {} commit(s) for repo '{}'...",
+        commit_list.len(),
+        repo_name
+    );
 
     let result = client
-        .verify_commits(&repo.id, CiVerifyRequest { commits: commit_list })
+        .verify_commits(
+            &repo.id,
+            CiVerifyRequest {
+                commits: commit_list,
+            },
+        )
         .await?;
 
     // Print results
@@ -90,12 +112,24 @@ pub async fn verify(
             "unsealed" => "\x1b[33m○\x1b[0m",
             _ => "\x1b[31m✗\x1b[0m",
         };
-        let sha_short = if r.commit_sha.len() > 7 { &r.commit_sha[..7] } else { &r.commit_sha };
+        let sha_short = if r.commit_sha.len() > 7 {
+            &r.commit_sha[..7]
+        } else {
+            &r.commit_sha
+        };
         println!("  {} {} — {}", icon, sha_short, r.status);
 
         if r.registered && r.sealed {
-            let sig_icon = if r.signature_valid { "\x1b[32m✓\x1b[0m" } else { "\x1b[31m✗\x1b[0m" };
-            let chain_icon = if r.chain_valid { "\x1b[32m✓\x1b[0m" } else { "\x1b[31m✗\x1b[0m" };
+            let sig_icon = if r.signature_valid {
+                "\x1b[32m✓\x1b[0m"
+            } else {
+                "\x1b[31m✗\x1b[0m"
+            };
+            let chain_icon = if r.chain_valid {
+                "\x1b[32m✓\x1b[0m"
+            } else {
+                "\x1b[31m✗\x1b[0m"
+            };
             println!("      signature: {}  chain: {}", sig_icon, chain_icon);
         }
 
@@ -106,7 +140,10 @@ pub async fn verify(
                 "fail" => "\x1b[33m!\x1b[0m",
                 _ => " ",
             };
-            println!("      {} [{}] {} — {}", p_icon, p.severity, p.rule_name, p.details);
+            println!(
+                "      {} [{}] {} — {}",
+                p_icon, p.severity, p.rule_name, p.details
+            );
         }
     }
 

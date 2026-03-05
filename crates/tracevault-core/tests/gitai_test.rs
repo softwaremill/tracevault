@@ -160,11 +160,17 @@ src/main.rs
     let main = &attribution.files[0];
     assert_eq!(main.path, "src/main.rs");
     assert_eq!(
-        main.ai_lines.iter().map(|r| r.end - r.start + 1).sum::<u32>(),
+        main.ai_lines
+            .iter()
+            .map(|r| r.end - r.start + 1)
+            .sum::<u32>(),
         16
     );
     assert_eq!(
-        main.human_lines.iter().map(|r| r.end - r.start + 1).sum::<u32>(),
+        main.human_lines
+            .iter()
+            .map(|r| r.end - r.start + 1)
+            .sum::<u32>(),
         14
     );
 
@@ -173,7 +179,10 @@ src/main.rs
     assert_eq!(lib.path, "src/lib.rs");
     assert!(lib.ai_lines.is_empty());
     assert_eq!(
-        lib.human_lines.iter().map(|r| r.end - r.start + 1).sum::<u32>(),
+        lib.human_lines
+            .iter()
+            .map(|r| r.end - r.start + 1)
+            .sum::<u32>(),
         10
     );
 
