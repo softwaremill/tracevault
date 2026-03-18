@@ -838,10 +838,6 @@ async fn save_story_cache(
 // --- Per-org LLM resolution ---
 
 async fn resolve_org_llm(state: &AppState, org_id: Uuid) -> Option<Box<dyn crate::llm::StoryLlm>> {
-    if !state.extensions.encryption.is_enabled() {
-        return None;
-    }
-
     let row = sqlx::query_as::<
         _,
         (

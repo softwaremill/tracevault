@@ -1,32 +1,80 @@
 # TraceVault
 
+> **Research Preview** — This project is under heavy development. APIs, configuration, and features may change significantly between releases.
+
+![Analytics Overview](docs/images/analytics-overview.png)
+
 AI code governance platform for enterprises. Captures what AI coding agents do in your repos — which files they touch, how many tokens they burn, what tools they call, what percentage of code is AI-generated — then enforces policies and produces tamper-evident audit trails for regulatory compliance.
 
 Built for financial institutions and regulated industries where AI-generated code needs the same audit rigor as human-written code.
 
-## What It Does
+[Learn more at VirtusLab](https://virtuslab.com/services/tracevault)
 
-**Capture** — Hooks into AI coding agents (Claude Code, etc.) and records every tool call, file modification, token usage, and full session transcript.
+## Five Pillars of AI Governance
 
-**Enforce** — Server-managed policy rules block pushes or warn when required tools aren't called (e.g., code review, security scanners). Rules are configurable per-repo via web UI.
+### 1. Capture — Full Session Tracing
 
-**Audit** — Every trace is Ed25519-signed and SHA-256 hash-chained into an immutable, append-only audit trail. Cryptographic verification proves records haven't been tampered with or reordered.
+Record every AI interaction with full fidelity. TraceVault hooks into AI coding agents and automatically captures session transcripts, token breakdowns (input/output/cache per model), every tool call invocation, file modifications with diffs, and cost estimates. Secrets and credentials are redacted before storage.
 
-**Comply** — Built-in compliance modes for SOX (7-year retention), PCI-DSS (WORM-equivalent storage), and SR 11-7 (model risk management). Role-based access control enforces separation of duties.
+Nothing to configure — once initialized, capture is automatic and invisible.
+
+### 2. Enforce — Policy Engine
+
+Keep AI within bounds. Define rules per-repository that are evaluated on every push:
+
+- **Model allowlists** — restrict which AI models can be used
+- **Sensitive path protection** — flag AI edits to critical paths (`/payments/`, `/auth/`, `/crypto/`)
+- **Required tool calls** — mandate security scanners or code review tools
+- **AI percentage thresholds** — warn when AI-authored code exceeds a limit
+- **Token budgets** — cap token usage or cost per session
+
+Policies can either **block the push** (exit non-zero) or **warn**. Fail-closed by default: if the server is unreachable, the push is blocked.
+
+### 3. Audit — Cryptographically Signed Chain of Events
+
+Every trace pushed to the server is transformed into a tamper-proof record:
+
+1. **Hashed** — SHA-256 digest of the canonical record
+2. **Chained** — each hash links to the previous, forming a verifiable chain
+3. **Signed** — Ed25519 digital signature proves authenticity
+4. **Sealed** — timestamp marks when the record was finalized
+
+Records are append-only — no updates, no deletes. Corrections create amendment records referencing the original. The entire chain can be verified at any time to prove nothing was altered or reordered.
+
+Built-in compliance modes for **SOX** (7-year retention), **PCI-DSS** (1-year, WORM-equivalent), and **SR 11-7** (model risk management for banks). RBAC with five roles — including a dedicated **Auditor** role with read-only access to all traces and the audit log.
+
+### 4. Analyze — Usage Analytics
+
+Understand how AI is used across your team:
+
+- **Token usage trends** over time, per model, per author
+- **Model distribution** — which models are used most and where
+- **Cost tracking** — estimated cost breakdown by model and team member
+- **Cache savings** — how much prompt caching saves
+- **AI attribution** — what percentage of your codebase is AI-generated
+- **Author activity** — commits, tokens, and cost per developer
+
+All available through the web dashboard with filterable time ranges and drill-down views.
+
+### 5. Code — Stories & Documentation
+
+See exactly what AI wrote, line by line. The code browser overlays AI attribution on your source files — highlighting which lines were AI-generated, which function or class they belong to (via tree-sitter scope detection), and linking back to the session that produced them.
+
+**Story generation** turns raw traces into human-readable narratives: why the AI chose a particular pattern, what alternatives were considered, and what the developer's intent was. Auto-generated Architecture Decision Records give new team members full context without asking anyone.
 
 ## Architecture
 
 Three Rust crates in a Cargo workspace:
 
-- **tracevault-core** — domain types, policy engine (7 condition types), attribution engine, secret redactor
+- **tracevault-core** — domain types, policy engine (7 condition types), attribution engine (tree-sitter based), secret redactor
 - **tracevault-cli** — CLI binary that hooks into Claude Code, captures traces locally, checks policies, pushes to server
-- **tracevault-server** — axum HTTP server backed by PostgreSQL with Ed25519 signing, audit logging, RBAC
+- **tracevault-server** — axum HTTP server backed by PostgreSQL with Ed25519 signing, audit logging, RBAC, code browser
 
-Plus a SvelteKit web dashboard and a GitHub Action for CI integration.
+Plus a SvelteKit web dashboard and a GitHub Action for CI verification.
 
 ## Prerequisites
 
-- Rust 1.84+ (install via [rustup](https://rustup.rs))
+- Rust stable toolchain (install via [rustup](https://rustup.rs))
 - PostgreSQL 16+ (or Docker)
 - Node.js 20+ and pnpm (for the web dashboard)
 - Docker & Docker Compose (for containerized deployment)
@@ -46,10 +94,13 @@ Binaries land in `target/release/`:
 ### 2. Start the server with Docker Compose
 
 ```sh
+# Generate a signing key first (required)
+export TRACEVAULT_SIGNING_KEY=$(openssl rand -base64 32)
+
 docker compose up -d
 ```
 
-This starts PostgreSQL and the TraceVault server on port 3000. Migrations run automatically on startup.
+This starts PostgreSQL, the TraceVault server on port 3000, and the web dashboard on port 5173. Migrations run automatically on startup.
 
 To run just the database (useful during development):
 
@@ -77,7 +128,7 @@ Set it as an environment variable:
 export TRACEVAULT_SIGNING_KEY=<output-from-above>
 ```
 
-For Docker Compose, add it to the server service (see below). For production, store it in your secrets manager (Vault, AWS Secrets Manager, etc.) and inject it at deploy time.
+For Docker Compose, the key is required via the `TRACEVAULT_SIGNING_KEY` env var. For production, store it in your secrets manager (Vault, AWS Secrets Manager, etc.) and inject it at deploy time.
 
 **Backup the key.** If lost, all existing signatures become unverifiable and the chain integrity check will fail. The key cannot be recovered from the database.
 
@@ -120,12 +171,12 @@ tracevault init
 This creates a `.tracevault/` directory and installs a pre-push hook. The hook runs:
 
 ```sh
-tracevault sync       # collect latest session data
+tracevault sync       # sync repo metadata with server
 tracevault check      # evaluate policies against server rules (blocks push on failure)
 tracevault push       # upload traces to server
 ```
 
-The command also prints the Claude Code hook configuration. Add it to your `.claude/settings.json`:
+The command also installs the Claude Code hook configuration in `.claude/settings.json`:
 
 ```json
 {
@@ -158,37 +209,53 @@ The command also prints the Claude Code hook configuration. Add it to your `.cla
 }
 ```
 
-### 7. Push traces and check policies
+### 7. Authenticate and push traces
 
 ```sh
-# Push traces to a specific server:
-TRACEVAULT_SERVER_URL=https://your-server.example.com tracevault push
+# Log in to a TraceVault server (opens browser for device auth):
+tracevault login --server-url https://your-server.example.com
+
+# Push traces to the server:
+tracevault push
 
 # Check policies before pushing (also runs automatically via pre-push hook):
 tracevault check
 
 # View local session stats:
 tracevault stats
+
+# Verify commits are sealed on the server:
+tracevault verify --range HEAD~5..HEAD
 ```
 
 ## CLI Commands
 
 | Command | Description |
 |---------|-------------|
-| `tracevault init` | Initialize TraceVault in current repo, install pre-push hook |
-| `tracevault status` | Show current session status |
+| `tracevault init [--server-url URL]` | Initialize TraceVault in current repo, install pre-push hook and Claude Code hooks |
+| `tracevault login --server-url URL` | Authenticate via device auth flow (opens browser) |
+| `tracevault logout` | Clear local credentials |
 | `tracevault hook --event <type>` | Handle a Claude Code hook event (reads JSON from stdin) |
-| `tracevault push` | Push collected traces to the server |
+| `tracevault sync` | Sync repo metadata with the server |
 | `tracevault check` | Evaluate policies against server rules, exit non-zero if blocked |
+| `tracevault push` | Push collected traces to the server |
 | `tracevault stats` | Show local session statistics |
+| `tracevault verify` | Verify commits are registered and sealed on the server (`--commits` or `--range`) |
+| `tracevault status` | Show current session status (not yet implemented) |
 
 ## Policy Enforcement
 
-Policies are managed per-repo through the web UI or API. Two condition types:
+Policies are managed per-repo through the web UI or API. Seven condition types:
 
-**Required Tool Call** — Require specific tools to be called during any session. Example: every session must call `mcp__codex-cli__review`.
-
-**Conditional Tool Call** — Require a tool when specific files are modified. Example: require `mcp__security-scanner__scan` at least once when files matching `src/auth/**` are changed.
+| Condition | What it checks |
+|-----------|---------------|
+| Trace Completeness | Every commit has a corresponding trace |
+| AI Percentage Threshold | Warns when AI-authored code exceeds a threshold |
+| Model Allowlist | Only approved model families allowed |
+| Sensitive Path Pattern | Flags AI edits to sensitive paths (payments, auth, crypto) |
+| Required Tool Call | Ensures specific tools were called during the session |
+| Conditional Tool Call | Requires a tool when files matching glob patterns are modified |
+| Token Budget | Warns when token usage or cost exceeds limits |
 
 Each policy has a configurable action:
 - **Block Push** — `tracevault check` exits non-zero, preventing `git push`
@@ -197,16 +264,6 @@ Each policy has a configurable action:
 Fail-closed: if the server is unreachable, `tracevault check` blocks the push.
 
 ## Compliance & Audit Trail
-
-### Immutable Trace Storage
-
-Every trace pushed to the server is:
-1. **Hashed** — SHA-256 digest of the canonical record content
-2. **Chained** — each record's hash is linked to the previous, forming a verifiable chain
-3. **Signed** — Ed25519 digital signature proves authenticity and prevents tampering
-4. **Sealed** — timestamp marks when the record was finalized
-
-Records are append-only. No UPDATE or DELETE on sealed data. Corrections create amendment records referencing the original.
 
 ### Compliance Modes
 
@@ -218,16 +275,6 @@ Records are append-only. No UPDATE or DELETE on sealed data. Corrections create 
 | Custom | Configurable | Configurable | Configurable | Mix-and-match for specific requirements |
 
 Compliance mode is set per-organization. When active, the system enforces minimum retention periods and required signing — admins can increase but not decrease below framework minimums.
-
-### Chain Verification
-
-Verify the integrity of the entire audit trail:
-
-```
-POST /api/v1/orgs/{id}/compliance/verify-chain
-```
-
-Walks every sealed commit, verifies each hash link and Ed25519 signature, and reports pass/fail with details on any broken links.
 
 ### RBAC (Role-Based Access Control)
 
@@ -253,99 +300,9 @@ Every state-changing operation is logged to an append-only audit trail:
 
 Query via API with filters (action type, actor, resource, date range) or browse in the web dashboard.
 
-## Web Dashboard
-
-- **Repos** — list repositories, view commits and sessions, manage per-repo policies
-- **Traces** — browse commits, drill into sessions with full transcripts, token breakdowns, tool usage, diff viewer with AI attribution highlighting
-- **Analytics** — token usage, model distribution, author activity, cost tracking, AI attribution percentages
-- **Compliance** — chain integrity status, compliance mode, retention, role distribution, recent audit log, settings configuration, full audit log browser
-- **Settings** — organization management, team members with role assignment, API keys
-
-## Server API
-
-### Auth
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/auth/register` | Register a new org + owner account |
-| POST | `/api/v1/auth/login` | Login, get session token |
-| POST | `/api/v1/auth/device` | Start device auth flow (for CLI) |
-| GET | `/api/v1/auth/device/{token}/status` | Poll device auth status |
-| POST | `/api/v1/auth/device/{token}/approve` | Approve device auth request |
-| POST | `/api/v1/auth/logout` | End session |
-| GET | `/api/v1/auth/me` | Get current user info |
-
-### Traces
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/traces` | Submit a trace (append-only, signed, chained) |
-| GET | `/api/v1/traces` | List traces (query: `repo`, `author`, `limit`) |
-| GET | `/api/v1/traces/{id}` | Get trace detail with sessions |
-| GET | `/api/v1/traces/{id}/verify` | Verify signature and chain integrity |
-
-### Repos & Policies
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/repos` | List repositories |
-| POST | `/api/v1/repos` | Register a repository |
-| DELETE | `/api/v1/repos/{id}` | Delete a repository |
-| GET | `/api/v1/repos/{repo_id}/policies` | List policies for a repo |
-| POST | `/api/v1/repos/{repo_id}/policies` | Create a policy |
-| POST | `/api/v1/repos/{repo_id}/policies/check` | Evaluate policies against session data |
-| PUT | `/api/v1/policies/{id}` | Update a policy |
-| DELETE | `/api/v1/policies/{id}` | Delete a policy |
-
-### Compliance
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/orgs/{id}/compliance` | Get compliance settings |
-| PUT | `/api/v1/orgs/{id}/compliance` | Update compliance settings |
-| GET | `/api/v1/orgs/{id}/compliance/public-key` | Get Ed25519 public key for verification |
-| POST | `/api/v1/orgs/{id}/compliance/verify-chain` | Run chain integrity verification |
-| GET | `/api/v1/orgs/{id}/compliance/chain-status` | Get last verification result |
-| GET | `/api/v1/orgs/{id}/audit-log` | Query audit log (paginated, filterable) |
-
-### Orgs & Members
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/orgs/{id}` | Get org details |
-| PUT | `/api/v1/orgs/{id}` | Update org |
-| GET | `/api/v1/orgs/{id}/members` | List members |
-| POST | `/api/v1/orgs/{id}/members` | Invite member |
-| DELETE | `/api/v1/orgs/{id}/members/{user_id}` | Remove member |
-| PUT | `/api/v1/orgs/{id}/members/{user_id}/role` | Change member role |
-
-### Analytics
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/analytics/overview` | Dashboard overview stats |
-| GET | `/api/v1/analytics/tokens` | Token usage over time |
-| GET | `/api/v1/analytics/models` | Usage by model |
-| GET | `/api/v1/analytics/authors` | Usage by author |
-| GET | `/api/v1/analytics/attribution` | AI vs human code attribution |
-| GET | `/api/v1/analytics/sessions` | Session-level analytics |
-| GET | `/api/v1/analytics/cost` | Cost tracking |
-
-## Built-in Policy Conditions
-
-| Condition | What it checks |
-|-----------|---------------|
-| Trace Completeness | Every commit has a corresponding trace |
-| AI Percentage Threshold | Warns when AI-authored code exceeds a threshold |
-| Model Allowlist | Only approved model families allowed |
-| Sensitive Path Pattern | Flags AI edits to sensitive paths (payments, auth, crypto) |
-| Required Tool Call | Ensures specific tools were called during the session |
-| Conditional Tool Call | Requires a tool when files matching glob patterns are modified |
-| Token Budget | Warns when token usage or cost exceeds limits |
-
 ## GitHub Action
 
-Add to your workflow:
+Add to your workflow to verify that commits in a PR or push have corresponding traces sealed on the server:
 
 ```yaml
 - uses: softwaremill/tracevault@main
@@ -354,7 +311,7 @@ Add to your workflow:
     api-key: ${{ secrets.TRACEVAULT_API_KEY }}
 ```
 
-The action fetches git notes, counts traced commits in the PR, and writes a summary to the PR check.
+The action installs the TraceVault CLI, detects the commit range from the PR or push event, runs `tracevault verify --range`, and writes a pass/fail summary to the GitHub Actions step summary.
 
 ## Configuration
 
@@ -375,29 +332,13 @@ agent = "claude-code"
 | `PORT` | `3000` | Bind port |
 | `CORS_ORIGIN` | _(permissive)_ | Allowed CORS origin for web dashboard |
 | `TRACEVAULT_SIGNING_KEY` | _(ephemeral)_ | **Recommended.** Base64-encoded 32-byte Ed25519 seed for trace signing. Generate with `openssl rand -base64 32`. If not set, a new ephemeral key is generated on each restart and all previous signatures become unverifiable. |
+| `TRACEVAULT_REPOS_DIR` | `./data/repos` | Directory for cloned git repos (used by code browser) |
+| `TRACEVAULT_ENCRYPTION_KEY` | — | AES-256 encryption key (base64-encoded 32 bytes) for encryption at rest |
+| `TRACEVAULT_LLM_PROVIDER` | — | LLM provider for story generation (e.g., `openai`, `anthropic`) |
+| `TRACEVAULT_LLM_API_KEY` | — | API key for the LLM provider |
+| `TRACEVAULT_LLM_MODEL` | — | LLM model name |
+| `TRACEVAULT_LLM_BASE_URL` | — | Custom LLM endpoint URL |
 | `RUST_LOG` | — | Log level (e.g. `info`, `debug`) |
-
-## Project Structure
-
-```
-crates/
-  tracevault-core/       # Domain types, policy engine, attribution, redactor
-  tracevault-cli/        # CLI binary (clap + tokio)
-  tracevault-server/     # HTTP server (axum + sqlx + PostgreSQL + Ed25519)
-    src/
-      api/               # Route handlers (auth, traces, repos, policies, compliance, analytics)
-      signing.rs         # Ed25519 signing and hash chaining
-      audit.rs           # Append-only audit log
-      permissions.rs     # RBAC role/permission matrix
-    migrations/          # PostgreSQL migrations (run automatically on startup)
-web/                     # SvelteKit 5 dashboard (shadcn-svelte + Tailwind)
-action/                  # GitHub Action (composite)
-docs/
-  plans/                 # Design docs and implementation plans
-  research/              # Compliance framework research (SOX, PCI-DSS, SR 11-7, EU AI Act, etc.)
-docker-compose.yml       # PostgreSQL + server
-Dockerfile               # Multi-stage server build
-```
 
 ## License
 
