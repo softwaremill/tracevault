@@ -4,5 +4,5 @@
 .DS_Store
 crates/tracevault-server/data/repos
 .playwright-mcp
-docs/
+docs/plans/
 screenshots/
