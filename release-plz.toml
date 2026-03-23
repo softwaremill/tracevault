@@ -27,3 +27,4 @@ version_group = "tracevault"
 [[package]]
 name = "tracevault-server"
 version_group = "tracevault"
+publish = false
