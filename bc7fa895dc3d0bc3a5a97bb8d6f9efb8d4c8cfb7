@@ -1,0 +1,49 @@
+crates/tracevault-server/src/pricing.rs
+  5b59bbf911497ce6 1-3,5-10,13-14,21-48,50-65,67-69,72-75,77,79-82,84,86,90-101,104,112-117,122,124,128-130,132-133,178-207
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "bc7fa895dc3d0bc3a5a97bb8d6f9efb8d4c8cfb7",
+  "prompts": {
+    "5b59bbf911497ce6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8ed908c5-76bb-4eda-a78f-86e0a7695ef5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 126,
+      "total_deletions": 55,
+      "accepted_lines": 131,
+      "overriden_lines": 4
+    },
+    "5f40f3c4af6f099f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3a4792d2-19b7-4c12-98da-7485e017ed46",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 467,
+      "overriden_lines": 0
+    },
+    "87dda0f0c747b0e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "90a218ea-126f-421e-82c8-ec8c6e6ca2f4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 148,
+      "overriden_lines": 0
+    }
+  }
+}
