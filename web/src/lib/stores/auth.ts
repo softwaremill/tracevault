@@ -4,11 +4,8 @@ import { api } from '$lib/api';
 
 interface User {
 	user_id: string;
-	org_id: string;
-	org_name: string;
 	email: string;
 	name: string | null;
-	role: string;
 }
 
 interface AuthState {

@@ -23,7 +23,7 @@
 
 	onMount(async () => {
 		try {
-			filters = await api.get<FilterOptions>('/api/v1/analytics/filters');
+			filters = await api.get<FilterOptions>(`/api/v1/orgs/${$page.params.slug}/analytics/filters`);
 		} catch {
 			// filters stay empty
 		}

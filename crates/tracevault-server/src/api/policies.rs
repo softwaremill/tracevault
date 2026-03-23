@@ -6,7 +6,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::extractors::AuthUser;
+use crate::extractors::OrgAuth;
 use crate::AppState;
 
 #[derive(Debug, Serialize)]
@@ -48,8 +48,8 @@ pub struct UpdatePolicyRequest {
 /// Returns all policies for a repo (repo-specific + org-wide)
 pub async fn list_repo_policies(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(repo_id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, repo_id)): Path<(String, Uuid)>,
 ) -> Result<Json<Vec<PolicyResponse>>, (StatusCode, String)> {
     // Verify repo belongs to org
     let repo_exists: bool =
@@ -100,8 +100,8 @@ pub async fn list_repo_policies(
 /// Create a policy for this repo
 pub async fn create_repo_policy(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(repo_id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, repo_id)): Path<(String, Uuid)>,
     Json(req): Json<CreatePolicyRequest>,
 ) -> Result<(StatusCode, Json<PolicyResponse>), (StatusCode, String)> {
     // Verify repo belongs to org
@@ -171,8 +171,8 @@ pub async fn create_repo_policy(
 /// Update a policy
 pub async fn update_policy(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, id)): Path<(String, Uuid)>,
     Json(req): Json<UpdatePolicyRequest>,
 ) -> Result<Json<PolicyResponse>, (StatusCode, String)> {
     let row = sqlx::query_as::<_, (Uuid, Option<Uuid>, String, String, serde_json::Value, String, String, bool, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>(
@@ -236,8 +236,8 @@ pub async fn update_policy(
 /// Delete a policy
 pub async fn delete_policy(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, id)): Path<(String, Uuid)>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let result = sqlx::query("DELETE FROM policies WHERE id = $1 AND org_id = $2")
         .bind(id)
@@ -303,8 +303,8 @@ pub struct CheckResult {
 /// Evaluate all applicable policies against provided session data
 pub async fn check_policies(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(repo_id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, repo_id)): Path<(String, Uuid)>,
     Json(req): Json<CheckRequest>,
 ) -> Result<Json<CheckResponse>, (StatusCode, String)> {
     // Verify repo belongs to org

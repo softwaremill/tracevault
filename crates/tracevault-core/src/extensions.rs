@@ -6,12 +6,7 @@ use crate::permissions::Permission;
 
 /// Configuration passed to enterprise extension registration.
 pub struct EnterpriseConfig {
-    pub signing_key_seed: Option<String>,
     pub encryption_key: Option<String>,
-    pub llm_provider: Option<String>,
-    pub llm_api_key: Option<String>,
-    pub llm_model: Option<String>,
-    pub llm_base_url: Option<String>,
 }
 
 /// Describes which features are available in this edition.
@@ -32,7 +27,6 @@ pub struct FeatureFlags {
 /// The central registry of pluggable features.
 pub struct ExtensionRegistry {
     pub features: FeatureFlags,
-    pub signing: Arc<dyn SigningProvider>,
     pub encryption: Arc<dyn EncryptionProvider>,
     pub story: Arc<dyn StoryProvider>,
     pub pricing: Arc<dyn PricingProvider>,
@@ -44,7 +38,6 @@ impl Clone for ExtensionRegistry {
     fn clone(&self) -> Self {
         Self {
             features: self.features.clone(),
-            signing: Arc::clone(&self.signing),
             encryption: Arc::clone(&self.encryption),
             story: Arc::clone(&self.story),
             pricing: Arc::clone(&self.pricing),
@@ -52,17 +45,6 @@ impl Clone for ExtensionRegistry {
             permissions: Arc::clone(&self.permissions),
         }
     }
-}
-
-// -- Signing --
-
-pub trait SigningProvider: Send + Sync {
-    fn record_hash(&self, canonical_json: &[u8]) -> String;
-    fn chain_hash(&self, prev_chain_hash: Option<&str>, record_hash: &str) -> String;
-    fn sign(&self, record_hash: &str) -> String;
-    fn verify(&self, record_hash: &str, signature_b64: &str) -> bool;
-    fn public_key_b64(&self) -> String;
-    fn is_enabled(&self) -> bool;
 }
 
 // -- Encryption --

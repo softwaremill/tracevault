@@ -1,4 +1,5 @@
 use crate::api_client::{resolve_credentials, ApiClient, PushTraceRequest};
+use crate::config::TracevaultConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -654,6 +655,10 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
         return Err("Not logged in. Run 'tracevault login' to push traces.".into());
     }
 
+    let org_slug = TracevaultConfig::load(project_root)
+        .and_then(|c| c.org_slug)
+        .ok_or("No org_slug in config. Run 'tracevault init' first.")?;
+
     if !is_gitai_installed() {
         eprintln!("Warning: git-ai is not installed. AI attribution data will not be available.");
         eprintln!("  Install it with: npm install -g @anthropic-ai/git-ai");
@@ -712,12 +717,15 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
             compaction_tokens_saved: None,
         };
 
-        let commit_resp = client.push_trace(commit_req).await.map_err(|e| {
-            format!(
-                "Failed to register commit {}: {e}",
-                &sha[..8.min(sha.len())]
-            )
-        })?;
+        let commit_resp = client
+            .push_trace(&org_slug, commit_req)
+            .await
+            .map_err(|e| {
+                format!(
+                    "Failed to register commit {}: {e}",
+                    &sha[..8.min(sha.len())]
+                )
+            })?;
         println!(
             "Registered commit {} -> {}",
             &sha[..8.min(sha.len())],
@@ -843,7 +851,7 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
                 compaction_tokens_saved: transcript_data.compaction_tokens_saved,
             };
 
-            match client.push_trace(req).await {
+            match client.push_trace(&org_slug, req).await {
                 Ok(resp) => {
                     println!(
                         "Pushed session {} ({} new events, {} files) -> {}",

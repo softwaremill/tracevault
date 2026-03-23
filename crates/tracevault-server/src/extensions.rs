@@ -8,29 +8,6 @@ pub use crate::llm::StoryLlm;
 
 // -- Community implementations --
 
-pub struct CommunitySigningProvider;
-
-impl SigningProvider for CommunitySigningProvider {
-    fn record_hash(&self, _canonical_json: &[u8]) -> String {
-        String::new()
-    }
-    fn chain_hash(&self, _prev: Option<&str>, _record_hash: &str) -> String {
-        String::new()
-    }
-    fn sign(&self, _record_hash: &str) -> String {
-        String::new()
-    }
-    fn verify(&self, _record_hash: &str, _signature_b64: &str) -> bool {
-        false
-    }
-    fn public_key_b64(&self) -> String {
-        String::new()
-    }
-    fn is_enabled(&self) -> bool {
-        false
-    }
-}
-
 pub struct CommunityEncryptionProvider;
 
 impl EncryptionProvider for CommunityEncryptionProvider {
@@ -136,37 +113,6 @@ impl PermissionsProvider for CommunityPermissionsProvider {
 }
 
 // -- Adapter implementations (wrapping existing services) --
-
-pub struct FullSigningProvider {
-    inner: crate::signing::SigningService,
-}
-
-impl FullSigningProvider {
-    pub fn new(service: crate::signing::SigningService) -> Self {
-        Self { inner: service }
-    }
-}
-
-impl SigningProvider for FullSigningProvider {
-    fn record_hash(&self, canonical_json: &[u8]) -> String {
-        self.inner.record_hash(canonical_json)
-    }
-    fn chain_hash(&self, prev: Option<&str>, record_hash: &str) -> String {
-        self.inner.chain_hash(prev, record_hash)
-    }
-    fn sign(&self, record_hash: &str) -> String {
-        self.inner.sign(record_hash)
-    }
-    fn verify(&self, record_hash: &str, signature_b64: &str) -> bool {
-        self.inner.verify(record_hash, signature_b64)
-    }
-    fn public_key_b64(&self) -> String {
-        self.inner.public_key_b64()
-    }
-    fn is_enabled(&self) -> bool {
-        true
-    }
-}
 
 pub struct FullEncryptionProvider {
     key: String,
@@ -274,7 +220,6 @@ pub fn community_registry() -> ExtensionRegistry {
             full_policy_engine: false,
             advanced_redaction: false,
         },
-        signing: Arc::new(CommunitySigningProvider),
         encryption: Arc::new(CommunityEncryptionProvider),
         story: Arc::new(CommunityStoryProvider),
         pricing: Arc::new(CommunityPricingProvider),

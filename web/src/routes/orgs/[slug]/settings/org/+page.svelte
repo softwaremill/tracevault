@@ -1,0 +1,151 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
+	import { api } from '$lib/api';
+	import { orgStore } from '$lib/stores/org';
+	import * as Card from '$lib/components/ui/card/index.js';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
+	import { Label } from '$lib/components/ui/label/index.js';
+	import * as Alert from '$lib/components/ui/alert/index.js';
+
+	interface OrgDetail {
+		id: string;
+		name: string;
+		display_name: string | null;
+		created_at: string;
+	}
+
+	const slug = $derived($page.params.slug);
+
+	let orgState: { current: { role: string } | null } = $state({ current: null });
+	orgStore.subscribe((s) => (orgState = s));
+
+	let org: OrgDetail | null = $state(null);
+	let editing = $state(false);
+	let editDisplayName = $state('');
+	let saving = $state(false);
+	let error = $state('');
+	let success = $state('');
+
+	const isOwner = $derived(orgState.current?.role === 'owner');
+
+	onMount(async () => {
+		try {
+			org = await api.get<OrgDetail>(`/api/v1/orgs/${slug}`);
+			editDisplayName = org.display_name ?? '';
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Failed to load organization';
+		}
+	});
+
+	async function handleSave() {
+		if (!org) return;
+		saving = true;
+		error = '';
+		success = '';
+		try {
+			await api.put(`/api/v1/orgs/${slug}`, { display_name: editDisplayName || null });
+			org.display_name = editDisplayName || null;
+			editing = false;
+			success = 'Organization updated.';
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Failed to update';
+		} finally {
+			saving = false;
+		}
+	}
+</script>
+
+<svelte:head>
+	<title>{slug} - Settings - TraceVault</title>
+</svelte:head>
+
+<div class="space-y-6">
+	<div class="flex items-center gap-2">
+		<a href="/orgs/{slug}/settings" class="text-muted-foreground hover:text-foreground">Organizations</a>
+		<span class="text-muted-foreground">/</span>
+		<h1 class="text-2xl font-bold">{org?.display_name || slug}</h1>
+	</div>
+
+	<div class="flex gap-2 text-sm border-b pb-2">
+		<a href="/orgs/{slug}/settings/org" class="font-semibold underline">General</a>
+		<a href="/orgs/{slug}/settings/members" class="text-muted-foreground hover:underline">Members</a>
+		<a href="/orgs/{slug}/settings/api-keys" class="text-muted-foreground hover:underline">API Keys</a>
+	</div>
+
+	{#if error}
+		<Alert.Root variant="destructive">
+			<Alert.Title>Error</Alert.Title>
+			<Alert.Description>{error}</Alert.Description>
+		</Alert.Root>
+	{/if}
+
+	{#if success}
+		<Alert.Root>
+			<Alert.Title>Success</Alert.Title>
+			<Alert.Description>{success}</Alert.Description>
+		</Alert.Root>
+	{/if}
+
+	{#if org}
+		<Card.Root class="max-w-lg">
+			<Card.Header>
+				<Card.Title>General</Card.Title>
+			</Card.Header>
+			<Card.Content class="space-y-4">
+				<div class="flex justify-between items-center">
+					<div>
+						<span class="text-sm text-muted-foreground">GitHub Organization</span>
+						<p class="font-mono text-sm">{org.name}</p>
+					</div>
+					<a
+						href="https://github.com/{org.name}"
+						target="_blank"
+						rel="noopener noreferrer"
+						class="text-xs text-muted-foreground hover:underline"
+					>
+						View on GitHub
+					</a>
+				</div>
+
+				<div class="border-t pt-4">
+					{#if editing}
+						<div class="space-y-3">
+							<div class="grid gap-2">
+								<Label for="display_name">Display Name</Label>
+								<Input id="display_name" bind:value={editDisplayName} placeholder="e.g. My Company" />
+								<p class="text-xs text-muted-foreground">A human-friendly name shown in the UI. Leave empty to use the GitHub org name.</p>
+							</div>
+							<div class="flex gap-2">
+								<Button onclick={handleSave} disabled={saving}>
+									{saving ? 'Saving...' : 'Save'}
+								</Button>
+								<Button variant="outline" onclick={() => { editing = false; editDisplayName = org?.display_name ?? ''; }}>
+									Cancel
+								</Button>
+							</div>
+						</div>
+					{:else}
+						<div class="flex justify-between items-center">
+							<div>
+								<span class="text-sm text-muted-foreground">Display Name</span>
+								<p class="text-sm">{org.display_name || '—'}</p>
+							</div>
+							{#if isOwner}
+								<Button variant="outline" size="sm" onclick={() => (editing = true)}>Edit</Button>
+							{/if}
+						</div>
+					{/if}
+				</div>
+
+				<div class="border-t pt-4">
+					<div>
+						<span class="text-sm text-muted-foreground">Created</span>
+						<p class="text-sm">{new Date(org.created_at).toLocaleDateString()}</p>
+					</div>
+				</div>
+			</Card.Content>
+		</Card.Root>
+	{/if}
+</div>

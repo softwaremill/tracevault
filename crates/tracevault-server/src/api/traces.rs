@@ -7,7 +7,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::extractors::AuthUser;
+use crate::extractors::OrgAuth;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateTraceRequest {
@@ -71,7 +71,7 @@ pub struct TraceQuery {
 
 pub async fn create_trace(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: OrgAuth,
     Json(req): Json<CreateTraceRequest>,
 ) -> Result<(StatusCode, Json<CreateTraceResponse>), (StatusCode, String)> {
     // Ensure repo exists under the authenticated user's org
@@ -114,47 +114,56 @@ pub async fn create_trace(
     let mut resp_signature = None;
 
     if commit_is_new {
-        let canonical = serde_json::json!({
-            "commit_sha": &req.commit_sha,
-            "branch": &req.branch,
-            "author": &req.author,
-            "repo_id": repo_id,
-        });
-        let canonical_bytes = serde_json::to_vec(&canonical).unwrap();
-        let record_hash = state.extensions.signing.record_hash(&canonical_bytes);
+        // Load per-org signing service
+        let encryption_key = state.encryption_key.as_deref();
+        let signing_svc = if let Some(ek) = encryption_key {
+            crate::org_signing::load_current(&state.pool, auth.org_id, ek)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+        } else {
+            None
+        };
 
-        // Get previous chain hash
-        let prev: Option<String> = sqlx::query_scalar(
-            "SELECT chain_hash FROM commits
-             WHERE repo_id = $1 AND sealed_at IS NOT NULL
-             ORDER BY sealed_at DESC, created_at DESC, id DESC LIMIT 1",
-        )
-        .bind(repo_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        if let Some(ref svc) = signing_svc {
+            let canonical = serde_json::json!({
+                "commit_sha": &req.commit_sha,
+                "branch": &req.branch,
+                "author": &req.author,
+                "repo_id": repo_id,
+            });
+            let canonical_bytes = serde_json::to_vec(&canonical).unwrap();
+            let record_hash = svc.record_hash(&canonical_bytes);
 
-        let chain_hash = state
-            .extensions
-            .signing
-            .chain_hash(prev.as_deref(), &record_hash);
-        let signature = state.extensions.signing.sign(&record_hash);
+            // Get previous chain hash
+            let prev: Option<String> = sqlx::query_scalar(
+                "SELECT chain_hash FROM commits
+                 WHERE repo_id = $1 AND sealed_at IS NOT NULL
+                 ORDER BY sealed_at DESC, created_at DESC, id DESC LIMIT 1",
+            )
+            .bind(repo_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-        sqlx::query(
-            "UPDATE commits SET record_hash = $1, chain_hash = $2, prev_chain_hash = $3,
-             signature = $4, sealed_at = NOW() WHERE id = $5",
-        )
-        .bind(&record_hash)
-        .bind(&chain_hash)
-        .bind(&prev)
-        .bind(&signature)
-        .bind(commit_id)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            let chain_hash = svc.chain_hash(prev.as_deref(), &record_hash);
+            let signature = svc.sign(&record_hash);
 
-        resp_chain_hash = Some(chain_hash);
-        resp_signature = Some(signature);
+            sqlx::query(
+                "UPDATE commits SET record_hash = $1, chain_hash = $2, prev_chain_hash = $3,
+                 signature = $4, sealed_at = NOW() WHERE id = $5",
+            )
+            .bind(&record_hash)
+            .bind(&chain_hash)
+            .bind(&prev)
+            .bind(&signature)
+            .bind(commit_id)
+            .execute(&state.pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+            resp_chain_hash = Some(chain_hash);
+            resp_signature = Some(signature);
+        }
     }
 
     // Optionally insert session (append-only)
@@ -222,25 +231,36 @@ pub async fn create_trace(
 
         // Seal the session if new
         if session_is_new {
-            let canonical = serde_json::json!({
-                "session_id": sid,
-                "commit_id": commit_id,
-                "model": &req.model,
-                "tool": &req.tool,
-            });
-            let canonical_bytes = serde_json::to_vec(&canonical).unwrap();
-            let record_hash = state.extensions.signing.record_hash(&canonical_bytes);
-            let signature = state.extensions.signing.sign(&record_hash);
+            let encryption_key = state.encryption_key.as_deref();
+            let signing_svc = if let Some(ek) = encryption_key {
+                crate::org_signing::load_current(&state.pool, auth.org_id, ek)
+                    .await
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+            } else {
+                None
+            };
 
-            sqlx::query(
-                "UPDATE sessions SET record_hash = $1, signature = $2, sealed_at = NOW() WHERE id = $3"
-            )
-            .bind(&record_hash)
-            .bind(&signature)
-            .bind(session_db_id)
-            .execute(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            if let Some(ref svc) = signing_svc {
+                let canonical = serde_json::json!({
+                    "session_id": sid,
+                    "commit_id": commit_id,
+                    "model": &req.model,
+                    "tool": &req.tool,
+                });
+                let canonical_bytes = serde_json::to_vec(&canonical).unwrap();
+                let record_hash = svc.record_hash(&canonical_bytes);
+                let signature = svc.sign(&record_hash);
+
+                sqlx::query(
+                    "UPDATE sessions SET record_hash = $1, signature = $2, sealed_at = NOW() WHERE id = $3"
+                )
+                .bind(&record_hash)
+                .bind(&signature)
+                .bind(session_db_id)
+                .execute(&state.pool)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            }
         }
 
         Some(session_db_id)
@@ -268,8 +288,8 @@ pub async fn create_trace(
 
 pub async fn get_trace(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, id)): Path<(String, Uuid)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     // Fetch commit
     let commit = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, String, Option<serde_json::Value>, Option<serde_json::Value>, chrono::DateTime<chrono::Utc>)>(
@@ -346,7 +366,7 @@ pub async fn get_trace(
 
 pub async fn list_traces(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: OrgAuth,
     Query(query): Query<TraceQuery>,
 ) -> Result<Json<Vec<CommitListItem>>, (StatusCode, String)> {
     let limit = query.limit.unwrap_or(50).min(200);

@@ -6,7 +6,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{extractors::AuthUser, permissions::Permission, AppState};
+use crate::{extractors::OrgAuth, permissions::Permission, AppState};
 
 // --- Helpers ---
 
@@ -176,8 +176,8 @@ pub struct StoryResponse {
 
 pub async fn list_branches(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(repo_id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, repo_id)): Path<(String, Uuid)>,
 ) -> Result<Json<Vec<BranchInfo>>, (StatusCode, String)> {
     if !state
         .extensions
@@ -232,8 +232,8 @@ pub async fn list_branches(
 
 pub async fn get_tree(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(repo_id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, repo_id)): Path<(String, Uuid)>,
     Query(query): Query<TreeQuery>,
 ) -> Result<Json<Vec<TreeEntry>>, (StatusCode, String)> {
     if !state
@@ -314,8 +314,8 @@ pub async fn get_tree(
 
 pub async fn get_blob(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(repo_id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, repo_id)): Path<(String, Uuid)>,
     Query(query): Query<BlobQuery>,
 ) -> Result<Json<BlobResponse>, (StatusCode, String)> {
     if !state
@@ -379,8 +379,8 @@ pub async fn get_blob(
 
 pub async fn get_blame(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(repo_id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, repo_id)): Path<(String, Uuid)>,
     Query(query): Query<BlobQuery>,
 ) -> Result<Json<Vec<BlameHunk>>, (StatusCode, String)> {
     if !state
@@ -441,8 +441,8 @@ pub async fn get_blame(
 
 pub async fn list_file_commits(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(repo_id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, repo_id)): Path<(String, Uuid)>,
     Query(query): Query<BlobQuery>,
 ) -> Result<Json<Vec<FileCommit>>, (StatusCode, String)> {
     if !state
@@ -520,8 +520,8 @@ pub async fn list_file_commits(
 
 pub async fn get_ref_info(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(repo_id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, repo_id)): Path<(String, Uuid)>,
     Query(query): Query<RefQuery>,
 ) -> Result<Json<RefInfo>, (StatusCode, String)> {
     if !state
@@ -558,8 +558,8 @@ pub async fn get_ref_info(
 
 pub async fn generate_story(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(repo_id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, repo_id)): Path<(String, Uuid)>,
     Json(req): Json<StoryRequest>,
 ) -> Result<Json<StoryResponse>, (StatusCode, String)> {
     if !state
@@ -646,16 +646,17 @@ pub async fn generate_story(
         ));
     }
 
-    // Try per-org LLM settings first, then fall back to extension story provider
+    // Resolve per-org LLM — this is the only path for story generation
     let org_llm = resolve_org_llm(&state, auth.org_id).await;
     let org_story: Option<crate::extensions::LlmStoryProvider> =
         org_llm.map(|llm| crate::extensions::LlmStoryProvider::new(std::sync::Arc::from(llm)));
     let story_provider: &dyn crate::extensions::StoryProvider = if let Some(ref org) = org_story {
         org
-    } else if state.extensions.story.is_available() {
-        state.extensions.story.as_ref()
     } else {
-        return Err((StatusCode::SERVICE_UNAVAILABLE, "LLM not configured".into()));
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "No LLM configured for this organization".into(),
+        ));
     };
 
     // gather_story_context also uses git2, but it manages its own repo lifetime

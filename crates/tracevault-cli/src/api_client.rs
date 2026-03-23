@@ -66,7 +66,6 @@ pub struct DeviceStatusResponse {
     pub status: String,
     pub token: Option<String>,
     pub email: Option<String>,
-    pub org_name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -150,9 +149,12 @@ impl ApiClient {
 
     pub async fn push_trace(
         &self,
+        org_slug: &str,
         req: PushTraceRequest,
     ) -> Result<PushTraceResponse, Box<dyn Error>> {
-        let mut builder = self.client.post(format!("{}/api/v1/traces", self.base_url));
+        let mut builder = self
+            .client
+            .post(format!("{}/api/v1/orgs/{}/traces", self.base_url, org_slug));
 
         if let Some(key) = &self.api_key {
             builder = builder.header("Authorization", format!("Bearer {key}"));
@@ -171,9 +173,12 @@ impl ApiClient {
 
     pub async fn register_repo(
         &self,
+        org_slug: &str,
         req: RegisterRepoRequest,
     ) -> Result<RegisterRepoResponse, Box<dyn Error>> {
-        let mut builder = self.client.post(format!("{}/api/v1/repos", self.base_url));
+        let mut builder = self
+            .client
+            .post(format!("{}/api/v1/orgs/{}/repos", self.base_url, org_slug));
 
         if let Some(key) = &self.api_key {
             builder = builder.header("Authorization", format!("Bearer {key}"));
@@ -241,8 +246,10 @@ impl ApiClient {
         Ok(())
     }
 
-    pub async fn list_repos(&self) -> Result<Vec<RepoListItem>, Box<dyn Error>> {
-        let mut builder = self.client.get(format!("{}/api/v1/repos", self.base_url));
+    pub async fn list_repos(&self, org_slug: &str) -> Result<Vec<RepoListItem>, Box<dyn Error>> {
+        let mut builder = self
+            .client
+            .get(format!("{}/api/v1/orgs/{}/repos", self.base_url, org_slug));
         if let Some(key) = &self.api_key {
             builder = builder.header("Authorization", format!("Bearer {key}"));
         }
@@ -261,12 +268,13 @@ impl ApiClient {
 
     pub async fn verify_commits(
         &self,
+        org_slug: &str,
         repo_id: &uuid::Uuid,
         req: CiVerifyRequest,
     ) -> Result<CiVerifyResponse, Box<dyn Error>> {
         let mut builder = self.client.post(format!(
-            "{}/api/v1/repos/{}/ci/verify",
-            self.base_url, repo_id
+            "{}/api/v1/orgs/{}/repos/{}/ci/verify",
+            self.base_url, org_slug, repo_id
         ));
         if let Some(key) = &self.api_key {
             builder = builder.header("Authorization", format!("Bearer {key}"));
@@ -285,12 +293,13 @@ impl ApiClient {
 
     pub async fn check_policies(
         &self,
+        org_slug: &str,
         repo_id: &uuid::Uuid,
         req: CheckPoliciesRequest,
     ) -> Result<CheckPoliciesResponse, Box<dyn Error>> {
         let mut builder = self.client.post(format!(
-            "{}/api/v1/repos/{}/policies/check",
-            self.base_url, repo_id
+            "{}/api/v1/orgs/{}/repos/{}/policies/check",
+            self.base_url, org_slug, repo_id
         ));
         if let Some(key) = &self.api_key {
             builder = builder.header("Authorization", format!("Bearer {key}"));

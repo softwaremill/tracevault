@@ -1,1 +1,0 @@
-ALTER TABLE traces ADD COLUMN diff_data JSONB;

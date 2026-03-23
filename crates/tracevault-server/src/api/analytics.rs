@@ -1,4 +1,4 @@
-use crate::extractors::AuthUser;
+use crate::extractors::OrgAuth;
 use crate::AppState;
 use axum::{
     extract::{Query, State},
@@ -20,7 +20,7 @@ pub struct AnalyticsQuery {
 
 impl AnalyticsQuery {
     /// Returns the effective org_id, falling back to the auth user's org
-    fn effective_org_id(&self, auth: &AuthUser) -> Uuid {
+    fn effective_org_id(&self, auth: &OrgAuth) -> Uuid {
         self.org_id.unwrap_or(auth.org_id)
     }
 }
@@ -48,7 +48,7 @@ pub struct RepoOption {
 
 pub async fn get_filters(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: OrgAuth,
 ) -> Result<Json<FiltersResponse>, (StatusCode, String)> {
     // Get orgs the user belongs to
     let orgs = sqlx::query_as::<_, (Uuid, String)>("SELECT id, name FROM orgs WHERE id = $1")
@@ -163,7 +163,7 @@ pub struct RecentCommit {
 
 pub async fn get_overview(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: OrgAuth,
     Query(q): Query<AnalyticsQuery>,
 ) -> Result<Json<OverviewResponse>, (StatusCode, String)> {
     let org_id = q.effective_org_id(&auth);
@@ -484,7 +484,7 @@ pub struct AuthorTokens {
 
 pub async fn get_tokens(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: OrgAuth,
     Query(q): Query<AnalyticsQuery>,
 ) -> Result<Json<TokensResponse>, (StatusCode, String)> {
     let org_id = q.effective_org_id(&auth);
@@ -660,7 +660,7 @@ pub struct ModelComparison {
 
 pub async fn get_models(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: OrgAuth,
     Query(q): Query<AnalyticsQuery>,
 ) -> Result<Json<ModelsResponse>, (StatusCode, String)> {
     let org_id = q.effective_org_id(&auth);
@@ -799,7 +799,7 @@ pub struct AuthorModelPreference {
 
 pub async fn get_authors(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: OrgAuth,
     Query(q): Query<AnalyticsQuery>,
 ) -> Result<Json<AuthorsResponse>, (StatusCode, String)> {
     let org_id = q.effective_org_id(&auth);
@@ -959,7 +959,7 @@ pub struct AttributionTotals {
 
 pub async fn get_attribution(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: OrgAuth,
     Query(q): Query<AnalyticsQuery>,
 ) -> Result<Json<AttributionResponse>, (StatusCode, String)> {
     let org_id = q.effective_org_id(&auth);
@@ -1095,7 +1095,7 @@ pub struct SessionsQuery {
 }
 
 impl SessionsQuery {
-    fn effective_org_id(&self, auth: &AuthUser) -> Uuid {
+    fn effective_org_id(&self, auth: &OrgAuth) -> Uuid {
         self.org_id.unwrap_or(auth.org_id)
     }
 }
@@ -1131,7 +1131,7 @@ pub struct SessionItem {
 
 pub async fn get_sessions(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: OrgAuth,
     Query(q): Query<SessionsQuery>,
 ) -> Result<Json<SessionsResponse>, (StatusCode, String)> {
     let org_id = q.effective_org_id(&auth);
@@ -1309,7 +1309,7 @@ pub struct AuthorCost {
 
 pub async fn get_cost(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: OrgAuth,
     Query(q): Query<AnalyticsQuery>,
 ) -> Result<Json<CostResponse>, (StatusCode, String)> {
     let org_id = q.effective_org_id(&auth);

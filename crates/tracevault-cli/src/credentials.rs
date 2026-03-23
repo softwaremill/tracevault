@@ -7,7 +7,6 @@ pub struct Credentials {
     pub server_url: String,
     pub token: String,
     pub email: String,
-    pub org_name: String,
 }
 
 impl Credentials {

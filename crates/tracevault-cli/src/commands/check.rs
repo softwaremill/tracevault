@@ -1,4 +1,5 @@
 use crate::api_client::{resolve_credentials, ApiClient, CheckPoliciesRequest, SessionCheckData};
+use crate::config::TracevaultConfig;
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
@@ -128,11 +129,15 @@ pub async fn check_policies(project_root: &Path) -> Result<(), Box<dyn std::erro
         return Err("Not logged in. Run 'tracevault login' to check policies.".into());
     }
 
+    let org_slug = TracevaultConfig::load(project_root)
+        .and_then(|c| c.org_slug)
+        .ok_or("No org_slug in config. Run 'tracevault init' first.")?;
+
     let client = ApiClient::new(&server_url, token.as_deref());
 
     // Resolve repo_id by name
     let repo_name = git_repo_name(project_root);
-    let repos = client.list_repos().await?;
+    let repos = client.list_repos(&org_slug).await?;
     let repo = repos.iter().find(|r| r.name == repo_name).ok_or_else(|| {
         format!(
             "Repo '{}' not found on server. Run 'tracevault sync' first.",
@@ -169,7 +174,7 @@ pub async fn check_policies(project_root: &Path) -> Result<(), Box<dyn std::erro
     println!("Checking {} session(s) against policies...", sessions.len());
 
     let result = client
-        .check_policies(&repo.id, CheckPoliciesRequest { sessions })
+        .check_policies(&org_slug, &repo.id, CheckPoliciesRequest { sessions })
         .await?;
 
     // Print results
