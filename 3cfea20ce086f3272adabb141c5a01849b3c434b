@@ -1,0 +1,164 @@
+web/src/routes/orgs/[slug]/compliance/settings/+page.svelte
+  5f40f3c4af6f099f 3,5,22-26,40,50,68,106,235
+crates/tracevault-cli/src/commands/verify.rs
+  5f40f3c4af6f099f 2,80-83,88,104
+web/src/routes/auth/setup/+page.svelte
+  5f40f3c4af6f099f 11,33-35,37-75,100-103,106,108-114,118-124,153,160-222,245-259,271-272,274-301
+crates/tracevault-server/src/api/policies.rs
+  5f40f3c4af6f099f 9,51-52,103-104,174-175,239-240,306-307
+web/src/routes/orgs/[slug]/+layout.svelte
+  5f40f3c4af6f099f 1-43
+web/src/routes/orgs/[slug]/compliance/+page.svelte
+  5f40f3c4af6f099f 3,54-55,73-76,93,202,252
+crates/tracevault-cli/src/commands/check.rs
+  5f40f3c4af6f099f 2,132-135,140,177
+crates/tracevault-server/src/api/api_keys.rs
+  5f40f3c4af6f099f 11,35,62,87-88
+web/src/routes/orgs/[slug]/analytics/sessions/+page.svelte
+  5f40f3c4af6f099f 70-71,76
+web/src/routes/orgs/[slug]/repos/+layout.svelte
+  5f40f3c4af6f099f 5
+web/src/lib/components/password-strength.svelte
+  5f40f3c4af6f099f 1-79
+web/src/routes/orgs/[slug]/analytics/+page.svelte
+  5f40f3c4af6f099f 94-95,100,315,334,355,378,399
+web/src/routes/orgs/[slug]/settings/+layout.svelte
+  5f40f3c4af6f099f 5
+web/src/routes/orgs/[slug]/analytics/models/+page.svelte
+  5f40f3c4af6f099f 72-73,78
+web/src/routes/orgs/[slug]/traces/+page.svelte
+  5f40f3c4af6f099f 3,23-24,27,75
+web/src/routes/orgs/+page.svelte
+  5f40f3c4af6f099f 1-251
+web/src/lib/components/code/StoryPanel.svelte
+  5f40f3c4af6f099f 3,20-21,53,113,132,143
+crates/tracevault-server/src/api/analytics.rs
+  5f40f3c4af6f099f 1,23,51,166,487,663,802,962,1098,1134,1312
+web/src/lib/components/code/BreadcrumbNav.svelte
+  5f40f3c4af6f099f 2-3,14,20,25
+crates/tracevault-server/migrations/001_initial.sql
+  5f40f3c4af6f099f 1,3,7-10,13-73,76-80,83,89-94,98-99,101-110,114-133,142-154,156-159,162,164,168,170,175-176,179-183,185-204,206-226,228-265
+crates/tracevault-server/src/api/traces.rs
+  5f40f3c4af6f099f 10,74,117-125,127-135,137-146,148-149,151-166,234-241,243-263,291-292,369
+web/src/lib/components/analytics-filters.svelte
+  5f40f3c4af6f099f 26
+web/src/lib/stores/features.ts
+  5f40f3c4af6f099f 16,29-30
+web/src/routes/orgs/[slug]/settings/members/+page.svelte
+  5f40f3c4af6f099f 3,6,24-29,32-39,41,53,55,58-61,65,78,100,109,118-144,155-159,161-164,286-325
+crates/tracevault-cli/src/commands/login.rs
+  5f40f3c4af6f099f 47
+web/src/routes/orgs/[slug]/+page.svelte
+  5f40f3c4af6f099f 1-9
+web/src/routes/orgs/[slug]/repos/+page.svelte
+  5f40f3c4af6f099f 3,19-20,23,62
+web/src/routes/orgs/[slug]/settings/api-keys/+page.svelte
+  5f40f3c4af6f099f 3,19-20,35,49,65,89-93,95-98
+web/src/routes/auth/login/+page.svelte
+  5f40f3c4af6f099f 2,16,18-29,36,45,58-99,102
+crates/tracevault-cli/src/commands/sync.rs
+  5f40f3c4af6f099f 3,22-25,49-55
+web/src/routes/orgs/[slug]/traces/[id]/+page.svelte
+  5f40f3c4af6f099f 330,335,345,467
+crates/tracevault-server/src/api/repos.rs
+  5f40f3c4af6f099f 10,25,82-83,151-174,177,203-204,232-233,261-262
+web/src/routes/orgs/[slug]/settings/llm/+page.svelte
+  5f40f3c4af6f099f 2,4,18,20-22,36,44,83,95,104-105
+crates/tracevault-server/src/org_signing.rs
+  5f40f3c4af6f099f 1-118
+web/src/routes/orgs/[slug]/analytics/attribution/+page.svelte
+  5f40f3c4af6f099f 62-63,68
+crates/tracevault-cli/src/commands/push.rs
+  5f40f3c4af6f099f 2,658-661,721,854
+web/src/routes/orgs/[slug]/traces/+layout.svelte
+  5f40f3c4af6f099f 5
+web/src/routes/orgs/[slug]/repos/[id]/code/+page.svelte
+  5f40f3c4af6f099f 11,22,27,46
+web/src/routes/orgs/[slug]/compliance/+layout.svelte
+  5f40f3c4af6f099f 5
+crates/tracevault-server/src/api/auth.rs
+  5f40f3c4af6f099f 17,24,26,33,36,40-59,62-76,98-136,138,140,149-157,176,179,189,191,216,223,240,243-250,324,452,465-501,503-575
+web/src/routes/orgs/[slug]/analytics/+layout.svelte
+  5f40f3c4af6f099f 6-9
+web/src/routes/orgs/[slug]/analytics/tokens/+page.svelte
+  5f40f3c4af6f099f 65-66,71
+crates/tracevault-server/src/main.rs
+  5f40f3c4af6f099f 20,32,37,86-89,91-98,100-102,106,110,113-125,127,130-132,134-136,140,144,146-149,153,157,161,165,169,172,174,177,179,183,187,190,192,196,199,201,205,209,212,214,219,223,227,231,234,236,240,244,248,252,256,260,264,267-269,272,280
+web/src/routes/+page.svelte
+  5f40f3c4af6f099f 2,5,14-26,28-32
+web/src/routes/orgs/[slug]/analytics/cost/+page.svelte
+  5f40f3c4af6f099f 69-70,75
+web/src/routes/orgs/[slug]/repos/[id]/+page.svelte
+  5f40f3c4af6f099f 58,84,99,121,132,171,203,215,258,265,300,494
+crates/tracevault-server/src/api/code.rs
+  5f40f3c4af6f099f 9,179-180,235-236,317-318,382-383,444-445,523-524,561-562,649
+crates/tracevault-server/src/api/ci.rs
+  5f40f3c4af6f099f 10,52-53,142-155,157-158,162-164
+web/src/routes/orgs/[slug]/settings/org/+page.svelte
+  5f40f3c4af6f099f 1-151
+crates/tracevault-server/src/api/orgs.rs
+  5f40f3c4af6f099f 11,13-87,89-125,127-151,157,163,169-170,172,181,188,193,200-203,212-213,225,252-256,258,287,302-320,322-333,335-336,338-342,344-345,347,349-357,364,375-376,385,387,402-403,416,419,452,470,502,531,610-650,652-697,699-761,763-767
+web/src/routes/orgs/[slug]/repos/[id]/code/[...path]/+page.svelte
+  5f40f3c4af6f099f 14,49,57,62,81,98,116,118
+web/src/lib/components/code/FileTree.svelte
+  5f40f3c4af6f099f 3,18-19,32,105,131,140,153
+web/src/routes/orgs/[slug]/repos/[id]/settings/+page.svelte
+  5f40f3c4af6f099f 27,50,60,78,97,113,140,142,261
+web/src/routes/orgs/[slug]/compliance/audit-log/+page.svelte
+  5f40f3c4af6f099f 3,33-34,63,98
+web/src/routes/orgs/[slug]/settings/+page.svelte
+  5f40f3c4af6f099f 3-4,6,11-18,20,22-39,41,43-45,47-48,50-92,96,100-105,107-178
+web/src/lib/components/app-sidebar.svelte
+  5f40f3c4af6f099f 6-7,21,26-40,54-70,72-76,78-81,98,110,113-116,126-185,200,214,227-240
+crates/tracevault-cli/src/commands/init.rs
+  5f40f3c4af6f099f 18-32,51-61,66,89,95,99,107-115,117
+crates/tracevault-server/src/api/features.rs
+  5f40f3c4af6f099f 3,5-22
+crates/tracevault-cli/src/api_client.rs
+  5f40f3c4af6f099f 152,155-157,176,179-181,249-252,271,276-277,296,301-302
+crates/tracevault-server/src/api/compliance.rs
+  5f40f3c4af6f099f 10,22,29,39,48,53,67-70,78,95,106,140,149,179-182,196,198-210,213,230,240,282,292,294-298,307,310,325,332-337,342,353,443,454,553-554,580-593,597-599
+crates/tracevault-server/src/extractors.rs
+  5f40f3c4af6f099f 10,36-37,40,44-50,52,55-56,59-88,90-104,106-115,117-128,130-141,143-145,148,152,156,158,160-163,165-167
+web/src/lib/stores/org.ts
+  5f40f3c4af6f099f 1-45
+crates/tracevault-cli/src/config.rs
+  5f40f3c4af6f099f 9,18,37-39,42-62
+web/src/routes/orgs/[slug]/analytics/authors/+page.svelte
+  5f40f3c4af6f099f 65-66,71
+web/src/routes/+layout.svelte
+  5f40f3c4af6f099f 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "3cfea20ce086f3272adabb141c5a01849b3c434b",
+  "prompts": {
+    "5f40f3c4af6f099f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3a4792d2-19b7-4c12-98da-7485e017ed46",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 4043,
+      "total_deletions": 1485,
+      "accepted_lines": 3641,
+      "overriden_lines": 33
+    },
+    "87dda0f0c747b0e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "90a218ea-126f-421e-82c8-ec8c6e6ca2f4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 148,
+      "overriden_lines": 0
+    }
+  }
+}
