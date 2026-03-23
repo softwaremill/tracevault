@@ -5,6 +5,7 @@
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
+	import SessionDetailPanel from '$lib/components/session-detail/SessionDetailPanel.svelte';
 
 	interface SessionDetail {
 		id: string;
@@ -613,46 +614,9 @@
 
 					{#if expandedSessions.has(session.id)}
 						<Card.Content class="space-y-4">
+							<SessionDetailPanel sessionId={session.id} />
+
 							{#if tx.entries.length > 0}
-								<div class="grid gap-4 md:grid-cols-4">
-									<div>
-										<p class="text-xs text-muted-foreground">Total Tokens</p>
-										<p class="text-lg font-bold">{fmtTokens(tx.stats.totalInputTokens + tx.stats.totalOutputTokens)}</p>
-										<p class="text-xs text-muted-foreground">
-											{fmtTokens(tx.stats.totalInputTokens)} in / {fmtTokens(tx.stats.totalOutputTokens)} out
-										</p>
-									</div>
-									<div>
-										<p class="text-xs text-muted-foreground">Cache</p>
-										<p class="text-lg font-bold">{fmtTokens(tx.stats.totalCacheReadTokens + tx.stats.totalCacheCreationTokens)}</p>
-									</div>
-									<div>
-										<p class="text-xs text-muted-foreground">Turns</p>
-										<p class="text-lg font-bold">{tx.stats.userMessageCount}</p>
-										<p class="text-xs text-muted-foreground">{tx.stats.turnCount} events</p>
-									</div>
-									<div>
-										<p class="text-xs text-muted-foreground">Duration</p>
-										<p class="text-lg font-bold">{fmtDuration(tx.stats.totalDurationMs)}</p>
-										<div class="flex flex-wrap gap-1 mt-1">
-											{#each tx.stats.byModel as m}
-												<Badge variant="outline" class="text-xs">{m.model} ({m.count})</Badge>
-											{/each}
-										</div>
-									</div>
-								</div>
-
-								{#if Object.keys(tx.stats.toolUsageCounts).length > 0}
-									<div>
-										<p class="text-xs text-muted-foreground mb-1">Tool Usage</p>
-										<div class="flex flex-wrap gap-1">
-											{#each Object.entries(tx.stats.toolUsageCounts).sort((a, b) => b[1] - a[1]) as [tool, count]}
-												<Badge variant="secondary" class="text-xs">{tool} ({count})</Badge>
-											{/each}
-										</div>
-									</div>
-								{/if}
-
 								<Table.Root>
 									<Table.Header>
 										<Table.Row>
