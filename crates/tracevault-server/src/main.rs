@@ -261,6 +261,10 @@ async fn main() {
             get(api::analytics::get_sessions),
         )
         .route(
+            "/api/v1/orgs/{slug}/analytics/sessions/{id}/detail",
+            get(api::session_detail::get_session_detail),
+        )
+        .route(
             "/api/v1/orgs/{slug}/analytics/cost",
             get(api::analytics::get_cost),
         )
