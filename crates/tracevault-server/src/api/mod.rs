@@ -9,4 +9,5 @@ pub mod github;
 pub mod orgs;
 pub mod policies;
 pub mod repos;
+pub mod session_detail;
 pub mod traces;

@@ -1,0 +1,603 @@
+use axum::extract::{Path, State};
+use axum::Json;
+use chrono::{DateTime, Utc};
+use serde::Serialize;
+use uuid::Uuid;
+
+use crate::extractors::OrgAuth;
+use crate::pricing::{self, ModelPricing};
+use crate::AppState;
+
+#[derive(Serialize)]
+pub struct SessionDetailResponse {
+    pub session_id: String,
+    pub model: Option<String>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub ended_at: Option<DateTime<Utc>>,
+    pub duration_ms: Option<i64>,
+    pub total_tokens: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_write_tokens: i64,
+    pub estimated_cost_usd: f64,
+    pub api_calls: i32,
+    pub user_messages: i32,
+    pub assistant_messages: i32,
+    pub total_tool_calls: i32,
+    pub compactions: i32,
+    pub cache_savings: CacheSavings,
+    pub per_call: Vec<PerCallUsage>,
+    pub cost_breakdown: CostBreakdown,
+    pub token_distribution: TokenDistribution,
+    pub transcript_records: Vec<TranscriptRecord>,
+}
+
+#[derive(Serialize)]
+pub struct CacheSavings {
+    pub gross_savings_usd: f64,
+    pub cache_write_overhead_usd: f64,
+    pub net_savings_usd: f64,
+    pub cache_hit_percentage: f64,
+}
+
+#[derive(Serialize)]
+pub struct PerCallUsage {
+    pub index: u32,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_write_tokens: i64,
+    pub cost_usd: f64,
+    pub cumulative_cost_usd: f64,
+    pub model: String,
+}
+
+#[derive(Serialize)]
+pub struct CostBreakdown {
+    pub input_cost: f64,
+    pub output_cost: f64,
+    pub cache_read_cost: f64,
+    pub cache_write_cost: f64,
+    pub total_cost: f64,
+}
+
+#[derive(Serialize)]
+pub struct TokenDistribution {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_write_tokens: i64,
+}
+
+#[derive(Serialize)]
+pub struct RecordUsage {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_write_tokens: i64,
+    pub cost_usd: f64,
+}
+
+#[derive(Serialize)]
+pub struct TranscriptRecord {
+    pub record_type: String,
+    pub timestamp: Option<String>,
+    pub content_types: Vec<String>,
+    pub tool_name: Option<String>,
+    pub text: Option<String>,
+    pub usage: Option<RecordUsage>,
+    pub model: Option<String>,
+}
+
+fn parse_record(record: &serde_json::Value, pricing: &ModelPricing) -> Option<TranscriptRecord> {
+    let record_type = record.get("type")?.as_str()?.to_string();
+    let timestamp = record
+        .get("timestamp")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    match record_type.as_str() {
+        "assistant" => {
+            let msg = record.get("message")?;
+            let model = msg.get("model").and_then(|v| v.as_str()).map(String::from);
+
+            let mut content_types = Vec::new();
+            let mut texts = Vec::new();
+            if let Some(content) = msg.get("content").and_then(|v| v.as_array()) {
+                for block in content {
+                    if let Some(ct) = block.get("type").and_then(|v| v.as_str()) {
+                        if !content_types.contains(&ct.to_string()) {
+                            content_types.push(ct.to_string());
+                        }
+                    }
+                    if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
+                        texts.push(text.to_string());
+                    }
+                    if let Some(thinking) = block.get("thinking").and_then(|v| v.as_str()) {
+                        texts.push(format!("[thinking] {}", thinking));
+                    }
+                }
+            }
+
+            let usage = msg.get("usage").map(|u| {
+                let input = u.get("input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+                let output = u.get("output_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+                let cache_read = u
+                    .get("cache_read_input_tokens")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let cache_write = u
+                    .get("cache_creation_input_tokens")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let cost = pricing::estimate_cost_with_pricing(
+                    pricing,
+                    input,
+                    output,
+                    cache_read,
+                    cache_write,
+                );
+                RecordUsage {
+                    input_tokens: input,
+                    output_tokens: output,
+                    cache_read_tokens: cache_read,
+                    cache_write_tokens: cache_write,
+                    cost_usd: cost,
+                }
+            });
+
+            let tool_name = msg
+                .get("content")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| {
+                    arr.iter()
+                        .find(|b| b.get("type").and_then(|v| v.as_str()) == Some("tool_use"))
+                })
+                .and_then(|b| b.get("name").and_then(|v| v.as_str()).map(String::from));
+
+            Some(TranscriptRecord {
+                record_type,
+                timestamp,
+                content_types,
+                tool_name,
+                text: if texts.is_empty() {
+                    None
+                } else {
+                    Some(texts.join("\n\n"))
+                },
+                usage,
+                model,
+            })
+        }
+        "user" => {
+            let msg = record.get("message")?;
+            let mut content_types = Vec::new();
+            let mut text = None;
+            let mut tool_name = None;
+
+            match msg.get("content") {
+                Some(serde_json::Value::String(s)) => {
+                    content_types.push("text".to_string());
+                    text = Some(s.clone());
+                }
+                Some(serde_json::Value::Array(arr)) => {
+                    for block in arr {
+                        if let Some(ct) = block.get("type").and_then(|v| v.as_str()) {
+                            if !content_types.contains(&ct.to_string()) {
+                                content_types.push(ct.to_string());
+                            }
+                            if ct == "tool_result" {
+                                if let Some(content) = block.get("content").and_then(|v| v.as_str())
+                                {
+                                    text = Some(content.to_string());
+                                }
+                            } else if ct == "text" {
+                                if let Some(t) = block.get("text").and_then(|v| v.as_str()) {
+                                    text = Some(t.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+
+            if let Some(tur) = record.get("toolUseResult") {
+                if let Some(file) = tur
+                    .get("file")
+                    .and_then(|f| f.get("filePath").and_then(|v| v.as_str()))
+                {
+                    tool_name = Some(format!("Read: {}", file));
+                } else if tur.get("filenames").is_some() {
+                    tool_name = Some("Glob".to_string());
+                } else if tur.get("stdout").is_some() {
+                    tool_name = Some("Bash".to_string());
+                }
+            }
+
+            Some(TranscriptRecord {
+                record_type,
+                timestamp,
+                content_types,
+                tool_name,
+                text,
+                usage: None,
+                model: None,
+            })
+        }
+        "progress" => {
+            let data = record.get("data");
+            let hook_name = data
+                .and_then(|d| d.get("hookName").and_then(|v| v.as_str()))
+                .map(String::from);
+            let hook_event = data.and_then(|d| d.get("hookEvent").and_then(|v| v.as_str()));
+            let text = hook_event.map(|e| {
+                if let Some(ref name) = hook_name {
+                    format!("{}: {}", e, name)
+                } else {
+                    e.to_string()
+                }
+            });
+
+            Some(TranscriptRecord {
+                record_type,
+                timestamp,
+                content_types: vec![],
+                tool_name: hook_name,
+                text,
+                usage: None,
+                model: None,
+            })
+        }
+        "system" => {
+            let subtype = record
+                .get("subtype")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let text = match subtype {
+                "turn_duration" => {
+                    let ms = record
+                        .get("durationMs")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0);
+                    Some(format!("turn_duration: {:.1}s", ms / 1000.0))
+                }
+                "stop_hook_summary" => {
+                    let count = record
+                        .get("hookCount")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0);
+                    Some(format!("stop_hook_summary: {} hooks", count))
+                }
+                _ => Some(subtype.to_string()),
+            };
+
+            Some(TranscriptRecord {
+                record_type,
+                timestamp,
+                content_types: vec![subtype.to_string()],
+                tool_name: None,
+                text,
+                usage: None,
+                model: None,
+            })
+        }
+        _ => Some(TranscriptRecord {
+            record_type,
+            timestamp,
+            content_types: vec![],
+            tool_name: None,
+            text: None,
+            usage: None,
+            model: None,
+        }),
+    }
+}
+
+pub fn parse_transcript(
+    transcript: &serde_json::Value,
+    pricing: &ModelPricing,
+) -> (
+    Vec<PerCallUsage>,
+    Vec<TranscriptRecord>,
+    TokenDistribution,
+    CostBreakdown,
+    CacheSavings,
+) {
+    let records = transcript.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+
+    let mut per_call = Vec::new();
+    let mut transcript_records = Vec::new();
+    let mut cumulative_cost = 0.0;
+    let mut call_index: u32 = 0;
+
+    let mut total_input: i64 = 0;
+    let mut total_output: i64 = 0;
+    let mut total_cache_read: i64 = 0;
+    let mut total_cache_write: i64 = 0;
+
+    for record in records {
+        if let Some(tr) = parse_record(record, pricing) {
+            if tr.record_type == "assistant" {
+                if let Some(ref usage) = tr.usage {
+                    let model = tr.model.as_deref().unwrap_or("unknown");
+                    if model != "<synthetic>"
+                        && (usage.input_tokens > 0
+                            || usage.output_tokens > 0
+                            || usage.cache_read_tokens > 0
+                            || usage.cache_write_tokens > 0)
+                    {
+                        call_index += 1;
+                        cumulative_cost += usage.cost_usd;
+
+                        total_input += usage.input_tokens;
+                        total_output += usage.output_tokens;
+                        total_cache_read += usage.cache_read_tokens;
+                        total_cache_write += usage.cache_write_tokens;
+
+                        per_call.push(PerCallUsage {
+                            index: call_index,
+                            input_tokens: usage.input_tokens,
+                            output_tokens: usage.output_tokens,
+                            cache_read_tokens: usage.cache_read_tokens,
+                            cache_write_tokens: usage.cache_write_tokens,
+                            cost_usd: usage.cost_usd,
+                            cumulative_cost_usd: cumulative_cost,
+                            model: model.to_string(),
+                        });
+                    }
+                }
+            }
+            transcript_records.push(tr);
+        }
+    }
+
+    let token_distribution = TokenDistribution {
+        input_tokens: total_input,
+        output_tokens: total_output,
+        cache_read_tokens: total_cache_read,
+        cache_write_tokens: total_cache_write,
+    };
+
+    let cost_breakdown = CostBreakdown {
+        input_cost: (total_input as f64 / 1_000_000.0) * pricing.input_per_m,
+        output_cost: (total_output as f64 / 1_000_000.0) * pricing.output_per_m,
+        cache_read_cost: (total_cache_read as f64 / 1_000_000.0) * pricing.cache_read_per_m,
+        cache_write_cost: (total_cache_write as f64 / 1_000_000.0) * pricing.cache_write_per_m,
+        total_cost: cumulative_cost,
+    };
+
+    let total_input_side = total_cache_read + total_cache_write + total_input;
+    let gross_savings =
+        (total_cache_read as f64 / 1_000_000.0) * (pricing.input_per_m - pricing.cache_read_per_m);
+    let write_overhead = pricing::estimate_cache_write_overhead(pricing, total_cache_write);
+
+    let cache_savings = CacheSavings {
+        gross_savings_usd: gross_savings,
+        cache_write_overhead_usd: write_overhead,
+        net_savings_usd: gross_savings - write_overhead,
+        cache_hit_percentage: if total_input_side > 0 {
+            (total_cache_read as f64 / total_input_side as f64) * 100.0
+        } else {
+            0.0
+        },
+    };
+
+    (
+        per_call,
+        transcript_records,
+        token_distribution,
+        cost_breakdown,
+        cache_savings,
+    )
+}
+
+#[derive(sqlx::FromRow)]
+struct SessionRow {
+    session_id: String,
+    model: Option<String>,
+    started_at: Option<DateTime<Utc>>,
+    ended_at: Option<DateTime<Utc>>,
+    duration_ms: Option<i64>,
+    total_tokens: Option<i64>,
+    input_tokens: Option<i64>,
+    output_tokens: Option<i64>,
+    cache_read_tokens: Option<i64>,
+    cache_write_tokens: Option<i64>,
+    estimated_cost_usd: Option<f64>,
+    api_calls: Option<i32>,
+    user_messages: Option<i32>,
+    assistant_messages: Option<i32>,
+    total_tool_calls: Option<i32>,
+    compactions: Option<i32>,
+    transcript: Option<serde_json::Value>,
+}
+
+pub async fn get_session_detail(
+    State(state): State<AppState>,
+    auth: OrgAuth,
+    Path((_slug, session_uuid)): Path<(String, Uuid)>,
+) -> Result<Json<SessionDetailResponse>, axum::http::StatusCode> {
+    let org_id = auth.org_id;
+
+    let row = sqlx::query_as::<_, SessionRow>(
+        "SELECT s.session_id, s.model, s.started_at, s.ended_at, s.duration_ms,
+                s.total_tokens, s.input_tokens, s.output_tokens,
+                s.cache_read_tokens, s.cache_write_tokens,
+                s.estimated_cost_usd, s.api_calls,
+                s.user_messages, s.assistant_messages,
+                s.total_tool_calls, s.compactions, s.transcript
+         FROM sessions s
+         JOIN commits c ON s.commit_id = c.id
+         JOIN repos r ON c.repo_id = r.id
+         WHERE s.id = $1 AND r.org_id = $2",
+    )
+    .bind(session_uuid)
+    .bind(org_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(axum::http::StatusCode::NOT_FOUND)?;
+
+    let pricing = pricing::fetch_pricing_for_model(
+        &state.pool,
+        row.model.as_deref().unwrap_or("sonnet"),
+        row.started_at,
+    )
+    .await;
+
+    let empty = serde_json::Value::Array(vec![]);
+    let transcript_ref = row.transcript.as_ref().unwrap_or(&empty);
+    let (per_call, transcript_records, token_distribution, cost_breakdown, cache_savings) =
+        parse_transcript(transcript_ref, &pricing);
+
+    Ok(Json(SessionDetailResponse {
+        session_id: row.session_id,
+        model: row.model,
+        started_at: row.started_at,
+        ended_at: row.ended_at,
+        duration_ms: row.duration_ms,
+        total_tokens: row.total_tokens.unwrap_or(0),
+        input_tokens: row.input_tokens.unwrap_or(0),
+        output_tokens: row.output_tokens.unwrap_or(0),
+        cache_read_tokens: row.cache_read_tokens.unwrap_or(0),
+        cache_write_tokens: row.cache_write_tokens.unwrap_or(0),
+        estimated_cost_usd: row.estimated_cost_usd.unwrap_or(0.0),
+        api_calls: row.api_calls.unwrap_or(0),
+        user_messages: row.user_messages.unwrap_or(0),
+        assistant_messages: row.assistant_messages.unwrap_or(0),
+        total_tool_calls: row.total_tool_calls.unwrap_or(0),
+        compactions: row.compactions.unwrap_or(0),
+        cache_savings,
+        per_call,
+        cost_breakdown,
+        token_distribution,
+        transcript_records,
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_pricing() -> ModelPricing {
+        ModelPricing {
+            input_per_m: 15.0,
+            output_per_m: 75.0,
+            cache_write_per_m: 18.75,
+            cache_read_per_m: 1.50,
+        }
+    }
+
+    #[test]
+    fn test_parse_empty_transcript() {
+        let transcript = serde_json::json!([]);
+        let (per_call, records, dist, cost, savings) =
+            parse_transcript(&transcript, &test_pricing());
+        assert!(per_call.is_empty());
+        assert!(records.is_empty());
+        assert_eq!(dist.input_tokens, 0);
+        assert_eq!(cost.total_cost, 0.0);
+        assert_eq!(savings.cache_hit_percentage, 0.0);
+    }
+
+    #[test]
+    fn test_parse_assistant_with_usage() {
+        let transcript = serde_json::json!([
+            {
+                "type": "assistant",
+                "timestamp": "2026-03-23T13:17:16Z",
+                "message": {
+                    "model": "claude-opus-4-6",
+                    "content": [{"type": "text", "text": "Hello"}],
+                    "usage": {
+                        "input_tokens": 100,
+                        "output_tokens": 50,
+                        "cache_read_input_tokens": 1000,
+                        "cache_creation_input_tokens": 500
+                    }
+                }
+            }
+        ]);
+        let (per_call, records, dist, _cost, _savings) =
+            parse_transcript(&transcript, &test_pricing());
+        assert_eq!(per_call.len(), 1);
+        assert_eq!(per_call[0].index, 1);
+        assert_eq!(per_call[0].cache_read_tokens, 1000);
+        assert_eq!(records.len(), 1);
+        assert_eq!(dist.output_tokens, 50);
+    }
+
+    #[test]
+    fn test_skips_synthetic_records() {
+        let transcript = serde_json::json!([
+            {
+                "type": "assistant",
+                "timestamp": "2026-03-23T13:17:16Z",
+                "message": {
+                    "model": "<synthetic>",
+                    "content": [],
+                    "usage": { "input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0 }
+                }
+            }
+        ]);
+        let (per_call, records, _dist, _cost, _savings) =
+            parse_transcript(&transcript, &test_pricing());
+        assert!(per_call.is_empty());
+        assert_eq!(records.len(), 1);
+    }
+
+    #[test]
+    fn test_cache_savings_calculation() {
+        let transcript = serde_json::json!([
+            {
+                "type": "assistant",
+                "timestamp": "2026-03-23T13:17:16Z",
+                "message": {
+                    "model": "claude-opus-4-6",
+                    "content": [{"type": "text", "text": "test"}],
+                    "usage": {
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "cache_read_input_tokens": 1_000_000,
+                        "cache_creation_input_tokens": 100_000
+                    }
+                }
+            }
+        ]);
+        let pricing = test_pricing();
+        let (_per_call, _records, _dist, _cost, savings) = parse_transcript(&transcript, &pricing);
+        assert!((savings.gross_savings_usd - 13.5).abs() < 0.001);
+        assert!((savings.cache_write_overhead_usd - 0.375).abs() < 0.001);
+        assert!((savings.net_savings_usd - 13.125).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_cumulative_cost_accumulates() {
+        let transcript = serde_json::json!([
+            {
+                "type": "assistant",
+                "timestamp": "2026-03-23T13:17:16Z",
+                "message": {
+                    "model": "claude-opus-4-6",
+                    "content": [{"type": "text", "text": "a"}],
+                    "usage": { "input_tokens": 1_000_000, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0 }
+                }
+            },
+            {
+                "type": "assistant",
+                "timestamp": "2026-03-23T13:17:20Z",
+                "message": {
+                    "model": "claude-opus-4-6",
+                    "content": [{"type": "text", "text": "b"}],
+                    "usage": { "input_tokens": 1_000_000, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0 }
+                }
+            }
+        ]);
+        let (per_call, _, _, _, _) = parse_transcript(&transcript, &test_pricing());
+        assert_eq!(per_call.len(), 2);
+        assert!((per_call[0].cumulative_cost_usd - 15.0).abs() < 0.001);
+        assert!((per_call[1].cumulative_cost_usd - 30.0).abs() < 0.001);
+    }
+}
