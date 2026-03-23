@@ -289,15 +289,15 @@ pub async fn create_trace(
 pub async fn get_trace(
     State(state): State<AppState>,
     auth: OrgAuth,
-    Path((_slug, id)): Path<(String, Uuid)>,
+    Path((_slug, sha)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    // Fetch commit
+    // Fetch commit by SHA
     let commit = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, String, Option<serde_json::Value>, Option<serde_json::Value>, chrono::DateTime<chrono::Utc>)>(
         "SELECT c.id, c.repo_id, c.commit_sha, c.branch, c.author, c.diff_data, c.attribution, c.created_at
          FROM commits c JOIN repos r ON c.repo_id = r.id
-         WHERE c.id = $1 AND r.org_id = $2"
+         WHERE c.commit_sha = $1 AND r.org_id = $2"
     )
-    .bind(id)
+    .bind(&sha)
     .bind(auth.org_id)
     .fetch_optional(&state.pool)
     .await
@@ -326,7 +326,7 @@ pub async fn get_trace(
                 estimated_cost_usd, api_calls, session_data, transcript, created_at
          FROM sessions WHERE commit_id = $1 ORDER BY created_at ASC",
     )
-    .bind(id)
+    .bind(commit.0)
     .fetch_all(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

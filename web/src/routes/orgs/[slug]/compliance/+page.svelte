@@ -127,7 +127,9 @@
 	<title>Compliance Dashboard - TraceVault</title>
 </svelte:head>
 
-{#if $features.compliance}
+{#if !$features.loaded}
+	<p class="text-muted-foreground">Loading...</p>
+{:else if $features.compliance}
 <div class="space-y-6">
 	<h1 class="text-2xl font-bold">Compliance Dashboard</h1>
 

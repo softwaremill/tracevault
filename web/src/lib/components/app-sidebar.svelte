@@ -29,13 +29,18 @@
 	interface OrgInfo {
 		org_name: string;
 		display_name: string | null;
-		role: string;
 	}
+	let orgCurrent = $state<OrgInfo | null>(null);
+	let orgAll = $state<OrgInfo[]>([]);
+	$effect(() => {
+		const unsub = orgStore.subscribe((s) => {
+			orgCurrent = s.current;
+			orgAll = s.all;
+		});
+		return unsub;
+	});
 
-	let orgState: { current: OrgInfo | null; all: OrgInfo[] } = $state({ current: null, all: [] });
-	orgStore.subscribe((s) => (orgState = s));
-
-	const slug = $derived(orgState.current?.org_name ?? $page.params.slug ?? '');
+	const slug = $derived(orgCurrent?.org_name ?? $page.params.slug ?? '');
 	let showOrgMenu = $state(false);
 
 	let expanded = $state(false);
@@ -124,7 +129,7 @@
 	</div>
 
 	<!-- Org Switcher -->
-	{#if orgState.all.length > 0}
+	{#if orgAll.length > 0}
 		<div class="border-b px-2 py-2">
 			{#if expanded}
 				<div class="relative">
@@ -134,7 +139,7 @@
 					>
 						<span class="flex items-center gap-2 truncate">
 							<img src="https://github.com/{slug}.png?size=40" alt="" class="h-5 w-5 rounded" />
-							{orgState.current?.display_name || orgState.current?.org_name || slug}
+							{orgCurrent?.display_name || orgCurrent?.org_name || slug}
 						</span>
 						<svg class="h-4 w-4 shrink-0 text-muted-foreground" viewBox="0 0 16 16" fill="currentColor">
 							<path d="M4.427 7.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 7H4.604a.25.25 0 00-.177.427z" />
@@ -142,7 +147,7 @@
 					</button>
 					{#if showOrgMenu}
 						<div class="absolute left-0 right-0 top-full z-50 mt-1 rounded-md border bg-popover p-1 shadow-md">
-							{#each orgState.all as org}
+							{#each orgAll as org}
 								<a
 									href="/orgs/{org.org_name}/repos"
 									onclick={() => (showOrgMenu = false)}
@@ -176,7 +181,7 @@
 						</div>
 					</Tooltip.Trigger>
 					<Tooltip.Content side="right">
-						{orgState.current?.display_name || orgState.current?.org_name || slug}
+						{orgCurrent?.display_name || orgCurrent?.org_name || slug}
 					</Tooltip.Content>
 				</Tooltip.Root>
 			{/if}

@@ -100,7 +100,9 @@
 	<title>Compliance Settings - TraceVault</title>
 </svelte:head>
 
-{#if $features.compliance}
+{#if !$features.loaded}
+	<p class="text-muted-foreground">Loading...</p>
+{:else if $features.compliance}
 <div class="space-y-6 max-w-2xl">
 	<div class="flex items-center gap-2">
 		<a href="/orgs/{slug}/compliance" class="text-muted-foreground hover:underline">Compliance</a>

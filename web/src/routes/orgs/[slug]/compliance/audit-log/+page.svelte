@@ -92,7 +92,9 @@
 	<title>Audit Log - TraceVault</title>
 </svelte:head>
 
-{#if $features.audit_trail}
+{#if !$features.loaded}
+	<p class="text-muted-foreground">Loading...</p>
+{:else if $features.audit_trail}
 <div class="space-y-6">
 	<div class="flex items-center gap-2">
 		<a href="/orgs/{slug}/compliance" class="text-muted-foreground hover:underline">Compliance</a>
