@@ -3,6 +3,7 @@ use axum::{
     Router,
 };
 use http::Method;
+#[cfg(not(feature = "enterprise"))]
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;

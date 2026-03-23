@@ -6,3 +6,4 @@ crates/tracevault-server/data/repos
 .playwright-mcp
 docs/plans/
 screenshots/
+.idea/

@@ -130,6 +130,7 @@ pub fn create_llm_from_params(
     }
 }
 
+#[cfg(not(feature = "enterprise"))]
 pub fn create_llm(config: &crate::config::ServerConfig) -> Option<Box<dyn StoryLlm>> {
     let provider = config.llm_provider.as_deref()?;
     let api_key = config.llm_api_key.clone()?;
