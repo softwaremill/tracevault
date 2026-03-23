@@ -2718,8 +2718,21 @@ dependencies = [
 name = "tracevault-enterprise"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "async-trait",
+ "base64",
+ "chrono",
+ "ed25519-dalek",
+ "glob-match",
+ "hex",
+ "rand",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
  "tracevault-core",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

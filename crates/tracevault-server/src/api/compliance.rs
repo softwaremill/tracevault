@@ -551,7 +551,7 @@ pub struct TraceVerifyResponse {
 pub async fn verify_trace(
     State(state): State<AppState>,
     auth: OrgAuth,
-    Path((_slug, id)): Path<(String, Uuid)>,
+    Path((_slug, sha)): Path<(String, String)>,
 ) -> Result<Json<TraceVerifyResponse>, (StatusCode, String)> {
     let commit = sqlx::query_as::<
         _,
@@ -566,9 +566,9 @@ pub async fn verify_trace(
     >(
         "SELECT c.id, c.record_hash, c.chain_hash, c.prev_chain_hash, c.signature, c.sealed_at
          FROM commits c JOIN repos r ON c.repo_id = r.id
-         WHERE c.id = $1 AND r.org_id = $2",
+         WHERE c.commit_sha = $1 AND r.org_id = $2",
     )
-    .bind(id)
+    .bind(&sha)
     .bind(auth.org_id)
     .fetch_optional(&state.pool)
     .await

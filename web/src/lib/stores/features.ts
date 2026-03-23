@@ -14,6 +14,7 @@ export interface FeatureFlags {
 	full_policy_engine: boolean;
 	advanced_redaction: boolean;
 	initialized: boolean;
+	loaded: boolean;
 }
 
 const communityDefaults: FeatureFlags = {
@@ -27,7 +28,8 @@ const communityDefaults: FeatureFlags = {
 	encryption_at_rest: false,
 	full_policy_engine: false,
 	advanced_redaction: false,
-	initialized: false
+	initialized: false,
+	loaded: false
 };
 
 function createFeaturesStore() {
@@ -39,9 +41,9 @@ function createFeaturesStore() {
 			if (!browser) return;
 			try {
 				const flags = await api.get<FeatureFlags>('/api/v1/features');
-				set(flags);
+				set({ ...flags, loaded: true });
 			} catch {
-				set(communityDefaults);
+				set({ ...communityDefaults, loaded: true });
 			}
 		}
 	};

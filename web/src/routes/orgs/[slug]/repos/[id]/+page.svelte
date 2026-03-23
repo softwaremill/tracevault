@@ -491,7 +491,7 @@
 						{#each commits as commit}
 							<Table.Row>
 								<Table.Cell>
-									<a href="/orgs/{slug}/traces/{commit.id}" class="font-mono text-sm underline">
+									<a href="/orgs/{slug}/traces/{commit.commit_sha}" class="font-mono text-sm underline">
 										{commit.commit_sha.slice(0, 8)}
 									</a>
 								</Table.Cell>

@@ -148,7 +148,9 @@
 	<title>Cost Analytics - TraceVault</title>
 </svelte:head>
 
-{#if $features.advanced_analytics}
+{#if !$features.loaded}
+	<p class="text-muted-foreground">Loading...</p>
+{:else if $features.advanced_analytics}
 <div class="space-y-6">
 	<h1 class="text-2xl font-bold">Cost Analytics</h1>
 
