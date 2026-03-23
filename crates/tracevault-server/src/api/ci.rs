@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::api::policies::{evaluate_condition, EvalOutcome};
-use crate::extractors::AuthUser;
+use crate::extractors::OrgAuth;
 use crate::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -49,8 +49,8 @@ pub struct PolicyResult {
 /// Verify a list of commits against the TraceVault database.
 pub async fn verify_commits(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(repo_id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, repo_id)): Path<(String, Uuid)>,
     Json(req): Json<CiVerifyRequest>,
 ) -> Result<Json<CiVerifyResponse>, (StatusCode, String)> {
     // Verify repo belongs to org
@@ -139,18 +139,29 @@ pub async fn verify_commits(
 
         sealed_count += 1;
 
+        // Load per-org signing service at the time the commit was sealed
+        let svc = if let Some(ref sat) = sealed_at {
+            let encryption_key = state.encryption_key.as_deref();
+            if let Some(ek) = encryption_key {
+                crate::org_signing::load_at_time(&state.pool, auth.org_id, sat, ek)
+                    .await
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // Verify signature and chain
-        let signature_valid = match (&record_hash, &signature) {
-            (Some(rh), Some(sig)) => state.extensions.signing.verify(rh, sig),
+        let signature_valid = match (&record_hash, &signature, &svc) {
+            (Some(rh), Some(sig), Some(svc)) => svc.verify(rh, sig),
             _ => false,
         };
 
-        let chain_valid = match (&record_hash, &chain_hash) {
-            (Some(rh), Some(ch)) => {
-                let expected = state
-                    .extensions
-                    .signing
-                    .chain_hash(prev_chain_hash.as_deref(), rh);
+        let chain_valid = match (&record_hash, &chain_hash, &svc) {
+            (Some(rh), Some(ch), Some(svc)) => {
+                let expected = svc.chain_hash(prev_chain_hash.as_deref(), rh);
                 expected == *ch
             }
             _ => false,

@@ -1,5 +1,6 @@
 use crate::api_client::{resolve_credentials, ApiClient};
 use crate::commands::init::git_remote_url;
+use crate::config::TracevaultConfig;
 use std::path::Path;
 
 pub async fn sync_repo(project_root: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -17,6 +18,10 @@ pub async fn sync_repo(project_root: &Path) -> Result<(), Box<dyn std::error::Er
         eprintln!("Not logged in. Run 'tracevault login' to sync.");
         return Ok(());
     }
+
+    let org_slug = TracevaultConfig::load(project_root)
+        .and_then(|c| c.org_slug)
+        .ok_or("No org_slug in config. Run 'tracevault init' first.")?;
 
     let remote = match git_remote_url(project_root) {
         Some(url) => url,
@@ -41,10 +46,13 @@ pub async fn sync_repo(project_root: &Path) -> Result<(), Box<dyn std::error::Er
         .unwrap_or_else(|| "unknown".into());
 
     match client
-        .register_repo(crate::api_client::RegisterRepoRequest {
-            repo_name,
-            github_url: Some(remote.clone()),
-        })
+        .register_repo(
+            &org_slug,
+            crate::api_client::RegisterRepoRequest {
+                repo_name,
+                github_url: Some(remote.clone()),
+            },
+        )
         .await
     {
         Ok(resp) => {

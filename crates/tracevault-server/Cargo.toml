@@ -33,6 +33,7 @@ git2 = "0.20"
 reqwest = { version = "0.12", features = ["json"] }
 async-trait = "0.1"
 aes-gcm = "0.10"
+dotenvy = "0.15.7"
 
 [dependencies.tracevault-enterprise]
 path = "../../enterprise"

@@ -1,4 +1,5 @@
 use crate::api_client::{resolve_credentials, ApiClient, CiVerifyRequest};
+use crate::config::TracevaultConfig;
 use std::path::Path;
 use std::process::Command;
 
@@ -76,11 +77,15 @@ pub async fn verify(
         return Err("No auth token. Set TRACEVAULT_API_KEY or run 'tracevault login'.".into());
     }
 
+    let org_slug = TracevaultConfig::load(project_root)
+        .and_then(|c| c.org_slug)
+        .ok_or("No org_slug in config. Run 'tracevault init' first.")?;
+
     let client = ApiClient::new(&server_url, token.as_deref());
 
     // Resolve repo_id by name
     let repo_name = git_repo_name(project_root);
-    let repos = client.list_repos().await?;
+    let repos = client.list_repos(&org_slug).await?;
     let repo = repos.iter().find(|r| r.name == repo_name).ok_or_else(|| {
         format!(
             "Repo '{}' not found on server. Run 'tracevault sync' first.",
@@ -96,6 +101,7 @@ pub async fn verify(
 
     let result = client
         .verify_commits(
+            &org_slug,
             &repo.id,
             CiVerifyRequest {
                 commits: commit_list,

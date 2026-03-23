@@ -17,6 +17,7 @@ mod encryption;
 pub mod extensions;
 mod extractors;
 mod llm;
+mod org_signing;
 pub mod permissions;
 pub mod pricing;
 mod repo_manager;
@@ -28,10 +29,12 @@ pub struct AppState {
     pub pool: sqlx::PgPool,
     pub repo_manager: repo_manager::RepoManager,
     pub extensions: extensions::ExtensionRegistry,
+    pub encryption_key: Option<String>,
 }
 
 #[tokio::main]
 async fn main() {
+    dotenvy::dotenv().ok();
     tracing_subscriber::fmt::init();
 
     let cfg = config::ServerConfig::from_env();
@@ -74,155 +77,199 @@ async fn main() {
             "/api/v1/auth/device/{token}/status",
             get(api::auth::device_status),
         )
-        // Auth (requires session)
         .route(
             "/api/v1/auth/device/{token}/approve",
             post(api::auth::device_approve),
         )
         .route("/api/v1/auth/logout", post(api::auth::logout))
         .route("/api/v1/auth/me", get(api::auth::me))
-        // Traces
-        .route("/api/v1/traces", post(api::traces::create_trace))
-        .route("/api/v1/traces", get(api::traces::list_traces))
-        .route("/api/v1/traces/{id}", get(api::traces::get_trace))
-        // Repos
-        .route("/api/v1/repos", get(api::repos::list_repos))
-        .route("/api/v1/repos", post(api::repos::register_repo))
-        .route("/api/v1/repos/{id}", delete(api::repos::delete_repo))
-        .route("/api/v1/repos/{id}/sync", post(api::repos::sync_repo))
+        // Public (no auth) — for invitation request form
+        .route("/api/v1/orgs/public", get(api::auth::list_public_orgs))
         .route(
-            "/api/v1/repos/{id}/settings",
-            get(api::repos::get_settings).put(api::repos::update_settings),
+            "/api/v1/invitation-requests",
+            post(api::auth::request_invitation),
         )
-        // Code Browser
+        // User endpoints
+        .route("/api/v1/me/orgs", get(api::auth::list_my_orgs))
+        // Org management (create is org-agnostic)
+        .route("/api/v1/orgs", post(api::orgs::create_org))
+        // Org-scoped: org details & members
         .route(
-            "/api/v1/repos/{repo_id}/code/branches",
-            get(api::code::list_branches),
+            "/api/v1/orgs/{slug}",
+            get(api::orgs::get_org).put(api::orgs::update_org),
         )
         .route(
-            "/api/v1/repos/{repo_id}/code/tree",
-            get(api::code::get_tree),
+            "/api/v1/orgs/{slug}/members",
+            get(api::orgs::list_members).post(api::orgs::invite_member),
         )
         .route(
-            "/api/v1/repos/{repo_id}/code/blob",
-            get(api::code::get_blob),
-        )
-        .route(
-            "/api/v1/repos/{repo_id}/code/blame",
-            get(api::code::get_blame),
-        )
-        .route(
-            "/api/v1/repos/{repo_id}/code/commits",
-            get(api::code::list_file_commits),
-        )
-        .route(
-            "/api/v1/repos/{repo_id}/code/info",
-            get(api::code::get_ref_info),
-        )
-        // Story
-        .route(
-            "/api/v1/repos/{repo_id}/story",
-            post(api::code::generate_story),
-        )
-        // Orgs
-        .route("/api/v1/orgs/{id}", get(api::orgs::get_org))
-        .route("/api/v1/orgs/{id}", put(api::orgs::update_org))
-        .route("/api/v1/orgs/{id}/members", get(api::orgs::list_members))
-        .route("/api/v1/orgs/{id}/members", post(api::orgs::invite_member))
-        .route(
-            "/api/v1/orgs/{id}/members/{user_id}",
+            "/api/v1/orgs/{slug}/members/{user_id}",
             delete(api::orgs::remove_member),
         )
         .route(
-            "/api/v1/orgs/{id}/members/{user_id}/role",
+            "/api/v1/orgs/{slug}/members/{user_id}/role",
             put(api::orgs::change_role),
         )
-        // Org LLM Settings
+        // Invitation requests (admin)
         .route(
-            "/api/v1/orgs/{id}/llm-settings",
+            "/api/v1/orgs/{slug}/invitation-requests",
+            get(api::orgs::list_invitation_requests),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/invitation-requests/{id}/approve",
+            post(api::orgs::approve_invitation_request),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/invitation-requests/{id}/reject",
+            post(api::orgs::reject_invitation_request),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/llm-settings",
             get(api::orgs::get_llm_settings).put(api::orgs::update_llm_settings),
         )
-        // API Keys
-        .route("/api/v1/api-keys", post(api::api_keys::create_api_key))
-        .route("/api/v1/api-keys", get(api::api_keys::list_api_keys))
+        // Org-scoped: repos
         .route(
-            "/api/v1/api-keys/{id}",
+            "/api/v1/orgs/{slug}/repos",
+            get(api::repos::list_repos).post(api::repos::register_repo),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/repos/{id}",
+            get(api::repos::get_repo).delete(api::repos::delete_repo),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/repos/{id}/settings",
+            get(api::repos::get_settings).put(api::repos::update_settings),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/repos/{id}/sync",
+            post(api::repos::sync_repo),
+        )
+        // Org-scoped: code browser
+        .route(
+            "/api/v1/orgs/{slug}/repos/{repo_id}/code/branches",
+            get(api::code::list_branches),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/repos/{repo_id}/code/tree",
+            get(api::code::get_tree),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/repos/{repo_id}/code/blob",
+            get(api::code::get_blob),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/repos/{repo_id}/code/blame",
+            get(api::code::get_blame),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/repos/{repo_id}/code/commits",
+            get(api::code::list_file_commits),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/repos/{repo_id}/code/info",
+            get(api::code::get_ref_info),
+        )
+        // Org-scoped: story
+        .route(
+            "/api/v1/orgs/{slug}/repos/{repo_id}/story",
+            post(api::code::generate_story),
+        )
+        // Org-scoped: traces
+        .route(
+            "/api/v1/orgs/{slug}/traces",
+            post(api::traces::create_trace).get(api::traces::list_traces),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/traces/{id}",
+            get(api::traces::get_trace),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/traces/{id}/verify",
+            get(api::compliance::verify_trace),
+        )
+        // Org-scoped: api keys
+        .route(
+            "/api/v1/orgs/{slug}/api-keys",
+            post(api::api_keys::create_api_key).get(api::api_keys::list_api_keys),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/api-keys/{id}",
             delete(api::api_keys::delete_api_key),
         )
-        // Policies
+        // Org-scoped: policies
         .route(
-            "/api/v1/repos/{repo_id}/policies",
-            get(api::policies::list_repo_policies),
+            "/api/v1/orgs/{slug}/repos/{repo_id}/policies",
+            get(api::policies::list_repo_policies).post(api::policies::create_repo_policy),
         )
         .route(
-            "/api/v1/repos/{repo_id}/policies",
-            post(api::policies::create_repo_policy),
-        )
-        .route(
-            "/api/v1/repos/{repo_id}/policies/check",
+            "/api/v1/orgs/{slug}/repos/{repo_id}/policies/check",
             post(api::policies::check_policies),
         )
-        .route("/api/v1/policies/{id}", put(api::policies::update_policy))
         .route(
-            "/api/v1/policies/{id}",
-            delete(api::policies::delete_policy),
+            "/api/v1/orgs/{slug}/policies/{id}",
+            put(api::policies::update_policy).delete(api::policies::delete_policy),
         )
-        // Compliance
+        // Org-scoped: compliance
         .route(
-            "/api/v1/orgs/{id}/compliance",
+            "/api/v1/orgs/{slug}/compliance",
             get(api::compliance::get_compliance_settings)
                 .put(api::compliance::update_compliance_settings),
         )
         .route(
-            "/api/v1/orgs/{id}/compliance/public-key",
+            "/api/v1/orgs/{slug}/compliance/public-key",
             get(api::compliance::get_public_key),
         )
         .route(
-            "/api/v1/orgs/{id}/compliance/verify-chain",
+            "/api/v1/orgs/{slug}/compliance/verify-chain",
             post(api::compliance::verify_chain),
         )
         .route(
-            "/api/v1/orgs/{id}/compliance/chain-status",
+            "/api/v1/orgs/{slug}/compliance/chain-status",
             get(api::compliance::get_chain_status),
         )
         .route(
-            "/api/v1/orgs/{id}/audit-log",
+            "/api/v1/orgs/{slug}/audit-log",
             get(api::compliance::list_audit_log),
         )
+        // Org-scoped: analytics
         .route(
-            "/api/v1/traces/{id}/verify",
-            get(api::compliance::verify_trace),
-        )
-        // Analytics
-        .route(
-            "/api/v1/analytics/filters",
+            "/api/v1/orgs/{slug}/analytics/filters",
             get(api::analytics::get_filters),
         )
         .route(
-            "/api/v1/analytics/overview",
+            "/api/v1/orgs/{slug}/analytics/overview",
             get(api::analytics::get_overview),
         )
-        .route("/api/v1/analytics/tokens", get(api::analytics::get_tokens))
-        .route("/api/v1/analytics/models", get(api::analytics::get_models))
         .route(
-            "/api/v1/analytics/authors",
+            "/api/v1/orgs/{slug}/analytics/tokens",
+            get(api::analytics::get_tokens),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/analytics/models",
+            get(api::analytics::get_models),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/analytics/authors",
             get(api::analytics::get_authors),
         )
         .route(
-            "/api/v1/analytics/attribution",
+            "/api/v1/orgs/{slug}/analytics/attribution",
             get(api::analytics::get_attribution),
         )
         .route(
-            "/api/v1/analytics/sessions",
+            "/api/v1/orgs/{slug}/analytics/sessions",
             get(api::analytics::get_sessions),
         )
-        .route("/api/v1/analytics/cost", get(api::analytics::get_cost))
-        // CI Verification
         .route(
-            "/api/v1/repos/{repo_id}/ci/verify",
+            "/api/v1/orgs/{slug}/analytics/cost",
+            get(api::analytics::get_cost),
+        )
+        // Org-scoped: CI
+        .route(
+            "/api/v1/orgs/{slug}/repos/{repo_id}/ci/verify",
             post(api::ci::verify_commits),
         )
-        // GitHub
+        // GitHub webhook (org-agnostic)
         .route("/api/v1/github/webhook", post(api::github::webhook))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
@@ -230,6 +277,7 @@ async fn main() {
             pool,
             repo_manager,
             extensions,
+            encryption_key: cfg.encryption_key.clone(),
         });
 
     let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();
@@ -242,29 +290,17 @@ fn build_extensions(cfg: &config::ServerConfig) -> extensions::ExtensionRegistry
     {
         use tracevault_core::extensions::EnterpriseConfig;
         let enterprise_cfg = EnterpriseConfig {
-            signing_key_seed: cfg.signing_key_seed.clone(),
             encryption_key: cfg.encryption_key.clone(),
-            llm_provider: cfg.llm_provider.clone(),
-            llm_api_key: cfg.llm_api_key.clone(),
-            llm_model: cfg.llm_model.clone(),
-            llm_base_url: cfg.llm_base_url.clone(),
         };
         tracevault_enterprise::register(&enterprise_cfg)
     }
 
     #[cfg(not(feature = "enterprise"))]
     {
-        let signing = signing::SigningService::new(cfg.signing_key_seed.as_deref());
-        let llm_instance = llm::create_llm(cfg).map(|b| Arc::from(b) as Arc<dyn llm::StoryLlm>);
-
         let mut ext = extensions::community_registry();
-        ext.signing = Arc::new(extensions::FullSigningProvider::new(signing));
         ext.pricing = Arc::new(extensions::FullPricingProvider);
         if let Some(ref key) = cfg.encryption_key {
             ext.encryption = Arc::new(extensions::FullEncryptionProvider::new(key.clone()));
-        }
-        if let Some(llm) = llm_instance {
-            ext.story = Arc::new(extensions::LlmStoryProvider::new(llm));
         }
         ext
     }

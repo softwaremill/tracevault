@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { StoryResponse } from '$lib/types/code';
+	import { page } from '$app/stores';
 	import { marked } from 'marked';
 
 	let {
@@ -15,6 +16,8 @@
 		onClose: () => void;
 		onRegenerate: () => void;
 	} = $props();
+
+	const slug = $derived($page.params.slug);
 
 	// Build a SHA→trace_id lookup from references
 	const shaToTraceId = $derived.by(() => {
@@ -47,7 +50,7 @@
 			html = html.replace(/\b([0-9a-f]{7,40})\b/g, (match) => {
 				const traceId = shaToTraceId.get(match);
 				if (!traceId) return match;
-				return `<a href="/traces/${traceId}" class="commit-link">${match}</a>`;
+				return `<a href="/orgs/${slug}/traces/${traceId}" class="commit-link">${match}</a>`;
 			});
 		}
 		return html;
@@ -107,7 +110,7 @@
 					</div>
 					<p class="text-sm text-muted-foreground">
 						This usually means the LLM provider is not configured. Go to
-						<a href="/settings/llm" class="underline font-medium text-foreground">Settings &rarr; LLM</a>
+						<a href="/orgs/{slug}/settings/llm" class="underline font-medium text-foreground">Settings &rarr; LLM</a>
 						to configure your provider and API key.
 					</p>
 				</div>
@@ -126,7 +129,7 @@
 								<div class="rounded border bg-muted/30 px-3 py-2 text-xs">
 									<div class="flex items-center gap-2">
 										<a
-											href="/traces/{ref.id}"
+											href="/orgs/{slug}/traces/{ref.id}"
 											class="font-mono font-medium text-foreground underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-foreground"
 										>
 											{ref.sha.slice(0, 7)}
@@ -137,7 +140,7 @@
 										<div class="mt-1 flex flex-wrap gap-1">
 											{#each ref.sessions as session}
 												<a
-													href="/traces/{ref.id}"
+													href="/orgs/{slug}/traces/{ref.id}"
 													class="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20"
 												>
 													<span>Session {session.session_id.slice(0, 8)}</span>

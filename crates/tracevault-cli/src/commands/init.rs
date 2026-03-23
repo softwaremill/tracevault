@@ -15,6 +15,21 @@ pub fn git_remote_url(project_root: &Path) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+fn parse_github_org(remote_url: &str) -> Option<String> {
+    // SSH: git@github.com:softwaremill/tracevault.git
+    if let Some(path) = remote_url.strip_prefix("git@github.com:") {
+        return path.split('/').next().map(String::from);
+    }
+    // HTTPS: https://github.com/softwaremill/tracevault.git
+    if let Some(path) = remote_url
+        .strip_prefix("https://github.com/")
+        .or_else(|| remote_url.strip_prefix("http://github.com/"))
+    {
+        return path.split('/').next().map(String::from);
+    }
+    None
+}
+
 pub async fn init_in_directory(
     project_root: &Path,
     server_url: Option<&str>,
@@ -33,11 +48,22 @@ pub async fn init_in_directory(
     fs::create_dir_all(config_dir.join("sessions"))?;
     fs::create_dir_all(config_dir.join("cache"))?;
 
-    // Write config (include server_url if provided)
+    // Register repo on server if authenticated, server URL known, and git remote available
+    let remote_url = git_remote_url(project_root);
+    if remote_url.is_none() {
+        eprintln!("Warning: no git remote 'origin' configured. Skipping server registration.");
+        eprintln!("Run 'git remote add origin <url>' then 'tracevault sync' to register.");
+    }
+
+    // Extract org slug from GitHub remote URL
+    let org_slug = remote_url.as_deref().and_then(parse_github_org);
+
+    // Write config (include server_url and org_slug if available)
     let mut config = TracevaultConfig::default();
     if let Some(url) = server_url {
         config.server_url = Some(url.to_string());
     }
+    config.org_slug = org_slug.clone();
     fs::write(
         TracevaultConfig::config_path(project_root),
         config.to_toml(),
@@ -55,34 +81,40 @@ pub async fn init_in_directory(
     // Install git pre-push hook
     install_git_hook(project_root)?;
 
-    // Register repo on server if authenticated, server URL known, and git remote available
-    let remote_url = git_remote_url(project_root);
-    if remote_url.is_none() {
-        eprintln!("Warning: no git remote 'origin' configured. Skipping server registration.");
-        eprintln!("Run 'git remote add origin <url>' then 'tracevault sync' to register.");
-    }
-
     let (resolved_url, resolved_token) = crate::api_client::resolve_credentials(project_root);
     let effective_url = server_url.map(String::from).or(resolved_url);
 
     if resolved_token.is_none() {
         eprintln!("Not logged in. Run 'tracevault login' to register this repo with the server.");
-    } else if let (Some(url), Some(remote)) = (effective_url, remote_url) {
+    } else if let (Some(url), Some(remote), Some(slug)) = (effective_url, remote_url, org_slug) {
         let client = ApiClient::new(&url, resolved_token.as_deref());
         let repo_name = git_repo_name(project_root);
 
         match client
-            .register_repo(crate::api_client::RegisterRepoRequest {
-                repo_name,
-                github_url: Some(remote),
-            })
+            .register_repo(
+                &slug,
+                crate::api_client::RegisterRepoRequest {
+                    repo_name,
+                    github_url: Some(remote),
+                },
+            )
             .await
         {
             Ok(resp) => {
                 println!("Repo registered on server (id: {})", resp.repo_id);
             }
             Err(e) => {
-                eprintln!("Warning: could not register repo on server: {e}");
+                let msg = e.to_string();
+                if msg.contains("404") {
+                    eprintln!("Warning: organization '{}' not found on the server.", slug);
+                    eprintln!(
+                        "Create it first at your TraceVault instance, then run 'tracevault sync'."
+                    );
+                } else if msg.contains("403") {
+                    eprintln!("Warning: you are not a member of organization '{}'.", slug);
+                } else {
+                    eprintln!("Warning: could not register repo on server: {e}");
+                }
             }
         }
     }

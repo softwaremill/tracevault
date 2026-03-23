@@ -41,20 +41,15 @@ pub async fn login(server_url: &str) -> Result<(), Box<dyn std::error::Error>> {
                     let email = status
                         .email
                         .ok_or("Server approved but did not return an email")?;
-                    let org_name = status.org_name.ok_or(
-                        "You are not a member of any organization. \
-                         Please log in via the web interface to create or join an organization first."
-                    )?;
 
                     println!(" done!");
                     println!();
-                    println!("Logged in as {} (org: {})", email, org_name);
+                    println!("Logged in as {}", email);
 
                     let creds = Credentials {
                         server_url: server_url.to_string(),
                         token,
                         email,
-                        org_name,
                     };
                     creds.save()?;
                     println!("Credentials saved to {}", Credentials::path().display());

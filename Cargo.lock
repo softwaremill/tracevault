@@ -2745,6 +2745,7 @@ dependencies = [
  "axum",
  "base64",
  "chrono",
+ "dotenvy",
  "ed25519-dalek",
  "git2",
  "glob-match",

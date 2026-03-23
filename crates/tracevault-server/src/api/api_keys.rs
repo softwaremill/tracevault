@@ -8,7 +8,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::auth::generate_api_key;
-use crate::extractors::AuthUser;
+use crate::extractors::OrgAuth;
 
 #[derive(Serialize)]
 pub struct ApiKeyResponse {
@@ -32,7 +32,7 @@ pub struct CreateApiKeyRequest {
 
 pub async fn create_api_key(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: OrgAuth,
     Json(req): Json<CreateApiKeyRequest>,
 ) -> Result<(StatusCode, Json<CreateApiKeyResponse>), (StatusCode, String)> {
     let (raw_key, key_hash) = generate_api_key();
@@ -59,7 +59,7 @@ pub async fn create_api_key(
 
 pub async fn list_api_keys(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: OrgAuth,
 ) -> Result<Json<Vec<ApiKeyResponse>>, (StatusCode, String)> {
     let rows = sqlx::query_as::<_, (Uuid, String, String, chrono::DateTime<chrono::Utc>)>(
         "SELECT id, name, LEFT(key_hash, 8), created_at FROM api_keys WHERE org_id = $1 ORDER BY created_at",
@@ -84,8 +84,8 @@ pub async fn list_api_keys(
 
 pub async fn delete_api_key(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, id)): Path<(String, Uuid)>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     sqlx::query("DELETE FROM api_keys WHERE id = $1 AND org_id = $2")
         .bind(id)

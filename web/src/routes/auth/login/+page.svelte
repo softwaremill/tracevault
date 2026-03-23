@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api';
 	import { auth } from '$lib/stores/auth';
@@ -12,13 +13,27 @@
 	let password = $state('');
 	let error = $state('');
 	let loading = $state(false);
+	let ready = $state(false);
+
+	onMount(async () => {
+		try {
+			const feat = await api.get<{ initialized: boolean }>('/api/v1/features');
+			if (!feat.initialized) {
+				goto('/auth/setup');
+				return;
+			}
+		} catch {
+			// If features endpoint fails, show login anyway
+		}
+		ready = true;
+	});
 
 	async function handleSubmit(e: Event) {
 		e.preventDefault();
 		error = '';
 		loading = true;
 		try {
-			const resp = await api.post<{ token: string; user_id: string; org_id: string; org_name: string; email: string; role: string }>(
+			const resp = await api.post<{ token: string; user_id: string; email: string }>(
 				'/api/v1/auth/login',
 				{ email, password }
 			);
@@ -27,7 +42,7 @@
 
 			const params = new URLSearchParams(window.location.search);
 			const redirect = params.get('redirect');
-			goto(redirect || '/repos');
+			goto(redirect || '/orgs');
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Login failed';
 		} finally {
@@ -40,42 +55,48 @@
 	<title>Login - TraceVault</title>
 </svelte:head>
 
-<div class="flex min-h-screen items-center justify-center">
-	<div class="w-full max-w-md space-y-6">
-		<div class="flex justify-center">
-			<img src="/logo.png" alt="TraceVault" class="h-12 w-12 rounded-xl" />
-		</div>
-		<Card.Root>
-		<Card.Header>
-			<Card.Title class="text-2xl">Log in to TraceVault</Card.Title>
-			<Card.Description>Enter your email and password to continue.</Card.Description>
-		</Card.Header>
-		<Card.Content>
-			{#if error}
-				<Alert.Root class="mb-4" variant="destructive">
-					<Alert.Title>Error</Alert.Title>
-					<Alert.Description>{error}</Alert.Description>
-				</Alert.Root>
-			{/if}
-			<form onsubmit={handleSubmit} class="grid gap-4">
-				<div class="grid gap-2">
-					<Label for="email">Email</Label>
-					<Input id="email" type="email" bind:value={email} required placeholder="you@example.com" />
-				</div>
-				<div class="grid gap-2">
-					<Label for="password">Password</Label>
-					<Input id="password" type="password" bind:value={password} required />
-				</div>
-				<Button type="submit" class="w-full" disabled={loading}>
-					{loading ? 'Logging in...' : 'Log in'}
-				</Button>
-			</form>
-		</Card.Content>
-		<Card.Footer class="justify-center">
-			<p class="text-sm text-muted-foreground">
-				Don't have an account? <a href="/auth/register" class="underline">Register</a>
-			</p>
-		</Card.Footer>
-	</Card.Root>
+{#if !ready}
+	<div class="flex min-h-screen items-center justify-center">
+		<p class="text-muted-foreground">Loading...</p>
 	</div>
-</div>
+{:else}
+	<div class="flex min-h-screen items-center justify-center">
+		<div class="w-full max-w-md space-y-6">
+			<div class="flex justify-center">
+				<img src="/logo.png" alt="TraceVault" class="h-12 w-12 rounded-xl" />
+			</div>
+			<Card.Root>
+			<Card.Header>
+				<Card.Title class="text-2xl">Log in to TraceVault</Card.Title>
+				<Card.Description>Enter your email and password to continue.</Card.Description>
+			</Card.Header>
+			<Card.Content>
+				{#if error}
+					<Alert.Root class="mb-4" variant="destructive">
+						<Alert.Title>Error</Alert.Title>
+						<Alert.Description>{error}</Alert.Description>
+					</Alert.Root>
+				{/if}
+				<form onsubmit={handleSubmit} class="grid gap-4">
+					<div class="grid gap-2">
+						<Label for="email">Email</Label>
+						<Input id="email" type="email" bind:value={email} required placeholder="you@example.com" />
+					</div>
+					<div class="grid gap-2">
+						<Label for="password">Password</Label>
+						<Input id="password" type="password" bind:value={password} required />
+					</div>
+					<Button type="submit" class="w-full" disabled={loading}>
+						{loading ? 'Logging in...' : 'Log in'}
+					</Button>
+				</form>
+			</Card.Content>
+			<Card.Footer class="justify-center">
+				<p class="text-sm text-muted-foreground">
+					Need access? <a href="/auth/setup" class="underline">Request an invitation</a>
+				</p>
+			</Card.Footer>
+		</Card.Root>
+		</div>
+	</div>
+{/if}

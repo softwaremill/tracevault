@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::audit;
-use crate::extractors::AuthUser;
+use crate::extractors::OrgAuth;
 use crate::permissions::Permission;
 use crate::AppState;
 
@@ -18,21 +18,16 @@ pub struct ComplianceSettingsResponse {
     pub org_id: Uuid,
     pub retention_days: i32,
     pub signing_enabled: bool,
-    pub signing_key_id: Option<String>,
     pub chain_verification_interval_hours: Option<i32>,
-    pub compliance_mode: String,
+    pub compliance_mode: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 pub async fn get_compliance_settings(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(org_id): Path<Uuid>,
+    auth: OrgAuth,
 ) -> Result<Json<ComplianceSettingsResponse>, (StatusCode, String)> {
-    if auth.org_id != org_id {
-        return Err((StatusCode::FORBIDDEN, "Access denied".into()));
-    }
     if !state
         .extensions
         .permissions
@@ -41,20 +36,21 @@ pub async fn get_compliance_settings(
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
 
+    let org_id = auth.org_id;
+
     let row = sqlx::query_as::<
         _,
         (
             Uuid,
             i32,
             bool,
-            Option<String>,
             Option<i32>,
-            String,
+            Option<String>,
             chrono::DateTime<chrono::Utc>,
             chrono::DateTime<chrono::Utc>,
         ),
     >(
-        "SELECT org_id, retention_days, signing_enabled, signing_key_id,
+        "SELECT org_id, retention_days, signing_enabled,
                 chain_verification_interval_hours, compliance_mode, created_at, updated_at
          FROM org_compliance_settings WHERE org_id = $1",
     )
@@ -68,20 +64,18 @@ pub async fn get_compliance_settings(
             org_id: r.0,
             retention_days: r.1,
             signing_enabled: r.2,
-            signing_key_id: r.3,
-            chain_verification_interval_hours: r.4,
-            compliance_mode: r.5,
-            created_at: r.6,
-            updated_at: r.7,
+            chain_verification_interval_hours: r.3,
+            compliance_mode: r.4,
+            created_at: r.5,
+            updated_at: r.6,
         }))
     } else {
         Ok(Json(ComplianceSettingsResponse {
             org_id,
             retention_days: 365,
             signing_enabled: false,
-            signing_key_id: None,
             chain_verification_interval_hours: Some(24),
-            compliance_mode: "none".into(),
+            compliance_mode: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         }))
@@ -98,13 +92,9 @@ pub struct UpdateComplianceSettingsRequest {
 
 pub async fn update_compliance_settings(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(org_id): Path<Uuid>,
+    auth: OrgAuth,
     Json(req): Json<UpdateComplianceSettingsRequest>,
 ) -> Result<Json<ComplianceSettingsResponse>, (StatusCode, String)> {
-    if auth.org_id != org_id {
-        return Err((StatusCode::FORBIDDEN, "Access denied".into()));
-    }
     if !state
         .extensions
         .permissions
@@ -112,6 +102,8 @@ pub async fn update_compliance_settings(
     {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
+
+    let org_id = auth.org_id;
 
     let valid_modes = ["none", "sox", "pci_dss", "sr_11_7", "custom"];
     if let Some(mode) = &req.compliance_mode {
@@ -145,7 +137,7 @@ pub async fn update_compliance_settings(
         }
     }
 
-    let row = sqlx::query_as::<_, (Uuid, i32, bool, Option<String>, Option<i32>, String, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>(
+    let row = sqlx::query_as::<_, (Uuid, i32, bool, Option<i32>, Option<String>, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>(
         "INSERT INTO org_compliance_settings (org_id, retention_days, signing_enabled, chain_verification_interval_hours, compliance_mode)
          VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (org_id) DO UPDATE SET
@@ -154,7 +146,7 @@ pub async fn update_compliance_settings(
            chain_verification_interval_hours = COALESCE($4, org_compliance_settings.chain_verification_interval_hours),
            compliance_mode = COALESCE($5, org_compliance_settings.compliance_mode),
            updated_at = NOW()
-         RETURNING org_id, retention_days, signing_enabled, signing_key_id, chain_verification_interval_hours, compliance_mode, created_at, updated_at"
+         RETURNING org_id, retention_days, signing_enabled, chain_verification_interval_hours, compliance_mode, created_at, updated_at"
     )
     .bind(org_id)
     .bind(req.retention_days.unwrap_or(365))
@@ -184,11 +176,10 @@ pub async fn update_compliance_settings(
         org_id: row.0,
         retention_days: row.1,
         signing_enabled: row.2,
-        signing_key_id: row.3,
-        chain_verification_interval_hours: row.4,
-        compliance_mode: row.5,
-        created_at: row.6,
-        updated_at: row.7,
+        chain_verification_interval_hours: row.3,
+        compliance_mode: row.4,
+        created_at: row.5,
+        updated_at: row.6,
     }))
 }
 
@@ -202,15 +193,24 @@ pub struct PublicKeyResponse {
 
 pub async fn get_public_key(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(org_id): Path<Uuid>,
+    auth: OrgAuth,
 ) -> Result<Json<PublicKeyResponse>, (StatusCode, String)> {
-    if auth.org_id != org_id {
-        return Err((StatusCode::FORBIDDEN, "Access denied".into()));
-    }
+    let encryption_key = state.encryption_key.as_deref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Encryption not configured".into(),
+    ))?;
+
+    let svc = crate::org_signing::load_current(&state.pool, auth.org_id, encryption_key)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            "No signing key configured for this org".into(),
+        ))?;
+
     Ok(Json(PublicKeyResponse {
         algorithm: "Ed25519".into(),
-        public_key: state.extensions.signing.public_key_b64(),
+        public_key: svc.public_key_b64(),
     }))
 }
 
@@ -227,12 +227,8 @@ pub struct ChainStatusResponse {
 
 pub async fn get_chain_status(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(org_id): Path<Uuid>,
+    auth: OrgAuth,
 ) -> Result<Json<ChainStatusResponse>, (StatusCode, String)> {
-    if auth.org_id != org_id {
-        return Err((StatusCode::FORBIDDEN, "Access denied".into()));
-    }
     if !state
         .extensions
         .permissions
@@ -240,6 +236,8 @@ pub async fn get_chain_status(
     {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
+
+    let org_id = auth.org_id;
 
     let row = sqlx::query_as::<
         _,
@@ -281,12 +279,8 @@ pub async fn get_chain_status(
 
 pub async fn verify_chain(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(org_id): Path<Uuid>,
+    auth: OrgAuth,
 ) -> Result<Json<ChainStatusResponse>, (StatusCode, String)> {
-    if auth.org_id != org_id {
-        return Err((StatusCode::FORBIDDEN, "Access denied".into()));
-    }
     if !state
         .extensions
         .permissions
@@ -294,6 +288,13 @@ pub async fn verify_chain(
     {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
+
+    let org_id = auth.org_id;
+
+    let encryption_key = state.encryption_key.as_deref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Encryption not configured".into(),
+    ))?;
 
     let commits = sqlx::query_as::<
         _,
@@ -303,9 +304,10 @@ pub async fn verify_chain(
             Option<String>,
             Option<String>,
             Option<String>,
+            chrono::DateTime<chrono::Utc>,
         ),
     >(
-        "SELECT c.id, c.record_hash, c.chain_hash, c.prev_chain_hash, c.signature
+        "SELECT c.id, c.record_hash, c.chain_hash, c.prev_chain_hash, c.signature, c.sealed_at
          FROM commits c JOIN repos r ON c.repo_id = r.id
          WHERE r.org_id = $1 AND c.sealed_at IS NOT NULL
          ORDER BY c.sealed_at ASC, c.created_at ASC, c.id ASC",
@@ -320,17 +322,24 @@ pub async fn verify_chain(
     let mut errors = Vec::new();
     let mut prev_hash: Option<String> = None;
 
-    for (id, record_hash, chain_hash, prev_chain_hash, signature) in &commits {
+    for (id, record_hash, chain_hash, prev_chain_hash, signature, sealed_at) in &commits {
         let (Some(rh), Some(ch), Some(sig)) = (record_hash, chain_hash, signature) else {
             errors.push(serde_json::json!({"commit_id": id, "error": "missing integrity fields"}));
             prev_hash = chain_hash.clone();
             continue;
         };
 
-        let expected_chain = state
-            .extensions
-            .signing
-            .chain_hash(prev_chain_hash.as_deref(), rh);
+        let svc = crate::org_signing::load_at_time(&state.pool, org_id, sealed_at, encryption_key)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+        let Some(svc) = svc else {
+            errors.push(serde_json::json!({"commit_id": id, "error": "no signing key found for sealed_at time"}));
+            prev_hash = chain_hash.clone();
+            continue;
+        };
+
+        let expected_chain = svc.chain_hash(prev_chain_hash.as_deref(), rh);
         if &expected_chain != ch {
             errors.push(serde_json::json!({"commit_id": id, "error": "chain_hash mismatch"}));
             prev_hash = Some(ch.clone());
@@ -341,7 +350,7 @@ pub async fn verify_chain(
             errors.push(serde_json::json!({"commit_id": id, "error": "prev_chain_hash mismatch"}));
         }
 
-        if !state.extensions.signing.verify(rh, sig) {
+        if !svc.verify(rh, sig) {
             errors.push(
                 serde_json::json!({"commit_id": id, "error": "signature verification failed"}),
             );
@@ -431,13 +440,9 @@ pub struct AuditLogResponse {
 
 pub async fn list_audit_log(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(org_id): Path<Uuid>,
+    auth: OrgAuth,
     Query(query): Query<AuditLogQuery>,
 ) -> Result<Json<AuditLogResponse>, (StatusCode, String)> {
-    if auth.org_id != org_id {
-        return Err((StatusCode::FORBIDDEN, "Access denied".into()));
-    }
     if !state
         .extensions
         .permissions
@@ -445,6 +450,8 @@ pub async fn list_audit_log(
     {
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
+
+    let org_id = auth.org_id;
 
     let per_page = query.per_page.unwrap_or(50).min(200);
     let page = query.page.unwrap_or(1).max(1);
@@ -543,8 +550,8 @@ pub struct TraceVerifyResponse {
 
 pub async fn verify_trace(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, id)): Path<(String, Uuid)>,
 ) -> Result<Json<TraceVerifyResponse>, (StatusCode, String)> {
     let commit = sqlx::query_as::<
         _,
@@ -570,17 +577,26 @@ pub async fn verify_trace(
 
     let (commit_id, record_hash, chain_hash, prev_chain_hash, signature, sealed_at) = commit;
 
-    let signature_valid = match (&record_hash, &signature) {
-        (Some(rh), Some(sig)) => state.extensions.signing.verify(rh, sig),
+    let svc = if let Some(ref sat) = sealed_at {
+        let encryption_key = state.encryption_key.as_deref().ok_or((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Encryption not configured".into(),
+        ))?;
+        crate::org_signing::load_at_time(&state.pool, auth.org_id, sat, encryption_key)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+    } else {
+        None
+    };
+
+    let signature_valid = match (&record_hash, &signature, &svc) {
+        (Some(rh), Some(sig), Some(svc)) => svc.verify(rh, sig),
         _ => false,
     };
 
-    let chain_valid = match (&record_hash, &chain_hash) {
-        (Some(rh), Some(ch)) => {
-            let expected = state
-                .extensions
-                .signing
-                .chain_hash(prev_chain_hash.as_deref(), rh);
+    let chain_valid = match (&record_hash, &chain_hash, &svc) {
+        (Some(rh), Some(ch), Some(svc)) => {
+            let expected = svc.chain_hash(prev_chain_hash.as_deref(), rh);
             expected == *ch
         }
         _ => false,

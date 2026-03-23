@@ -14,23 +14,66 @@ pub struct RegisterRequest {
     pub email: String,
     pub password: String,
     pub name: Option<String>,
+    pub signing_key_seed: Option<String>,
 }
 
 #[derive(Serialize)]
 pub struct RegisterResponse {
     pub user_id: Uuid,
     pub org_id: Uuid,
+    pub org_name: String,
     pub token: String,
+    pub signing_key_seed: Option<String>,
 }
 
 pub async fn register(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<(StatusCode, Json<RegisterResponse>), (StatusCode, String)> {
-    if req.password.len() < 8 {
+    if req.password.len() < 10 {
         return Err((
             StatusCode::BAD_REQUEST,
-            "Password must be at least 8 characters".into(),
+            "Password must be at least 10 characters".into(),
+        ));
+    }
+
+    let org_slug = req.org_name.trim().to_lowercase();
+    if org_slug.is_empty() || org_slug.len() > 100 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Organization name must be 1-100 characters".into(),
+        ));
+    }
+    if !org_slug
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        || org_slug.starts_with('-')
+        || org_slug.ends_with('-')
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Organization name must be lowercase alphanumeric with hyphens, no leading/trailing hyphens".into(),
+        ));
+    }
+    let reserved = ["api", "admin", "settings", "auth", "health", "me"];
+    if reserved.contains(&org_slug.as_str()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "This organization name is reserved".into(),
+        ));
+    }
+
+    // Check if org already exists
+    let org_exists: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM orgs WHERE name = $1")
+        .bind(&org_slug)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if org_exists.is_some() {
+        return Err((
+            StatusCode::CONFLICT,
+            "Organization already exists. Ask the admin to invite you.".into(),
         ));
     }
 
@@ -40,15 +83,6 @@ pub async fn register(
             format!("Failed to hash password: {e}"),
         )
     })?;
-
-    // Create org
-    let org_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO orgs (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name = $1 RETURNING id",
-    )
-    .bind(&req.org_name)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Check if email already taken
     let existing: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE email = $1")
@@ -61,15 +95,64 @@ pub async fn register(
         return Err((StatusCode::CONFLICT, "Email already registered".into()));
     }
 
-    // Create user with owner role
+    // Create org
+    let org_id: Uuid = sqlx::query_scalar("INSERT INTO orgs (name) VALUES ($1) RETURNING id")
+        .bind(&org_slug)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Validate provided signing key if any
+    if let Some(ref seed) = req.signing_key_seed {
+        if let Err(e) = crate::org_signing::validate_seed(seed) {
+            return Err((StatusCode::BAD_REQUEST, format!("Invalid signing key: {e}")));
+        }
+    }
+
+    // Store signing key (auto-generate or use provided)
+    let signing_key_seed = if let Some(ref enc_key) = state.encryption_key {
+        match crate::org_signing::generate_and_store(
+            &state.pool,
+            org_id,
+            enc_key,
+            req.signing_key_seed.as_deref(),
+        )
+        .await
+        {
+            Ok(seed) => Some(seed),
+            Err(e) => {
+                tracing::warn!("Failed to store signing key for org: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Create default compliance settings
+    let _ = sqlx::query("INSERT INTO org_compliance_settings (org_id) VALUES ($1)")
+        .bind(org_id)
+        .execute(&state.pool)
+        .await;
+
+    // Create user
     let user_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO users (org_id, email, password_hash, name, role) VALUES ($1, $2, $3, $4, 'owner') RETURNING id",
+        "INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id",
     )
-    .bind(org_id)
     .bind(&req.email)
     .bind(&password_hash)
     .bind(&req.name)
     .fetch_one(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Create owner membership
+    sqlx::query(
+        "INSERT INTO user_org_memberships (user_id, org_id, role) VALUES ($1, $2, 'owner')",
+    )
+    .bind(user_id)
+    .bind(org_id)
+    .execute(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -90,10 +173,10 @@ pub async fn register(
         crate::audit::user_action(
             org_id,
             user_id,
-            "user.create",
+            "user.register",
             "user",
             Some(user_id),
-            Some(serde_json::json!({"email": &req.email})),
+            Some(serde_json::json!({"email": &req.email, "org": &org_slug})),
         ),
     )
     .await;
@@ -103,7 +186,9 @@ pub async fn register(
         Json(RegisterResponse {
             user_id,
             org_id,
+            org_name: org_slug,
             token: raw_token,
+            signing_key_seed,
         }),
     ))
 }
@@ -120,36 +205,26 @@ pub struct LoginRequest {
 pub struct LoginResponse {
     pub token: String,
     pub user_id: Uuid,
-    pub org_id: Uuid,
-    pub org_name: String,
     pub email: String,
-    pub role: String,
 }
 
 pub async fn login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, (StatusCode, String)> {
-    let row = sqlx::query_as::<_, (Uuid, Uuid, String, String)>(
-        "SELECT u.id, u.org_id, u.password_hash, u.role FROM users u WHERE u.email = $1",
-    )
-    .bind(&req.email)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::UNAUTHORIZED, "Invalid email or password".into()))?;
+    let row =
+        sqlx::query_as::<_, (Uuid, String)>("SELECT id, password_hash FROM users WHERE email = $1")
+            .bind(&req.email)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .ok_or((StatusCode::UNAUTHORIZED, "Invalid email or password".into()))?;
 
-    let (user_id, org_id, password_hash, role) = row;
+    let (user_id, password_hash) = row;
 
     if !verify_password(&req.password, &password_hash) {
         return Err((StatusCode::UNAUTHORIZED, "Invalid email or password".into()));
     }
-
-    let org_name: String = sqlx::query_scalar("SELECT name FROM orgs WHERE id = $1")
-        .bind(org_id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let (raw_token, token_hash) = generate_session_token();
     let expires_at = chrono::Utc::now() + chrono::Duration::days(30);
@@ -162,19 +237,24 @@ pub async fn login(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    // Audit with nil org_id since login is org-agnostic now
     crate::audit::log(
         &state.pool,
-        crate::audit::user_action(org_id, user_id, "user.login", "user", Some(user_id), None),
+        crate::audit::user_action(
+            Uuid::nil(),
+            user_id,
+            "user.login",
+            "user",
+            Some(user_id),
+            None,
+        ),
     )
     .await;
 
     Ok(Json(LoginResponse {
         token: raw_token,
         user_id,
-        org_id,
-        org_name,
         email: req.email,
-        role,
     }))
 }
 
@@ -218,8 +298,6 @@ pub struct DeviceStatusResponse {
     pub token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub org_name: Option<String>,
 }
 
 pub async fn device_status(
@@ -242,10 +320,9 @@ pub async fn device_status(
 
     if status == "approved" {
         if let Some(sid) = session_id {
-            let info = sqlx::query_as::<_, (String, String)>(
-                "SELECT u.email, o.name FROM auth_sessions s
+            let info = sqlx::query_as::<_, (String,)>(
+                "SELECT u.email FROM auth_sessions s
                  JOIN users u ON s.user_id = u.id
-                 JOIN orgs o ON u.org_id = o.id
                  WHERE s.id = $1",
             )
             .bind(sid)
@@ -253,7 +330,7 @@ pub async fn device_status(
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-            if let Some((email, org_name)) = info {
+            if let Some((email,)) = info {
                 let raw_token: Option<String> = sqlx::query_scalar(
                     "SELECT session_token FROM device_auth_requests WHERE token = $1",
                 )
@@ -267,7 +344,6 @@ pub async fn device_status(
                     status: "approved".into(),
                     token: raw_token,
                     email: Some(email),
-                    org_name: Some(org_name),
                 }));
             }
         }
@@ -277,7 +353,6 @@ pub async fn device_status(
         status,
         token: None,
         email: None,
-        org_name: None,
     }))
 }
 
@@ -365,19 +440,16 @@ pub async fn logout(
 #[derive(Serialize)]
 pub struct MeResponse {
     pub user_id: Uuid,
-    pub org_id: Uuid,
-    pub org_name: String,
     pub email: String,
     pub name: Option<String>,
-    pub role: String,
 }
 
 pub async fn me(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<MeResponse>, (StatusCode, String)> {
-    let row = sqlx::query_as::<_, (String, Option<String>, String, String)>(
-        "SELECT u.email, u.name, u.role, o.name FROM users u JOIN orgs o ON u.org_id = o.id WHERE u.id = $1",
+    let row = sqlx::query_as::<_, (String, Option<String>)>(
+        "SELECT email, name FROM users WHERE id = $1",
     )
     .bind(auth.user_id)
     .fetch_one(&state.pool)
@@ -386,10 +458,118 @@ pub async fn me(
 
     Ok(Json(MeResponse {
         user_id: auth.user_id,
-        org_id: auth.org_id,
         email: row.0,
         name: row.1,
-        role: row.2,
-        org_name: row.3,
     }))
+}
+
+// --- List My Orgs ---
+
+#[derive(Serialize)]
+pub struct OrgMembership {
+    pub org_id: Uuid,
+    pub org_name: String,
+    pub display_name: Option<String>,
+    pub role: String,
+}
+
+pub async fn list_my_orgs(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<Vec<OrgMembership>>, (StatusCode, String)> {
+    let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, String)>(
+        "SELECT o.id, o.name, o.display_name, m.role
+         FROM user_org_memberships m
+         JOIN orgs o ON m.org_id = o.id
+         WHERE m.user_id = $1
+         ORDER BY o.name",
+    )
+    .bind(auth.user_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|(id, name, display, role)| OrgMembership {
+                org_id: id,
+                org_name: name,
+                display_name: display,
+                role,
+            })
+            .collect(),
+    ))
+}
+
+// --- Public Orgs (no auth, for invitation request form) ---
+
+#[derive(Serialize)]
+pub struct PublicOrg {
+    pub name: String,
+    pub display_name: Option<String>,
+}
+
+pub async fn list_public_orgs(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<PublicOrg>>, (StatusCode, String)> {
+    let rows = sqlx::query_as::<_, (String, Option<String>)>(
+        "SELECT name, display_name FROM orgs ORDER BY name",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|(name, display_name)| PublicOrg { name, display_name })
+            .collect(),
+    ))
+}
+
+// --- Invitation Request (no auth) ---
+
+#[derive(Deserialize)]
+pub struct InvitationRequestInput {
+    pub org_name: String,
+    pub email: String,
+    pub name: Option<String>,
+}
+
+pub async fn request_invitation(
+    State(state): State<AppState>,
+    Json(req): Json<InvitationRequestInput>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let org_id: Uuid = sqlx::query_scalar("SELECT id FROM orgs WHERE name = $1")
+        .bind(&req.org_name)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "Organization not found".into()))?;
+
+    // Check for duplicate pending request
+    let existing: Option<(Uuid,)> = sqlx::query_as(
+        "SELECT id FROM invitation_requests WHERE org_id = $1 AND email = $2 AND status = 'pending'",
+    )
+    .bind(org_id)
+    .bind(&req.email)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if existing.is_some() {
+        return Err((
+            StatusCode::CONFLICT,
+            "An invitation request is already pending for this email".into(),
+        ));
+    }
+
+    sqlx::query("INSERT INTO invitation_requests (org_id, email, name) VALUES ($1, $2, $3)")
+        .bind(org_id)
+        .bind(&req.email)
+        .bind(&req.name)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(StatusCode::CREATED)
 }

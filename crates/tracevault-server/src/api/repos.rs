@@ -7,7 +7,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::extractors::AuthUser;
+use crate::extractors::OrgAuth;
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterRepoRequest {
@@ -22,7 +22,7 @@ pub struct RegisterRepoResponse {
 
 pub async fn register_repo(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: OrgAuth,
     Json(req): Json<RegisterRepoRequest>,
 ) -> Result<(StatusCode, Json<RegisterRepoResponse>), (StatusCode, String)> {
     let repo_id: Uuid = sqlx::query_scalar(
@@ -79,8 +79,8 @@ async fn get_deploy_key(
 
 pub async fn sync_repo(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(repo_id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, repo_id)): Path<(String, Uuid)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let repo = sqlx::query_as::<_, (String, Option<String>)>(
         "SELECT clone_status, github_url FROM repos WHERE id = $1 AND org_id = $2",
@@ -148,9 +148,33 @@ pub struct RepoResponse {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+pub async fn get_repo(
+    State(state): State<AppState>,
+    auth: OrgAuth,
+    Path((_slug, id)): Path<(String, Uuid)>,
+) -> Result<Json<RepoResponse>, (StatusCode, String)> {
+    let row = sqlx::query_as::<_, (Uuid, String, Option<String>, String, chrono::DateTime<chrono::Utc>)>(
+        "SELECT id, name, github_url, clone_status, created_at FROM repos WHERE id = $1 AND org_id = $2",
+    )
+    .bind(id)
+    .bind(auth.org_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .ok_or((StatusCode::NOT_FOUND, "Repo not found".into()))?;
+
+    Ok(Json(RepoResponse {
+        id: row.0,
+        name: row.1,
+        github_url: row.2,
+        clone_status: row.3,
+        created_at: row.4,
+    }))
+}
+
 pub async fn list_repos(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: OrgAuth,
 ) -> Result<Json<Vec<RepoResponse>>, (StatusCode, String)> {
     let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, String, chrono::DateTime<chrono::Utc>)>(
         "SELECT id, name, github_url, clone_status, created_at FROM repos WHERE org_id = $1 ORDER BY name",
@@ -176,8 +200,8 @@ pub async fn list_repos(
 
 pub async fn delete_repo(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, id)): Path<(String, Uuid)>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     if auth.role != "owner" && auth.role != "admin" {
         return Err((StatusCode::FORBIDDEN, "Requires admin role".into()));
@@ -205,8 +229,8 @@ pub struct RepoSettingsResponse {
 
 pub async fn get_settings(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, id)): Path<(String, Uuid)>,
 ) -> Result<Json<RepoSettingsResponse>, (StatusCode, String)> {
     let row = sqlx::query_as::<_, (Option<String>, String, Option<String>, Option<chrono::DateTime<chrono::Utc>>)>(
         "SELECT github_url, clone_status, deploy_key_encrypted, last_fetched_at FROM repos WHERE id = $1 AND org_id = $2",
@@ -234,8 +258,8 @@ pub struct UpdateSettingsRequest {
 
 pub async fn update_settings(
     State(state): State<AppState>,
-    auth: AuthUser,
-    Path(id): Path<Uuid>,
+    auth: OrgAuth,
+    Path((_slug, id)): Path<(String, Uuid)>,
     Json(req): Json<UpdateSettingsRequest>,
 ) -> Result<Json<RepoSettingsResponse>, (StatusCode, String)> {
     // Verify repo belongs to org

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { TreeEntry } from '$lib/types/code';
+	import { page } from '$app/stores';
 	import { api } from '$lib/api';
 
 	let {
@@ -14,6 +15,8 @@
 		entries: TreeEntry[];
 	} = $props();
 
+	const slug = $derived($page.params.slug);
+
 	let expandedDirs = $state<Record<string, TreeEntry[]>>({});
 	let loadingDirs = $state<Record<string, boolean>>({});
 
@@ -26,7 +29,7 @@
 		loadingDirs = { ...loadingDirs, [path]: true };
 		try {
 			const children = await api.get<TreeEntry[]>(
-				`/api/v1/repos/${repoId}/code/tree?ref=${encodeURIComponent(gitRef)}&path=${encodeURIComponent(path)}`
+				`/api/v1/orgs/${slug}/repos/${repoId}/code/tree?ref=${encodeURIComponent(gitRef)}&path=${encodeURIComponent(path)}`
 			);
 			expandedDirs = { ...expandedDirs, [path]: children };
 		} catch (e) {
@@ -99,7 +102,7 @@
 									/>
 								</svg>
 								<a
-									href="/repos/{repoId}/code/{entry.path}?ref={refParam}"
+									href="/orgs/{slug}/repos/{repoId}/code/{entry.path}?ref={refParam}"
 									class="hover:underline"
 								>
 									{entry.name}
@@ -125,7 +128,7 @@
 													/>
 												</svg>
 												<a
-													href="/repos/{repoId}/code/{child.path}?ref={refParam}"
+													href="/orgs/{slug}/repos/{repoId}/code/{child.path}?ref={refParam}"
 													class="text-sm hover:underline">{child.name}</a
 												>
 											{:else}
@@ -134,7 +137,7 @@
 													>{fileIcon(child.name)}</span
 												>
 												<a
-													href="/repos/{repoId}/code/{child.path}?ref={refParam}"
+													href="/orgs/{slug}/repos/{repoId}/code/{child.path}?ref={refParam}"
 													class="text-sm hover:underline">{child.name}</a
 												>
 												<span class="ml-auto text-xs text-muted-foreground"
@@ -147,7 +150,7 @@
 							{/if}
 						{:else}
 							<a
-								href="/repos/{repoId}/code/{entry.path}?ref={refParam}"
+								href="/orgs/{slug}/repos/{repoId}/code/{entry.path}?ref={refParam}"
 								class="flex items-center gap-2"
 							>
 								<span class="w-4"></span>

@@ -13,6 +13,7 @@ export interface FeatureFlags {
 	encryption_at_rest: boolean;
 	full_policy_engine: boolean;
 	advanced_redaction: boolean;
+	initialized: boolean;
 }
 
 const communityDefaults: FeatureFlags = {
@@ -25,7 +26,8 @@ const communityDefaults: FeatureFlags = {
 	multi_org: false,
 	encryption_at_rest: false,
 	full_policy_engine: false,
-	advanced_redaction: false
+	advanced_redaction: false,
+	initialized: false
 };
 
 function createFeaturesStore() {
