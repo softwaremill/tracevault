@@ -5,6 +5,7 @@
 	import * as Table from '$lib/components/ui/table/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import Chart from '$lib/components/chart.svelte';
+	import SessionDetailPanel from '$lib/components/session-detail/SessionDetailPanel.svelte';
 	import {
 		Chart as ChartJS,
 		CategoryScale,
@@ -66,6 +67,11 @@
 	let error = $state('');
 	let sortCol = $state<string>('started_at');
 	let sortDir = $state<'asc' | 'desc'>('desc');
+	let expandedSessionId = $state<string | null>(null);
+
+	function toggleExpand(id: string) {
+		expandedSessionId = expandedSessionId === id ? null : id;
+	}
 
 	const slug = $derived($page.params.slug);
 
@@ -282,7 +288,10 @@
 						</Table.Header>
 						<Table.Body>
 							{#each sortedSessions(data.sessions) as session}
-								<Table.Row>
+								<Table.Row
+									class="cursor-pointer transition-colors hover:bg-muted/50"
+									onclick={() => toggleExpand(session.id)}
+								>
 									<Table.Cell class="font-mono text-sm">{session.session_id.slice(0, 8)}</Table.Cell>
 									<Table.Cell>{session.repo_name}</Table.Cell>
 									<Table.Cell>{session.author}</Table.Cell>
@@ -301,6 +310,13 @@
 									</Table.Cell>
 									<Table.Cell class="text-sm">{fmtRelativeTime(session.started_at)}</Table.Cell>
 								</Table.Row>
+								{#if expandedSessionId === session.id}
+									<Table.Row>
+										<Table.Cell colspan={9} class="p-0">
+											<SessionDetailPanel sessionId={session.id} />
+										</Table.Cell>
+									</Table.Row>
+								{/if}
 							{/each}
 						</Table.Body>
 					</Table.Root>
