@@ -2676,7 +2676,7 @@ checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
 name = "tracevault-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "clap",
@@ -2695,7 +2695,7 @@ dependencies = [
 
 [[package]]
 name = "tracevault-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2718,26 +2718,13 @@ dependencies = [
 name = "tracevault-enterprise"
 version = "0.1.0"
 dependencies = [
- "aes-gcm",
  "async-trait",
- "base64",
- "chrono",
- "ed25519-dalek",
- "glob-match",
- "hex",
- "rand",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
  "tracevault-core",
- "tracing",
- "uuid",
 ]
 
 [[package]]
 name = "tracevault-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes-gcm",
  "argon2",
