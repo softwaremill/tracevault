@@ -84,6 +84,7 @@
 
 	const settingsSubItems = $derived([
 		{ href: `/orgs/${slug}/settings`, label: 'Organizations' },
+		{ href: `/orgs/${slug}/settings/pricing`, label: 'Pricing' },
 		{ href: `/orgs/${slug}/settings/llm`, label: 'LLM' }
 	]);
 
