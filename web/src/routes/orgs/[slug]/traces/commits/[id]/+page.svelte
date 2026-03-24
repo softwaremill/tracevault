@@ -58,12 +58,26 @@
 	function diffFiles(diffData: Record<string, unknown> | null): string[] {
 		if (!diffData) return [];
 		if (Array.isArray(diffData)) {
-			return diffData.map((f: Record<string, unknown>) => String(f.file_path ?? f.path ?? f));
+			return diffData.map((f: unknown) => {
+				if (typeof f === 'string') return f;
+				if (f && typeof f === 'object') {
+					const obj = f as Record<string, unknown>;
+					return String(obj.path ?? obj.file_path ?? obj.name ?? JSON.stringify(f));
+				}
+				return String(f);
+			});
 		}
-		if (typeof diffData === 'object' && diffData.files) {
-			return (diffData.files as string[]).map(String);
+		if (typeof diffData === 'object' && diffData.files && Array.isArray(diffData.files)) {
+			return (diffData.files as unknown[]).map((f: unknown) => {
+				if (typeof f === 'string') return f;
+				if (f && typeof f === 'object') {
+					const obj = f as Record<string, unknown>;
+					return String(obj.path ?? obj.file_path ?? obj.name ?? JSON.stringify(f));
+				}
+				return String(f);
+			});
 		}
-		return Object.keys(diffData);
+		return Object.keys(diffData).filter((k) => k !== 'raw');
 	}
 </script>
 
