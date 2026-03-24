@@ -53,6 +53,27 @@ pub async fn handle_stream(
 
     let mut event_db_id: Option<Uuid> = None;
 
+    // Process piggybacked transcript lines on any event type
+    if let Some(ref lines) = req.transcript_lines {
+        if !lines.is_empty() {
+            let offset = req.transcript_offset.unwrap_or(0);
+            for (i, line) in lines.iter().enumerate() {
+                let chunk_index = offset as i32 + i as i32;
+                sqlx::query(
+                    "INSERT INTO transcript_chunks (session_id, chunk_index, data)
+                     VALUES ($1, $2, $3)
+                     ON CONFLICT (session_id, chunk_index) DO NOTHING",
+                )
+                .bind(session_db_id)
+                .bind(chunk_index)
+                .bind(line)
+                .execute(&state.pool)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            }
+        }
+    }
+
     match req.event_type {
         // 3. ToolUse events
         StreamEventType::ToolUse => {
@@ -117,26 +138,8 @@ pub async fn handle_stream(
             }
         }
 
-        // 4. Transcript events
-        StreamEventType::Transcript => {
-            if let Some(ref lines) = req.transcript_lines {
-                let offset = req.transcript_offset.unwrap_or(0);
-                for (i, line) in lines.iter().enumerate() {
-                    let chunk_index = offset as i32 + i as i32;
-                    sqlx::query(
-                        "INSERT INTO transcript_chunks (session_id, chunk_index, data)
-                         VALUES ($1, $2, $3)
-                         ON CONFLICT (session_id, chunk_index) DO NOTHING",
-                    )
-                    .bind(session_db_id)
-                    .bind(chunk_index)
-                    .bind(line)
-                    .execute(&state.pool)
-                    .await
-                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-                }
-            }
-        }
+        // 4. Transcript events — lines already processed above via piggybacking
+        StreamEventType::Transcript => {}
 
         // 5. SessionEnd
         StreamEventType::SessionEnd => {
