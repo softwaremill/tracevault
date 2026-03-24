@@ -176,18 +176,46 @@ async fn main() {
             "/api/v1/orgs/{slug}/repos/{repo_id}/story",
             post(api::code::generate_story),
         )
-        // Org-scoped: traces
+        // Org-scoped: traces (v2 streaming UI)
         .route(
             "/api/v1/orgs/{slug}/traces",
-            post(api::traces::create_trace).get(api::traces::list_traces),
+            post(api::traces_ui::traces_gone),
         )
         .route(
-            "/api/v1/orgs/{slug}/traces/{id}",
-            get(api::traces::get_trace),
+            "/api/v1/orgs/{slug}/traces/stats",
+            get(api::traces_ui::get_stats),
         )
         .route(
-            "/api/v1/orgs/{slug}/traces/{id}/verify",
+            "/api/v1/orgs/{slug}/traces/sessions",
+            get(api::traces_ui::list_sessions),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/traces/sessions/{id}",
+            get(api::traces_ui::get_session),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/traces/commits",
+            get(api::traces_ui::list_commits),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/traces/commits/{id}",
+            get(api::traces_ui::get_commit),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/traces/commits/{id}/verify",
             get(api::compliance::verify_trace),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/traces/timeline",
+            get(api::traces_ui::get_timeline),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/traces/attribution/{commit_id}/{*file_path}",
+            get(api::traces_ui::get_attribution),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/traces/branches",
+            get(api::traces_ui::get_branches),
         )
         // Org-scoped: api keys
         .route(
