@@ -1,5 +1,7 @@
+use axum::http::StatusCode;
 use chrono::{Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
 pub struct DashboardQuery {
@@ -78,4 +80,104 @@ pub(crate) fn period_ranges(
             )
         }
     }
+}
+
+pub(crate) struct KpiTotals {
+    pub total_cost: f64,
+    pub total_sessions: i64,
+    pub total_tokens: i64,
+    pub active_authors: i64,
+    pub avg_duration_ms: i64,
+    pub avg_tool_calls: f64,
+    pub avg_compactions: f64,
+    pub total_cache_read_tokens: i64,
+}
+
+pub(crate) async fn query_kpi_totals(
+    pool: &sqlx::PgPool,
+    org_id: Uuid,
+    from: chrono::DateTime<Utc>,
+    to: chrono::DateTime<Utc>,
+) -> Result<KpiTotals, (StatusCode, String)> {
+    let row: (f64, i64, i64, i64, i64, f64, f64, i64) = sqlx::query_as(
+        "SELECT
+            COALESCE(SUM(s.estimated_cost_usd), 0)::float8,
+            COUNT(s.id),
+            COALESCE(SUM(s.total_tokens), 0),
+            COUNT(DISTINCT c.author),
+            COALESCE(AVG(s.duration_ms), 0)::int8,
+            COALESCE(AVG(s.total_tool_calls), 0)::float8,
+            COALESCE(AVG(s.compactions), 0)::float8,
+            COALESCE(SUM(s.cache_read_tokens), 0)
+        FROM sessions s
+        JOIN commits c ON c.id = s.commit_id
+        JOIN repos r ON r.id = c.repo_id
+        WHERE r.org_id = $1
+          AND s.started_at >= $2
+          AND s.started_at < $3",
+    )
+    .bind(org_id)
+    .bind(from)
+    .bind(to)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(KpiTotals {
+        total_cost: row.0,
+        total_sessions: row.1,
+        total_tokens: row.2,
+        active_authors: row.3,
+        avg_duration_ms: row.4,
+        avg_tool_calls: row.5,
+        avg_compactions: row.6,
+        total_cache_read_tokens: row.7,
+    })
+}
+
+pub(crate) struct SparklineDay {
+    pub cost: f64,
+    pub sessions: i64,
+    pub tokens: i64,
+    pub authors: i64,
+}
+
+pub(crate) async fn query_sparklines(
+    pool: &sqlx::PgPool,
+    org_id: Uuid,
+    from: chrono::DateTime<Utc>,
+    to: chrono::DateTime<Utc>,
+) -> Result<Vec<SparklineDay>, (StatusCode, String)> {
+    let rows: Vec<(String, f64, i64, i64, i64)> = sqlx::query_as(
+        "SELECT
+            TO_CHAR(s.started_at::date, 'YYYY-MM-DD'),
+            COALESCE(SUM(s.estimated_cost_usd), 0)::float8,
+            COUNT(s.id),
+            COALESCE(SUM(s.total_tokens), 0),
+            COUNT(DISTINCT c.author)
+        FROM sessions s
+        JOIN commits c ON c.id = s.commit_id
+        JOIN repos r ON r.id = c.repo_id
+        WHERE r.org_id = $1
+          AND s.started_at >= $2
+          AND s.started_at < $3
+        GROUP BY s.started_at::date
+        ORDER BY s.started_at::date",
+    )
+    .bind(org_id)
+    .bind(from)
+    .bind(to)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(_d, cost, sessions, tokens, authors)| SparklineDay {
+            cost,
+            sessions,
+            tokens,
+            authors,
+        })
+        .collect())
 }
