@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 
 	let { children } = $props();
@@ -62,10 +64,7 @@
 		}
 	}
 
-	$effect(() => {
-		// re-fetch when slug or repoId changes
-		void slug;
-		void repoId;
+	onMount(() => {
 		fetchRepos();
 		fetchStats();
 	});
@@ -85,7 +84,7 @@
 		} else {
 			url.searchParams.delete('repo_id');
 		}
-		window.location.href = url.toString();
+		goto(url.pathname + url.search);
 	}
 </script>
 

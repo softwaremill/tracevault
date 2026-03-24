@@ -341,10 +341,11 @@ pub async fn get_session(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let linked_commits = sqlx::query_as::<_, LinkedCommitRow>(
-        "SELECT ca.commit_id, c.commit_sha, c.branch, ca.confidence
+        "SELECT DISTINCT ca.commit_id, c.commit_sha, c.branch, MAX(ca.confidence) AS confidence
          FROM commit_attributions ca
          JOIN commits_v2 c ON ca.commit_id = c.id
          WHERE ca.session_id = $1
+         GROUP BY ca.commit_id, c.commit_sha, c.branch
          ORDER BY c.committed_at DESC NULLS LAST",
     )
     .bind(session_id)

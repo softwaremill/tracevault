@@ -196,23 +196,30 @@
 		const turns: TranscriptTurn[] = [];
 		for (const chunk of chunks) {
 			if (!chunk.data) continue;
-			if (Array.isArray(chunk.data)) {
-				for (const item of chunk.data) {
-					if (item && typeof item === 'object' && 'role' in item) {
-						turns.push({
-							role: String((item as Record<string, unknown>).role ?? 'unknown'),
-							content: extractContent((item as Record<string, unknown>).content)
-						});
-					}
-				}
-			} else if (typeof chunk.data === 'object' && chunk.data !== null) {
-				const obj = chunk.data as Record<string, unknown>;
-				if ('role' in obj) {
+			const obj = chunk.data as Record<string, unknown>;
+
+			// Claude Code JSONL format: { type: "user"|"assistant", message: { role, content } }
+			const type = obj.type as string | undefined;
+			if (type === 'user' || type === 'assistant') {
+				const msg = obj.message as Record<string, unknown> | undefined;
+				if (msg) {
 					turns.push({
-						role: String(obj.role ?? 'unknown'),
+						role: type,
+						content: extractContent(msg.content)
+					});
+				} else if (obj.content) {
+					turns.push({
+						role: type,
 						content: extractContent(obj.content)
 					});
 				}
+			}
+			// Also handle standard { role, content } format
+			else if (obj.role && (obj.role === 'user' || obj.role === 'assistant')) {
+				turns.push({
+					role: String(obj.role),
+					content: extractContent(obj.content)
+				});
 			}
 		}
 		return turns;
@@ -224,7 +231,25 @@
 			return content
 				.map((c) => {
 					if (typeof c === 'string') return c;
-					if (c && typeof c === 'object' && 'text' in c) return String((c as Record<string, unknown>).text);
+					if (c && typeof c === 'object') {
+						const block = c as Record<string, unknown>;
+						if (block.type === 'text' && block.text) return String(block.text);
+						if (block.type === 'tool_use') return `[Tool: ${block.name}]`;
+						if (block.type === 'tool_result') {
+							const resultContent = block.content;
+							if (typeof resultContent === 'string') return resultContent.length > 200 ? resultContent.slice(0, 200) + '...' : resultContent;
+							if (Array.isArray(resultContent)) {
+								return resultContent
+									.filter((r: Record<string, unknown>) => r.type === 'text')
+									.map((r: Record<string, unknown>) => {
+										const txt = String(r.text ?? '');
+										return txt.length > 200 ? txt.slice(0, 200) + '...' : txt;
+									})
+									.join('\n');
+							}
+							return '[Tool result]';
+						}
+					}
 					return '';
 				})
 				.filter(Boolean)
@@ -413,10 +438,19 @@
 											>
 												{fc.change_type}
 											</span>
-											<span class="font-mono font-medium">{fc.file_path}</span>
+											<span class="font-mono font-medium">{fc.file_path.split('/').pop()}</span>
+											<span class="text-muted-foreground font-mono">{fc.file_path}</span>
 										</div>
 										{#if fc.diff_text}
-											<pre class="bg-muted/20 mt-2 max-h-60 overflow-auto rounded p-3 font-mono text-[11px] leading-relaxed">{fc.diff_text}</pre>
+											<div class="mt-2 max-h-60 overflow-auto rounded border border-border">
+												{#each fc.diff_text.split('\n') as line}
+													<div class="px-3 py-0.5 font-mono text-[11px] leading-relaxed
+														{line.startsWith('---') ? 'bg-red-500/10 text-red-400' :
+														 line.startsWith('+++') ? 'bg-green-500/10 text-green-400' :
+														 'text-muted-foreground'}"
+													>{line}</div>
+												{/each}
+											</div>
 										{/if}
 									</div>
 								{/each}

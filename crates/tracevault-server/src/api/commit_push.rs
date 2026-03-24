@@ -51,6 +51,22 @@ pub async fn handle_commit_push(
         0
     };
 
+    // 3. Track commit on its branch
+    if let Some(branch) = &req.branch {
+        let tracked_at = req.committed_at.unwrap_or_else(chrono::Utc::now);
+        sqlx::query(
+            "INSERT INTO branch_tracking (commit_id, branch, tracked_at, tracking_type)
+             VALUES ($1, $2, $3, 'push')
+             ON CONFLICT (commit_id, branch) DO NOTHING",
+        )
+        .bind(commit_db_id)
+        .bind(branch)
+        .bind(tracked_at)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    }
+
     Ok(Json(CommitPushResponse {
         commit_db_id,
         attributions_count,
