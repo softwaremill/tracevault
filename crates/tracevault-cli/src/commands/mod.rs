@@ -5,5 +5,6 @@ pub mod login;
 pub mod logout;
 pub mod push;
 pub mod stats;
+pub mod stream;
 pub mod sync;
 pub mod verify;

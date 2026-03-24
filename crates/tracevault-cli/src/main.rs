@@ -22,6 +22,11 @@ enum Cli {
         #[arg(long)]
         event: String,
     },
+    /// Stream hook events to server in real-time
+    Stream {
+        #[arg(long)]
+        event: String,
+    },
     /// Check session policies before pushing
     Check,
     /// Push collected traces to the TraceVault server
@@ -69,6 +74,12 @@ async fn main() {
             let cwd = env::current_dir().expect("Cannot determine current directory");
             if let Err(e) = commands::hook::handle_hook_from_stdin(&cwd) {
                 eprintln!("Hook error: {e}");
+            }
+        }
+        Cli::Stream { event } => {
+            let cwd = env::current_dir().expect("Cannot determine current directory");
+            if let Err(e) = commands::stream::run_stream(&cwd, &event).await {
+                eprintln!("Stream error: {e}");
             }
         }
         Cli::Check => {
