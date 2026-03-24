@@ -12,6 +12,7 @@ mod api;
 mod attribution;
 mod audit;
 mod auth;
+mod branch_tracking;
 mod config;
 mod db;
 mod encryption;
