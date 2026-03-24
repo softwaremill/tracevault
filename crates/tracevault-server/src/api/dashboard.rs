@@ -181,3 +181,53 @@ pub(crate) async fn query_sparklines(
         })
         .collect())
 }
+
+pub(crate) struct ComplianceData {
+    pub sealed_count: i64,
+    pub unsigned_count: i64,
+    pub chain_verified: Option<bool>,
+}
+
+pub(crate) async fn query_compliance(
+    pool: &sqlx::PgPool,
+    org_id: Uuid,
+    from: chrono::DateTime<Utc>,
+    to: chrono::DateTime<Utc>,
+) -> Result<ComplianceData, (StatusCode, String)> {
+    let (sealed, unsigned): (i64, i64) = sqlx::query_as(
+        "SELECT
+            COUNT(*) FILTER (WHERE s.sealed_at IS NOT NULL),
+            COUNT(*) FILTER (WHERE s.sealed_at IS NOT NULL AND s.signature IS NULL)
+        FROM sessions s
+        JOIN commits c ON c.id = s.commit_id
+        JOIN repos r ON r.id = c.repo_id
+        WHERE r.org_id = $1
+          AND s.started_at >= $2
+          AND s.started_at < $3",
+    )
+    .bind(org_id)
+    .bind(from)
+    .bind(to)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let chain_status: Option<(String,)> = sqlx::query_as(
+        "SELECT status FROM chain_verifications
+         WHERE org_id = $1
+         ORDER BY created_at DESC
+         LIMIT 1",
+    )
+    .bind(org_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let chain_verified = chain_status.map(|(s,)| s == "pass");
+
+    Ok(ComplianceData {
+        sealed_count: sealed,
+        unsigned_count: unsigned,
+        chain_verified,
+    })
+}
