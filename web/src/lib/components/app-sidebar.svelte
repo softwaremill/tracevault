@@ -8,6 +8,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import {
+		LayoutDashboard,
 		FolderGit2,
 		GitCommitHorizontal,
 		BarChart3,
@@ -57,6 +58,7 @@
 	}
 
 	const navItems = $derived([
+		{ href: `/orgs/${slug}/dashboard`, label: 'Dashboard', icon: LayoutDashboard },
 		{ href: `/orgs/${slug}/repos`, label: 'Repos', icon: FolderGit2 },
 		{ href: `/orgs/${slug}/traces`, label: 'Traces', icon: GitCommitHorizontal },
 		{ href: `/orgs/${slug}/analytics`, label: 'Analytics', icon: BarChart3 },

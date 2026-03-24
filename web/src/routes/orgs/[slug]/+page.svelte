@@ -4,6 +4,6 @@
 	import { onMount } from 'svelte';
 
 	onMount(() => {
-		goto(`/orgs/${$page.params.slug}/repos`);
+		goto(`/orgs/${$page.params.slug}/dashboard`);
 	});
 </script>
