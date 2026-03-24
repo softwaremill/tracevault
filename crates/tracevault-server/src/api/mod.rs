@@ -9,6 +9,7 @@ pub mod features;
 pub mod github;
 pub mod orgs;
 pub mod policies;
+pub mod pricing;
 pub mod repos;
 pub mod session_detail;
 pub mod traces;

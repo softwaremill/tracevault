@@ -231,6 +231,23 @@ async fn main() {
             "/api/v1/orgs/{slug}/audit-log",
             get(api::compliance::list_audit_log),
         )
+        // Org-scoped: pricing
+        .route(
+            "/api/v1/orgs/{slug}/pricing",
+            get(api::pricing::list_pricing).post(api::pricing::create_pricing),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/pricing/models",
+            get(api::pricing::list_models),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/pricing/{id}",
+            put(api::pricing::update_pricing),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/pricing/{id}/recalculate",
+            post(api::pricing::recalculate),
+        )
         // Org-scoped: dashboard
         .route(
             "/api/v1/orgs/{slug}/dashboard",
