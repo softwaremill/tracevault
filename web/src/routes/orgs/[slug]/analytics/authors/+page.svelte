@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
-	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
-	import { Badge } from '$lib/components/ui/badge/index.js';
 	import Chart from '$lib/components/chart.svelte';
 	import {
 		Chart as ChartJS,
@@ -131,79 +129,74 @@
 	<h1 class="text-2xl font-bold">Author Analytics</h1>
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+			Loading...
+		</div>
 	{:else if error}
 		<p class="text-destructive">{error}</p>
 	{:else if data}
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>Leaderboard</Card.Title>
-			</Card.Header>
-			<Card.Content>
-				{#if data.leaderboard.length > 0}
-					<Table.Root>
-						<Table.Header>
-							<Table.Row>
-								<Table.Head>Author</Table.Head>
-								<Table.Head>Commits</Table.Head>
-								<Table.Head>Sessions</Table.Head>
-								<Table.Head>Tokens</Table.Head>
-								<Table.Head>Cost</Table.Head>
-								<Table.Head>AI %</Table.Head>
-								<Table.Head>Avg Duration</Table.Head>
-								<Table.Head>Tool Calls</Table.Head>
-								<Table.Head>Compactions</Table.Head>
-								<Table.Head>Last Active</Table.Head>
-								<Table.Head>Models</Table.Head>
+		<div class="border-border overflow-hidden rounded-lg border">
+			<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground px-3 pt-3 pb-2">Leaderboard</h2>
+			{#if data.leaderboard.length > 0}
+				<Table.Root class="text-xs">
+					<Table.Header>
+						<Table.Row>
+							<Table.Head>Author</Table.Head>
+							<Table.Head>Commits</Table.Head>
+							<Table.Head>Sessions</Table.Head>
+							<Table.Head>Tokens</Table.Head>
+							<Table.Head>Cost</Table.Head>
+							<Table.Head>AI %</Table.Head>
+							<Table.Head>Avg Duration</Table.Head>
+							<Table.Head>Tool Calls</Table.Head>
+							<Table.Head>Compactions</Table.Head>
+							<Table.Head>Last Active</Table.Head>
+							<Table.Head>Models</Table.Head>
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{#each data.leaderboard as row}
+							<Table.Row class="hover:bg-muted/40 transition-colors">
+								<Table.Cell class="font-medium">{row.author}</Table.Cell>
+								<Table.Cell>{row.commits}</Table.Cell>
+								<Table.Cell>{row.sessions}</Table.Cell>
+								<Table.Cell class="font-mono">{fmtNum(row.tokens)}</Table.Cell>
+								<Table.Cell class="font-mono">${row.cost.toFixed(2)}</Table.Cell>
+								<Table.Cell>
+									{row.ai_pct != null ? `${row.ai_pct.toFixed(1)}%` : 'N/A'}
+								</Table.Cell>
+								<Table.Cell class="font-mono">{fmtDuration(row.avg_duration_ms)}</Table.Cell>
+								<Table.Cell class="font-mono">{fmtNum(row.total_tool_calls)}</Table.Cell>
+								<Table.Cell>{row.total_compactions}</Table.Cell>
+								<Table.Cell>{fmtDate(row.last_active)}</Table.Cell>
+								<Table.Cell>
+									<div class="flex flex-wrap gap-1">
+										{#each modelPrefsForAuthor(row.author) as pref}
+											<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">{pref.model} ({pref.sessions})</span>
+										{/each}
+									</div>
+								</Table.Cell>
 							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{#each data.leaderboard as row}
-								<Table.Row>
-									<Table.Cell class="font-medium">{row.author}</Table.Cell>
-									<Table.Cell>{row.commits}</Table.Cell>
-									<Table.Cell>{row.sessions}</Table.Cell>
-									<Table.Cell class="font-mono text-sm">{fmtNum(row.tokens)}</Table.Cell>
-									<Table.Cell class="font-mono text-sm">${row.cost.toFixed(2)}</Table.Cell>
-									<Table.Cell>
-										{row.ai_pct != null ? `${row.ai_pct.toFixed(1)}%` : 'N/A'}
-									</Table.Cell>
-									<Table.Cell class="font-mono text-sm">{fmtDuration(row.avg_duration_ms)}</Table.Cell>
-									<Table.Cell class="font-mono text-sm">{fmtNum(row.total_tool_calls)}</Table.Cell>
-									<Table.Cell>{row.total_compactions}</Table.Cell>
-									<Table.Cell>{fmtDate(row.last_active)}</Table.Cell>
-									<Table.Cell>
-										<div class="flex flex-wrap gap-1">
-											{#each modelPrefsForAuthor(row.author) as pref}
-												<Badge variant="outline">{pref.model} ({pref.sessions})</Badge>
-											{/each}
-										</div>
-									</Table.Cell>
-								</Table.Row>
-							{/each}
-						</Table.Body>
-					</Table.Root>
-				{:else}
-					<p class="text-muted-foreground text-sm">No data</p>
-				{/if}
-			</Card.Content>
-		</Card.Root>
+						{/each}
+					</Table.Body>
+				</Table.Root>
+			{:else}
+				<p class="text-muted-foreground text-sm px-3 pb-3">No data</p>
+			{/if}
+		</div>
 
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>Activity Timeline</Card.Title>
-			</Card.Header>
-			<Card.Content>
-				{#if data.timeline.length > 0}
-					<Chart
+		<div class="border-border rounded-lg border p-3">
+			<h4 class="mb-2 text-sm font-semibold">Activity Timeline</h4>
+			{#if data.timeline.length > 0}
+				<Chart
 					type="line"
-						data={timelineChartData(data)}
-						options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
-					/>
-				{:else}
-					<p class="text-muted-foreground text-sm">No data</p>
-				{/if}
-			</Card.Content>
-		</Card.Root>
+					data={timelineChartData(data)}
+					options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
+				/>
+			{:else}
+				<p class="text-muted-foreground text-sm">No data</p>
+			{/if}
+		</div>
 	{/if}
 </div>

@@ -2,8 +2,6 @@
 	import { page } from '$app/stores';
 	import { onMount, onDestroy } from 'svelte';
 	import { api } from '$lib/api';
-	import * as Card from '$lib/components/ui/card/index.js';
-	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
@@ -145,7 +143,10 @@
 	</div>
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+			Loading...
+		</div>
 	{:else if settings}
 		{#if error}
 			<div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
@@ -159,12 +160,12 @@
 		{/if}
 
 		<!-- GitHub Connection -->
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>GitHub Connection</Card.Title>
-				<Card.Description>SSH URL for cloning the repository.</Card.Description>
-			</Card.Header>
-			<Card.Content>
+		<div class="border-border overflow-hidden rounded-lg border">
+			<div class="bg-muted/30 px-4 py-3">
+				<span class="text-sm font-semibold">GitHub Connection</span>
+				<p class="text-xs text-muted-foreground mt-0.5">SSH URL for cloning the repository.</p>
+			</div>
+			<div class="p-4 space-y-3">
 				<div class="grid gap-2">
 					<Label for="github_url">Repository URL (SSH)</Label>
 					<Input
@@ -176,23 +177,21 @@
 						Use SSH format: <code class="rounded bg-muted px-1">git@github.com:org/repo.git</code>
 					</p>
 				</div>
-			</Card.Content>
-		</Card.Root>
+			</div>
+		</div>
 
 		<!-- Deploy Key -->
-		<Card.Root>
-			<Card.Header>
-				<Card.Title class="flex items-center gap-2">
+		<div class="border-border overflow-hidden rounded-lg border">
+			<div class="bg-muted/30 px-4 py-3">
+				<span class="text-sm font-semibold flex items-center gap-2">
 					Deploy Key
 					{#if settings.has_deploy_key}
-						<Badge variant="secondary">Configured</Badge>
+						<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(62,207,142,0.12); color: #3ecf8e; border: 1px solid rgba(62,207,142,0.25)">Configured</span>
 					{/if}
-				</Card.Title>
-				<Card.Description>
-					SSH deploy key for accessing private repositories.
-				</Card.Description>
-			</Card.Header>
-			<Card.Content class="space-y-4">
+				</span>
+				<p class="text-xs text-muted-foreground mt-0.5">SSH deploy key for accessing private repositories.</p>
+			</div>
+			<div class="p-4 space-y-4">
 				<div class="rounded-md border bg-muted/50 p-4 text-sm space-y-3">
 					<p class="font-medium">Setup instructions:</p>
 					<ol class="list-decimal list-inside space-y-2 text-muted-foreground">
@@ -222,35 +221,35 @@
 						class="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
 					></textarea>
 				</div>
-			</Card.Content>
-		</Card.Root>
+			</div>
+		</div>
 
 		<!-- Sync Status -->
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>Sync Status</Card.Title>
-			</Card.Header>
-			<Card.Content class="space-y-3">
-				<div class="flex items-center gap-3">
-					<span class="text-sm text-muted-foreground">Clone status:</span>
-					{#if settings.clone_status === 'ready'}
-						<Badge variant="default">Ready</Badge>
-					{:else if settings.clone_status === 'cloning'}
-						<Badge variant="secondary">
-							<svg class="mr-1 h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M6.34 6.34L3.51 3.51" />
-							</svg>
-							Cloning...
-						</Badge>
-					{:else if settings.clone_status === 'error'}
-						<Badge variant="destructive">Error</Badge>
-					{:else}
-						<Badge variant="outline">Not cloned</Badge>
-					{/if}
+		<div class="border-border overflow-hidden rounded-lg border">
+			<div class="bg-muted/30 px-4 py-3 text-sm font-semibold">Sync Status</div>
+			<div class="p-4 space-y-3">
+				<div class="flex items-center justify-between py-1.5 text-sm">
+					<span class="text-muted-foreground text-xs">Clone status</span>
+					<span class="text-xs">
+						{#if settings.clone_status === 'ready'}
+							<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(62,207,142,0.12); color: #3ecf8e; border: 1px solid rgba(62,207,142,0.25)">Ready</span>
+						{:else if settings.clone_status === 'cloning'}
+							<span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">
+								<svg class="mr-1 h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M6.34 6.34L3.51 3.51" />
+								</svg>
+								Cloning...
+							</span>
+						{:else if settings.clone_status === 'error'}
+							<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(240,101,101,0.12); color: #f06565; border: 1px solid rgba(240,101,101,0.25)">Error</span>
+						{:else}
+							<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(79,110,247,0.12); color: #4f6ef7; border: 1px solid rgba(79,110,247,0.25)">Not cloned</span>
+						{/if}
+					</span>
 				</div>
-				<div class="flex items-center gap-3">
-					<span class="text-sm text-muted-foreground">Last fetched:</span>
-					<span class="text-sm">{formatDate(settings.last_fetched_at)}</span>
+				<div class="flex items-center justify-between py-1.5 text-sm">
+					<span class="text-muted-foreground text-xs">Last fetched</span>
+					<span class="text-xs">{formatDate(settings.last_fetched_at)}</span>
 				</div>
 				<div class="flex items-center gap-3">
 					{#if settings.clone_status === 'ready'}
@@ -265,8 +264,8 @@
 						</a>
 					{/if}
 				</div>
-			</Card.Content>
-		</Card.Root>
+			</div>
+		</div>
 
 		<!-- Save -->
 		<div class="flex justify-end">

@@ -106,7 +106,7 @@
 	{/if}
 
 	<div class="flex items-center justify-between">
-		<h2 class="text-lg font-semibold">API Keys</h2>
+		<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">API Keys</h2>
 		<Dialog.Root bind:open={createOpen} onOpenChange={(open) => { if (!open) closeDialog(); }}>
 			<Dialog.Trigger>
 				{#snippet child({ props })}
@@ -156,26 +156,29 @@
 	</div>
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+			Loading...
+		</div>
 	{:else if keys.length === 0}
-		<p class="text-muted-foreground">No API keys yet.</p>
+		<p class="text-muted-foreground text-sm">No API keys yet.</p>
 	{:else}
 		<Table.Root>
 			<Table.Header>
 				<Table.Row>
-					<Table.Head>Name</Table.Head>
-					<Table.Head>Key</Table.Head>
-					<Table.Head>Created</Table.Head>
-					<Table.Head>Actions</Table.Head>
+					<Table.Head class="text-xs">Name</Table.Head>
+					<Table.Head class="text-xs">Key</Table.Head>
+					<Table.Head class="text-xs">Created</Table.Head>
+					<Table.Head class="text-xs">Actions</Table.Head>
 				</Table.Row>
 			</Table.Header>
 			<Table.Body>
 				{#each keys as key}
-					<Table.Row>
-						<Table.Cell>{key.name}</Table.Cell>
-						<Table.Cell class="font-mono text-sm">{key.key_prefix}</Table.Cell>
-						<Table.Cell>{formatDate(key.created_at)}</Table.Cell>
-						<Table.Cell>
+					<Table.Row class="hover:bg-muted/40 transition-colors">
+						<Table.Cell class="text-xs">{key.name}</Table.Cell>
+						<Table.Cell class="text-xs font-mono">{key.key_prefix}</Table.Cell>
+						<Table.Cell class="text-xs">{formatDate(key.created_at)}</Table.Cell>
+						<Table.Cell class="text-xs">
 							<Button variant="destructive" size="sm" onclick={() => deleteKey(key.id)}>
 								Delete
 							</Button>

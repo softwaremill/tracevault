@@ -3,7 +3,6 @@
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
 	import * as Table from '$lib/components/ui/table/index.js';
-	import { Badge } from '$lib/components/ui/badge/index.js';
 
 	interface CommitListItem {
 		id: string;
@@ -51,13 +50,16 @@
 	<h1 class="text-2xl font-bold">Commits</h1>
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+			Loading...
+		</div>
 	{:else if error}
 		<p class="text-destructive">{error}</p>
 	{:else if commits.length === 0}
 		<p class="text-muted-foreground">No commits yet. Push traces using the CLI.</p>
 	{:else}
-		<Table.Root>
+		<Table.Root class="text-xs">
 			<Table.Header>
 				<Table.Row>
 					<Table.Head>Commit</Table.Head>
@@ -70,16 +72,18 @@
 			</Table.Header>
 			<Table.Body>
 				{#each commits as commit}
-					<Table.Row>
+					<Table.Row class="hover:bg-muted/40 transition-colors">
 						<Table.Cell>
 							<a href="/orgs/{slug}/traces/{commit.commit_sha}" class="font-mono text-sm underline">
 								{commit.commit_sha.slice(0, 8)}
 							</a>
 						</Table.Cell>
-						<Table.Cell><Badge variant="author">{commit.author}</Badge></Table.Cell>
+						<Table.Cell>
+							<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">{commit.author}</span>
+						</Table.Cell>
 						<Table.Cell>
 							{#if commit.branch}
-								<Badge variant="branch">{commit.branch}</Badge>
+								<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(79,110,247,0.12); color: #4f6ef7; border: 1px solid rgba(79,110,247,0.25)">{commit.branch}</span>
 							{:else}
 								<span class="text-muted-foreground">-</span>
 							{/if}

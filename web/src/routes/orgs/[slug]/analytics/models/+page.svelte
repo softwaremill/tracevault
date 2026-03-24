@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
-	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
-	import { Badge } from '$lib/components/ui/badge/index.js';
 	import Chart from '$lib/components/chart.svelte';
 	import {
 		Chart as ChartJS,
@@ -155,17 +153,18 @@
 	<h1 class="text-2xl font-bold">Model Analytics</h1>
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+			Loading...
+		</div>
 	{:else if error}
 		<p class="text-destructive">{error}</p>
 	{:else if data}
 		<div class="grid gap-6 lg:grid-cols-2">
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>Model Distribution</Card.Title>
-				</Card.Header>
-				<Card.Content class="flex justify-center">
-					{#if data.distribution.length > 0}
+			<div class="border-border rounded-lg border p-3">
+				<h4 class="mb-2 text-sm font-semibold">Model Distribution</h4>
+				{#if data.distribution.length > 0}
+					<div class="flex justify-center">
 						<div class="max-w-[300px]">
 							<Chart
 								type="doughnut"
@@ -173,105 +172,99 @@
 								options={{ responsive: true, plugins: { legend: { position: 'bottom' } } }}
 							/>
 						</div>
-					{:else}
-						<p class="text-muted-foreground text-sm">No data</p>
-					{/if}
-				</Card.Content>
-			</Card.Root>
-
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>Model Trends</Card.Title>
-				</Card.Header>
-				<Card.Content>
-					{#if data.trends.length > 0}
-						<Chart
-						type="line"
-							data={trendsChartData(data)}
-							options={{
-								responsive: true,
-								scales: { y: { stacked: true } },
-								plugins: { legend: { position: 'top' } }
-							}}
-						/>
-					{:else}
-						<p class="text-muted-foreground text-sm">No data</p>
-					{/if}
-				</Card.Content>
-			</Card.Root>
-		</div>
-
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>Author x Model Matrix</Card.Title>
-			</Card.Header>
-			<Card.Content>
-				{#if data.author_model_matrix.length > 0}
-					<Table.Root>
-						<Table.Header>
-							<Table.Row>
-								<Table.Head>Author</Table.Head>
-								<Table.Head>Model</Table.Head>
-								<Table.Head>Sessions</Table.Head>
-								<Table.Head>Tokens</Table.Head>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{#each data.author_model_matrix as row}
-								<Table.Row>
-									<Table.Cell>{row.author}</Table.Cell>
-									<Table.Cell><Badge variant="outline">{row.model}</Badge></Table.Cell>
-									<Table.Cell>{row.sessions}</Table.Cell>
-									<Table.Cell class="font-mono text-sm">{fmtNum(row.tokens)}</Table.Cell>
-								</Table.Row>
-							{/each}
-						</Table.Body>
-					</Table.Root>
+					</div>
 				{:else}
 					<p class="text-muted-foreground text-sm">No data</p>
 				{/if}
-			</Card.Content>
-		</Card.Root>
+			</div>
 
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>Model Comparison</Card.Title>
-			</Card.Header>
-			<Card.Content>
-				{#if data.comparison.length > 0}
+			<div class="border-border rounded-lg border p-3">
+				<h4 class="mb-2 text-sm font-semibold">Model Trends</h4>
+				{#if data.trends.length > 0}
 					<Chart
-					type="bar"
+						type="line"
+						data={trendsChartData(data)}
+						options={{
+							responsive: true,
+							scales: { y: { stacked: true } },
+							plugins: { legend: { position: 'top' } }
+						}}
+					/>
+				{:else}
+					<p class="text-muted-foreground text-sm">No data</p>
+				{/if}
+			</div>
+		</div>
+
+		<div class="border-border overflow-hidden rounded-lg border">
+			<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground p-3">Author x Model Matrix</h2>
+			{#if data.author_model_matrix.length > 0}
+				<Table.Root class="text-xs">
+					<Table.Header>
+						<Table.Row>
+							<Table.Head>Author</Table.Head>
+							<Table.Head>Model</Table.Head>
+							<Table.Head>Sessions</Table.Head>
+							<Table.Head>Tokens</Table.Head>
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{#each data.author_model_matrix as row}
+							<Table.Row class="hover:bg-muted/40 transition-colors">
+								<Table.Cell>{row.author}</Table.Cell>
+								<Table.Cell>
+									<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">{row.model}</span>
+								</Table.Cell>
+								<Table.Cell>{row.sessions}</Table.Cell>
+								<Table.Cell class="font-mono">{fmtNum(row.tokens)}</Table.Cell>
+							</Table.Row>
+						{/each}
+					</Table.Body>
+				</Table.Root>
+			{:else}
+				<p class="text-muted-foreground text-sm p-3">No data</p>
+			{/if}
+		</div>
+
+		<div class="border-border overflow-hidden rounded-lg border">
+			<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground p-3">Model Comparison</h2>
+			{#if data.comparison.length > 0}
+				<div class="p-3 pt-0">
+					<Chart
+						type="bar"
 						data={comparisonChartData(data)}
 						options={{ responsive: true, plugins: { legend: { display: false } } }}
 					/>
-					<Table.Root class="mt-4">
-						<Table.Header>
-							<Table.Row>
-								<Table.Head>Model</Table.Head>
-								<Table.Head>Avg Tokens</Table.Head>
-								<Table.Head>Avg Cost</Table.Head>
-								<Table.Head>Cache Read</Table.Head>
-								<Table.Head>Cache Write</Table.Head>
-								<Table.Head>Avg Duration</Table.Head>
+				</div>
+				<Table.Root class="text-xs">
+					<Table.Header>
+						<Table.Row>
+							<Table.Head>Model</Table.Head>
+							<Table.Head>Avg Tokens</Table.Head>
+							<Table.Head>Avg Cost</Table.Head>
+							<Table.Head>Cache Read</Table.Head>
+							<Table.Head>Cache Write</Table.Head>
+							<Table.Head>Avg Duration</Table.Head>
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{#each data.comparison as row}
+							<Table.Row class="hover:bg-muted/40 transition-colors">
+								<Table.Cell>
+									<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">{row.model}</span>
+								</Table.Cell>
+								<Table.Cell class="font-mono">{fmtNum(row.avg_tokens)}</Table.Cell>
+								<Table.Cell class="font-mono">${row.avg_cost.toFixed(4)}</Table.Cell>
+								<Table.Cell class="font-mono">{fmtNum(row.cache_read_tokens)}</Table.Cell>
+								<Table.Cell class="font-mono">{fmtNum(row.cache_write_tokens)}</Table.Cell>
+								<Table.Cell class="font-mono">{fmtDuration(row.avg_duration_ms)}</Table.Cell>
 							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{#each data.comparison as row}
-								<Table.Row>
-									<Table.Cell><Badge variant="outline">{row.model}</Badge></Table.Cell>
-									<Table.Cell class="font-mono text-sm">{fmtNum(row.avg_tokens)}</Table.Cell>
-									<Table.Cell class="font-mono text-sm">${row.avg_cost.toFixed(4)}</Table.Cell>
-									<Table.Cell class="font-mono text-sm">{fmtNum(row.cache_read_tokens)}</Table.Cell>
-									<Table.Cell class="font-mono text-sm">{fmtNum(row.cache_write_tokens)}</Table.Cell>
-									<Table.Cell class="font-mono text-sm">{fmtDuration(row.avg_duration_ms)}</Table.Cell>
-								</Table.Row>
-							{/each}
-						</Table.Body>
-					</Table.Root>
-				{:else}
-					<p class="text-muted-foreground text-sm">No data</p>
-				{/if}
-			</Card.Content>
-		</Card.Root>
+						{/each}
+					</Table.Body>
+				</Table.Root>
+			{:else}
+				<p class="text-muted-foreground text-sm p-3">No data</p>
+			{/if}
+		</div>
 	{/if}
 </div>

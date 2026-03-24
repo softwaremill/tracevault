@@ -5,7 +5,6 @@
 	import { orgStore } from '$lib/stores/org';
 	import { features } from '$lib/stores/features';
 	import EnterpriseUpgrade from '$lib/components/enterprise-upgrade.svelte';
-	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
@@ -101,7 +100,7 @@
 </svelte:head>
 
 {#if !$features.loaded}
-	<p class="text-muted-foreground">Loading...</p>
+	<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm"><span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>Loading...</div>
 {:else if $features.compliance}
 <div class="space-y-6 max-w-2xl">
 	<div class="flex items-center gap-2">
@@ -111,13 +110,11 @@
 	</div>
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm"><span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>Loading...</div>
 	{:else}
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>Compliance Configuration</Card.Title>
-			</Card.Header>
-			<Card.Content>
+		<div class="border-border overflow-hidden rounded-lg border">
+			<div class="bg-muted/30 px-4 py-3 text-sm font-semibold">Compliance Configuration</div>
+			<div class="p-4 space-y-3">
 				{#if error}
 					<p class="text-sm text-destructive mb-4">{error}</p>
 				{/if}
@@ -216,15 +213,13 @@
 						</p>
 					{/if}
 				</form>
-			</Card.Content>
-		</Card.Root>
+			</div>
+		</div>
 
 		<!-- Public Key Card -->
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>Signing Public Key</Card.Title>
-			</Card.Header>
-			<Card.Content>
+		<div class="border-border overflow-hidden rounded-lg border">
+			<div class="bg-muted/30 px-4 py-3 text-sm font-semibold">Signing Public Key</div>
+			<div class="p-4 space-y-3">
 				<p class="text-xs text-muted-foreground mb-2">
 					Use this key to independently verify trace signatures.
 				</p>
@@ -245,8 +240,8 @@
 				>
 					Copy Public Key
 				</Button>
-			</Card.Content>
-		</Card.Root>
+			</div>
+		</div>
 	{/if}
 </div>
 {:else}

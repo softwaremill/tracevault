@@ -4,11 +4,9 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api';
 	import { features } from '$lib/stores/features';
-	import * as Card from '$lib/components/ui/card/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
-	import { Badge } from '$lib/components/ui/badge/index.js';
 
 	interface OrgItem {
 		org_id: string;
@@ -105,15 +103,13 @@
 	</div>
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm"><span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>Loading...</div>
 	{:else}
 		{#if showCreateForm}
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>Create Organization</Card.Title>
-					<Card.Description>Link a new GitHub organization to TraceVault.</Card.Description>
-				</Card.Header>
-				<Card.Content>
+			<div class="border-border overflow-hidden rounded-lg border">
+				<div class="bg-muted/30 px-4 py-3 text-sm font-semibold">Create Organization</div>
+				<div class="p-4 space-y-3">
+					<p class="text-xs text-muted-foreground">Link a new GitHub organization to TraceVault.</p>
 					<form onsubmit={(e) => { e.preventDefault(); createOrg(); }} class="space-y-4">
 						<div class="space-y-2">
 							<Label for="newOrg">GitHub organization</Label>
@@ -143,16 +139,16 @@
 							<Button variant="outline" onclick={() => (showCreateForm = false)}>Cancel</Button>
 						</div>
 					</form>
-				</Card.Content>
-			</Card.Root>
+				</div>
+			</div>
 		{/if}
 
 		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 			{#each allOrgs as org}
 				{@const isCurrent = org.org_name === slug}
 				<a href="/orgs/{org.org_name}/settings/org" class="block">
-					<Card.Root class="h-full transition-colors hover:border-primary/50 {isCurrent ? 'border-primary shadow-sm' : ''}">
-						<Card.Content class="pt-6">
+					<div class="border-border overflow-hidden rounded-lg border h-full transition-colors hover:border-primary/50 {isCurrent ? 'border-primary shadow-sm' : ''}">
+						<div class="p-4">
 							<div class="flex items-start gap-3">
 								<img src="https://github.com/{org.org_name}.png?size=80" alt="" class="h-10 w-10 rounded-md" />
 								<div class="flex-1 min-w-0">
@@ -163,15 +159,19 @@
 												<p class="text-xs text-muted-foreground">{org.org_name}</p>
 											{/if}
 										</div>
-										<Badge variant={isCurrent ? 'default' : 'outline'}>{org.role}</Badge>
+										{#if isCurrent}
+											<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(62,207,142,0.12); color: #3ecf8e; border: 1px solid rgba(62,207,142,0.25)">{org.role}</span>
+										{:else}
+											<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">{org.role}</span>
+										{/if}
 									</div>
 									{#if isCurrent}
 										<p class="text-xs text-primary mt-1">Current</p>
 									{/if}
 								</div>
 							</div>
-						</Card.Content>
-					</Card.Root>
+						</div>
+					</div>
 				</a>
 			{/each}
 		</div>

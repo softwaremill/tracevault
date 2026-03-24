@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
-	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
 	import Chart from '$lib/components/chart.svelte';
 	import {
@@ -149,123 +148,104 @@
 	<h1 class="text-2xl font-bold">Token Analytics</h1>
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+			Loading...
+		</div>
 	{:else if error}
 		<p class="text-destructive">{error}</p>
 	{:else if data}
-		<div class="grid grid-cols-1 gap-4 md:grid-cols-3">
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Cache Read Tokens</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">{fmtNum(data.cache_read_tokens)}</p>
-				</Card.Content>
-			</Card.Root>
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Cache Write Tokens</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">{fmtNum(data.cache_write_tokens)}</p>
-				</Card.Content>
-			</Card.Root>
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Cache Savings</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">${data.cache_savings_usd.toFixed(2)}</p>
-				</Card.Content>
-			</Card.Root>
+		<div class="border-border overflow-hidden rounded-lg border">
+			<div class="grid grid-cols-2 gap-px md:grid-cols-3">
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Cache Read Tokens</div>
+					<div class="mt-1 text-lg font-semibold">{fmtNum(data.cache_read_tokens)}</div>
+				</div>
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Cache Write Tokens</div>
+					<div class="mt-1 text-lg font-semibold">{fmtNum(data.cache_write_tokens)}</div>
+				</div>
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Cache Savings</div>
+					<div class="mt-1 text-lg font-semibold">${data.cache_savings_usd.toFixed(2)}</div>
+				</div>
+			</div>
 		</div>
 
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>Tokens Over Time</Card.Title>
-			</Card.Header>
-			<Card.Content>
-				{#if data.time_series.length > 0}
-					<Chart
+		<div class="border-border rounded-lg border p-3">
+			<h4 class="mb-2 text-sm font-semibold">Tokens Over Time</h4>
+			{#if data.time_series.length > 0}
+				<Chart
 					type="line"
-						data={timeChartData(data)}
-						options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
-					/>
-				{:else}
-					<p class="text-muted-foreground text-sm">No data</p>
-				{/if}
-			</Card.Content>
-		</Card.Root>
+					data={timeChartData(data)}
+					options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
+				/>
+			{:else}
+				<p class="text-muted-foreground text-sm">No data</p>
+			{/if}
+		</div>
 
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>By Repository</Card.Title>
-			</Card.Header>
-			<Card.Content>
-				{#if data.by_repo.length > 0}
-					<Table.Root>
-						<Table.Header>
-							<Table.Row>
-								<Table.Head>Repo</Table.Head>
-								<Table.Head>
-									<button class="hover:underline" onclick={() => sortBy('total')}>
-										Total Tokens {sortCol === 'total' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-									</button>
-								</Table.Head>
-								<Table.Head>
-									<button class="hover:underline" onclick={() => sortBy('input')}>
-										Input {sortCol === 'input' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-									</button>
-								</Table.Head>
-								<Table.Head>
-									<button class="hover:underline" onclick={() => sortBy('output')}>
-										Output {sortCol === 'output' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-									</button>
-								</Table.Head>
-								<Table.Head>
-									<button class="hover:underline" onclick={() => sortBy('sessions')}>
-										Sessions {sortCol === 'sessions' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-									</button>
-								</Table.Head>
-								<Table.Head>Avg/Session</Table.Head>
+		<div class="border-border overflow-hidden rounded-lg border">
+			<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground p-3">By Repository</h2>
+			{#if data.by_repo.length > 0}
+				<Table.Root class="text-xs">
+					<Table.Header>
+						<Table.Row>
+							<Table.Head>Repo</Table.Head>
+							<Table.Head>
+								<button class="hover:underline" onclick={() => sortBy('total')}>
+									Total Tokens {sortCol === 'total' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+								</button>
+							</Table.Head>
+							<Table.Head>
+								<button class="hover:underline" onclick={() => sortBy('input')}>
+									Input {sortCol === 'input' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+								</button>
+							</Table.Head>
+							<Table.Head>
+								<button class="hover:underline" onclick={() => sortBy('output')}>
+									Output {sortCol === 'output' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+								</button>
+							</Table.Head>
+							<Table.Head>
+								<button class="hover:underline" onclick={() => sortBy('sessions')}>
+									Sessions {sortCol === 'sessions' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+								</button>
+							</Table.Head>
+							<Table.Head>Avg/Session</Table.Head>
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{#each sortedRepos(data.by_repo) as repo}
+							<Table.Row class="hover:bg-muted/40 transition-colors">
+								<Table.Cell>{repo.repo}</Table.Cell>
+								<Table.Cell class="font-mono">{fmtNum(repo.total)}</Table.Cell>
+								<Table.Cell class="font-mono">{fmtNum(repo.input)}</Table.Cell>
+								<Table.Cell class="font-mono">{fmtNum(repo.output)}</Table.Cell>
+								<Table.Cell>{repo.sessions}</Table.Cell>
+								<Table.Cell class="font-mono">
+									{repo.sessions > 0 ? fmtNum(Math.round(repo.total / repo.sessions)) : '-'}
+								</Table.Cell>
 							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{#each sortedRepos(data.by_repo) as repo}
-								<Table.Row>
-									<Table.Cell>{repo.repo}</Table.Cell>
-									<Table.Cell class="font-mono text-sm">{fmtNum(repo.total)}</Table.Cell>
-									<Table.Cell class="font-mono text-sm">{fmtNum(repo.input)}</Table.Cell>
-									<Table.Cell class="font-mono text-sm">{fmtNum(repo.output)}</Table.Cell>
-									<Table.Cell>{repo.sessions}</Table.Cell>
-									<Table.Cell class="font-mono text-sm">
-										{repo.sessions > 0 ? fmtNum(Math.round(repo.total / repo.sessions)) : '-'}
-									</Table.Cell>
-								</Table.Row>
-							{/each}
-						</Table.Body>
-					</Table.Root>
-				{:else}
-					<p class="text-muted-foreground text-sm">No data</p>
-				{/if}
-			</Card.Content>
-		</Card.Root>
+						{/each}
+					</Table.Body>
+				</Table.Root>
+			{:else}
+				<p class="text-muted-foreground text-sm p-3">No data</p>
+			{/if}
+		</div>
 
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>By Author</Card.Title>
-			</Card.Header>
-			<Card.Content>
-				{#if data.by_author.length > 0}
-					<Chart
+		<div class="border-border rounded-lg border p-3">
+			<h4 class="mb-2 text-sm font-semibold">By Author</h4>
+			{#if data.by_author.length > 0}
+				<Chart
 					type="bar"
-						data={authorChartData(data)}
-						options={{ responsive: true, plugins: { legend: { display: false } } }}
-					/>
-				{:else}
-					<p class="text-muted-foreground text-sm">No data</p>
-				{/if}
-			</Card.Content>
-		</Card.Root>
+					data={authorChartData(data)}
+					options={{ responsive: true, plugins: { legend: { display: false } } }}
+				/>
+			{:else}
+				<p class="text-muted-foreground text-sm">No data</p>
+			{/if}
+		</div>
 	{/if}
 </div>

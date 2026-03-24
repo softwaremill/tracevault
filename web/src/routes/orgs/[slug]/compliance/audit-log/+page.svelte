@@ -4,9 +4,7 @@
 	import { api } from '$lib/api';
 	import { features } from '$lib/stores/features';
 	import EnterpriseUpgrade from '$lib/components/enterprise-upgrade.svelte';
-	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
-	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
@@ -93,7 +91,7 @@
 </svelte:head>
 
 {#if !$features.loaded}
-	<p class="text-muted-foreground">Loading...</p>
+	<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm"><span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>Loading...</div>
 {:else if $features.audit_trail}
 <div class="space-y-6">
 	<div class="flex items-center gap-2">
@@ -103,8 +101,8 @@
 	</div>
 
 	<!-- Filters -->
-	<Card.Root>
-		<Card.Content class="pt-6">
+	<div class="border-border overflow-hidden rounded-lg border">
+		<div class="p-4">
 			<div class="flex flex-wrap gap-4 items-end">
 				<div class="grid gap-1">
 					<Label class="text-xs">Action</Label>
@@ -120,18 +118,18 @@
 				</div>
 				<Button size="sm" onclick={applyFilters}>Filter</Button>
 			</div>
-		</Card.Content>
-	</Card.Root>
+		</div>
+	</div>
 
 	<!-- Results -->
-	<Card.Root>
-		<Card.Header class="flex flex-row items-center justify-between">
-			<Card.Title>{total} entries</Card.Title>
-			<p class="text-sm text-muted-foreground">Page {currentPage} of {totalPages || 1}</p>
-		</Card.Header>
-		<Card.Content>
+	<div class="border-border overflow-hidden rounded-lg border">
+		<div class="bg-muted/30 flex items-center justify-between px-4 py-3">
+			<span class="text-sm font-semibold">{total} entries</span>
+			<span class="text-xs text-muted-foreground">Page {currentPage} of {totalPages || 1}</span>
+		</div>
+		<div class="p-4 space-y-3">
 			{#if loading}
-				<p class="text-muted-foreground">Loading...</p>
+				<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm"><span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>Loading...</div>
 			{:else if error}
 				<p class="text-destructive">{error}</p>
 			{:else if entries.length === 0}
@@ -140,17 +138,17 @@
 				<Table.Root>
 					<Table.Header>
 						<Table.Row>
-							<Table.Head>Time</Table.Head>
-							<Table.Head>Action</Table.Head>
-							<Table.Head>Resource</Table.Head>
-							<Table.Head>Resource ID</Table.Head>
-							<Table.Head>Details</Table.Head>
+							<Table.Head class="text-xs">Time</Table.Head>
+							<Table.Head class="text-xs">Action</Table.Head>
+							<Table.Head class="text-xs">Resource</Table.Head>
+							<Table.Head class="text-xs">Resource ID</Table.Head>
+							<Table.Head class="text-xs">Details</Table.Head>
 						</Table.Row>
 					</Table.Header>
 					<Table.Body>
 						{#each entries as entry}
 							<Table.Row
-								class="cursor-pointer"
+								class="cursor-pointer hover:bg-muted/40 transition-colors"
 								onclick={() => {
 									expandedId = expandedId === entry.id ? '' : entry.id;
 								}}
@@ -159,7 +157,7 @@
 									>{formatDate(entry.created_at)}</Table.Cell
 								>
 								<Table.Cell>
-									<Badge variant="outline">{entry.action}</Badge>
+									<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(79,110,247,0.12); color: #4f6ef7; border: 1px solid rgba(79,110,247,0.25)">{entry.action}</span>
 								</Table.Cell>
 								<Table.Cell class="text-xs font-mono"
 									>{entry.resource_type}</Table.Cell
@@ -222,8 +220,8 @@
 					</div>
 				{/if}
 			{/if}
-		</Card.Content>
-	</Card.Root>
+		</div>
+	</div>
 </div>
 {:else}
 	<EnterpriseUpgrade feature="audit_trail" />

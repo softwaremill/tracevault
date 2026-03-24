@@ -3,7 +3,6 @@
 	import { api } from '$lib/api';
 	import { features } from '$lib/stores/features';
 	import EnterpriseUpgrade from '$lib/components/enterprise-upgrade.svelte';
-	import * as Card from '$lib/components/ui/card/index.js';
 	import Chart from '$lib/components/chart.svelte';
 	import {
 		Chart as ChartJS,
@@ -149,67 +148,57 @@
 </svelte:head>
 
 {#if !$features.loaded}
-	<p class="text-muted-foreground">Loading...</p>
+	<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+		<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+		Loading...
+	</div>
 {:else if $features.advanced_analytics}
 <div class="space-y-6">
 	<h1 class="text-2xl font-bold">Cost Analytics</h1>
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+			Loading...
+		</div>
 	{:else if error}
 		<p class="text-destructive">{error}</p>
 	{:else if data}
-		<div class="grid grid-cols-1 gap-4 md:grid-cols-3">
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Total Cost</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">{fmtCost(data.total_cost)}</p>
-				</Card.Content>
-			</Card.Root>
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Cache Savings</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">{fmtCost(data.cache_savings_usd)}</p>
-				</Card.Content>
-			</Card.Root>
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Avg Cost/Session</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">{fmtCost(data.avg_cost_per_session)}</p>
-				</Card.Content>
-			</Card.Root>
+		<div class="border-border overflow-hidden rounded-lg border">
+			<div class="grid grid-cols-2 gap-px md:grid-cols-3">
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Total Cost</div>
+					<div class="mt-1 text-lg font-semibold">{fmtCost(data.total_cost)}</div>
+				</div>
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Cache Savings</div>
+					<div class="mt-1 text-lg font-semibold">{fmtCost(data.cache_savings_usd)}</div>
+				</div>
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Avg Cost/Session</div>
+					<div class="mt-1 text-lg font-semibold">{fmtCost(data.avg_cost_per_session)}</div>
+				</div>
+			</div>
 		</div>
 
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>Cost Over Time</Card.Title>
-			</Card.Header>
-			<Card.Content>
-				{#if data.cost_over_time.length > 0}
-					<Chart
-						type="line"
-						data={costOverTimeChartData(data)}
-						options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
-					/>
-				{:else}
-					<p class="text-muted-foreground text-sm">No data</p>
-				{/if}
-			</Card.Content>
-		</Card.Root>
+		<div class="border-border rounded-lg border p-3">
+			<h4 class="mb-2 text-sm font-semibold">Cost Over Time</h4>
+			{#if data.cost_over_time.length > 0}
+				<Chart
+					type="line"
+					data={costOverTimeChartData(data)}
+					options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
+				/>
+			{:else}
+				<p class="text-muted-foreground text-sm">No data</p>
+			{/if}
+		</div>
 
 		<div class="grid gap-6 lg:grid-cols-2">
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>Cost by Model</Card.Title>
-				</Card.Header>
-				<Card.Content class="flex justify-center">
-					{#if data.cost_by_model.length > 0}
+			<div class="border-border rounded-lg border p-3">
+				<h4 class="mb-2 text-sm font-semibold">Cost by Model</h4>
+				{#if data.cost_by_model.length > 0}
+					<div class="flex justify-center">
 						<div class="max-w-[300px]">
 							<Chart
 								type="doughnut"
@@ -217,48 +206,42 @@
 								options={{ responsive: true, plugins: { legend: { position: 'bottom' } } }}
 							/>
 						</div>
-					{:else}
-						<p class="text-muted-foreground text-sm">No data</p>
-					{/if}
-				</Card.Content>
-			</Card.Root>
+					</div>
+				{:else}
+					<p class="text-muted-foreground text-sm">No data</p>
+				{/if}
+			</div>
 
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>Cost by Repository</Card.Title>
-				</Card.Header>
-				<Card.Content>
-					{#if data.cost_by_repo.length > 0}
-						<Chart
-							type="bar"
-							data={costByRepoChartData(data)}
-							options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
-						/>
-					{:else}
-						<p class="text-muted-foreground text-sm">No data</p>
-					{/if}
-				</Card.Content>
-			</Card.Root>
-		</div>
-
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>Cost by Author</Card.Title>
-			</Card.Header>
-			<Card.Content>
-				{#if data.cost_by_author.length > 0}
+			<div class="border-border rounded-lg border p-3">
+				<h4 class="mb-2 text-sm font-semibold">Cost by Repository</h4>
+				{#if data.cost_by_repo.length > 0}
 					<Chart
 						type="bar"
-						data={costByAuthorChartData(data)}
+						data={costByRepoChartData(data)}
 						options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
 					/>
 				{:else}
 					<p class="text-muted-foreground text-sm">No data</p>
 				{/if}
-			</Card.Content>
-		</Card.Root>
+			</div>
+		</div>
+
+		<div class="border-border rounded-lg border p-3">
+			<h4 class="mb-2 text-sm font-semibold">Cost by Author</h4>
+			{#if data.cost_by_author.length > 0}
+				<Chart
+					type="bar"
+					data={costByAuthorChartData(data)}
+					options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
+				/>
+			{:else}
+				<p class="text-muted-foreground text-sm">No data</p>
+			{/if}
+		</div>
 	{/if}
 </div>
 {:else}
-	<EnterpriseUpgrade feature="advanced_analytics" />
+	<div class="border-border overflow-hidden rounded-lg border">
+		<EnterpriseUpgrade feature="advanced_analytics" />
+	</div>
 {/if}

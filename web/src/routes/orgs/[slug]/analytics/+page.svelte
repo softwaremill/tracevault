@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
-	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
-	import { Badge } from '$lib/components/ui/badge/index.js';
 	import Chart from '$lib/components/chart.svelte';
 	import {
 		Chart as ChartJS,
@@ -221,185 +219,138 @@
 </svelte:head>
 
 <div class="space-y-6">
-	<h1 class="text-2xl font-bold">Analytics Overview</h1>
+	<h1 class="text-xl font-semibold">Analytics Overview</h1>
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+			Loading...
+		</div>
 	{:else if error}
 		<p class="text-destructive">{error}</p>
 	{:else if data}
-		<div class="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Total Commits</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">{fmtNum(data.total_commits)}</p>
-				</Card.Content>
-			</Card.Root>
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Sessions</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">{fmtNum(data.total_sessions)}</p>
-				</Card.Content>
-			</Card.Root>
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Total Tokens</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">{fmtNum(data.total_tokens)}</p>
-				</Card.Content>
-			</Card.Root>
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Active Authors</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">{data.active_authors}</p>
-				</Card.Content>
-			</Card.Root>
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>AI %</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">
+		<div class="border-border overflow-hidden rounded-lg border">
+			<div class="grid grid-cols-2 gap-px md:grid-cols-3 lg:grid-cols-6">
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Total Commits</div>
+					<div class="mt-1 text-lg font-semibold">{fmtNum(data.total_commits)}</div>
+				</div>
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Sessions</div>
+					<div class="mt-1 text-lg font-semibold">{fmtNum(data.total_sessions)}</div>
+				</div>
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Total Tokens</div>
+					<div class="mt-1 text-lg font-semibold">{fmtNum(data.total_tokens)}</div>
+				</div>
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Active Authors</div>
+					<div class="mt-1 text-lg font-semibold">{data.active_authors}</div>
+				</div>
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">AI %</div>
+					<div class="mt-1 text-lg font-semibold">
 						{data.ai_percentage != null ? `${data.ai_percentage.toFixed(1)}%` : 'N/A'}
-					</p>
-				</Card.Content>
-			</Card.Root>
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Estimated Cost</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">{fmtCost(data.estimated_cost_usd)}</p>
-				</Card.Content>
-			</Card.Root>
+					</div>
+				</div>
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Estimated Cost</div>
+					<div class="mt-1 text-lg font-semibold">{fmtCost(data.estimated_cost_usd)}</div>
+				</div>
+			</div>
 		</div>
 
-		<div class="grid grid-cols-2 gap-4 md:grid-cols-3">
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Avg Session Duration</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">{fmtDuration(data.avg_session_duration_ms)}</p>
-				</Card.Content>
-			</Card.Root>
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Total Tool Calls</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">{fmtNum(data.total_tool_calls)}</p>
-				</Card.Content>
-			</Card.Root>
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Cache Savings</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">{fmtCost(data.cache_savings_usd)}</p>
-				</Card.Content>
-			</Card.Root>
+		<div class="border-border overflow-hidden rounded-lg border">
+			<div class="grid grid-cols-2 gap-px md:grid-cols-3">
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Avg Session Duration</div>
+					<div class="mt-1 text-lg font-semibold">{fmtDuration(data.avg_session_duration_ms)}</div>
+				</div>
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Total Tool Calls</div>
+					<div class="mt-1 text-lg font-semibold">{fmtNum(data.total_tool_calls)}</div>
+				</div>
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Cache Savings</div>
+					<div class="mt-1 text-lg font-semibold">{fmtCost(data.cache_savings_usd)}</div>
+				</div>
+			</div>
 		</div>
 
 		<div class="grid gap-6 lg:grid-cols-2">
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>
-						<a href="/orgs/{slug}/analytics/tokens" class="hover:underline">Tokens Over Time</a>
-					</Card.Title>
-				</Card.Header>
-				<Card.Content>
-					{#if data.tokens_over_time.length > 0}
-						<Chart
-							type="line"
-							data={tokensChartData(data)}
-							options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
-						/>
-					{:else}
-						<p class="text-muted-foreground text-sm">No data</p>
-					{/if}
-				</Card.Content>
-			</Card.Root>
+			<div class="border-border rounded-lg border p-3">
+				<h4 class="mb-2 text-sm font-semibold">
+					<a href="/orgs/{slug}/analytics/tokens" class="hover:underline">Tokens Over Time</a>
+				</h4>
+				{#if data.tokens_over_time.length > 0}
+					<Chart
+						type="line"
+						data={tokensChartData(data)}
+						options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
+					/>
+				{:else}
+					<p class="text-muted-foreground text-sm">No data</p>
+				{/if}
+			</div>
 
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>
-						<a href="/orgs/{slug}/analytics/tokens" class="hover:underline">Top Repos by Tokens</a>
-					</Card.Title>
-				</Card.Header>
-				<Card.Content>
-					{#if data.top_repos.length > 0}
-						<Chart
-							type="bar"
-							data={reposChartData(data)}
-							options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
-						/>
-					{:else}
-						<p class="text-muted-foreground text-sm">No data</p>
-					{/if}
-				</Card.Content>
-			</Card.Root>
+			<div class="border-border rounded-lg border p-3">
+				<h4 class="mb-2 text-sm font-semibold">
+					<a href="/orgs/{slug}/analytics/tokens" class="hover:underline">Top Repos by Tokens</a>
+				</h4>
+				{#if data.top_repos.length > 0}
+					<Chart
+						type="bar"
+						data={reposChartData(data)}
+						options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
+					/>
+				{:else}
+					<p class="text-muted-foreground text-sm">No data</p>
+				{/if}
+			</div>
 		</div>
 
 		<div class="grid gap-6 lg:grid-cols-2">
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>
-						<a href="/orgs/{slug}/analytics/sessions" class="hover:underline">Hourly Activity</a>
-					</Card.Title>
-				</Card.Header>
-				<Card.Content>
-					{#if data.hourly_activity.length > 0}
-						<Chart
-							type="bar"
-							data={hourlyActivityChartData(data)}
-							options={{
-								responsive: true,
-								plugins: { legend: { display: false } },
-								scales: { x: { title: { display: true, text: 'Hour of Day' } }, y: { title: { display: true, text: 'Sessions' } } }
-							}}
-						/>
-					{:else}
-						<p class="text-muted-foreground text-sm">No data</p>
-					{/if}
-				</Card.Content>
-			</Card.Root>
+			<div class="border-border rounded-lg border p-3">
+				<h4 class="mb-2 text-sm font-semibold">
+					<a href="/orgs/{slug}/analytics/sessions" class="hover:underline">Hourly Activity</a>
+				</h4>
+				{#if data.hourly_activity.length > 0}
+					<Chart
+						type="bar"
+						data={hourlyActivityChartData(data)}
+						options={{
+							responsive: true,
+							plugins: { legend: { display: false } },
+							scales: { x: { title: { display: true, text: 'Hour of Day' } }, y: { title: { display: true, text: 'Sessions' } } }
+						}}
+					/>
+				{:else}
+					<p class="text-muted-foreground text-sm">No data</p>
+				{/if}
+			</div>
 
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>
-						<a href="/orgs/{slug}/analytics/sessions" class="hover:underline">Sessions Over Time</a>
-					</Card.Title>
-				</Card.Header>
-				<Card.Content>
-					{#if data.sessions_over_time.length > 0}
-						<Chart
-							type="line"
-							data={sessionsOverTimeChartData(data)}
-							options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
-						/>
-					{:else}
-						<p class="text-muted-foreground text-sm">No data</p>
-					{/if}
-				</Card.Content>
-			</Card.Root>
+			<div class="border-border rounded-lg border p-3">
+				<h4 class="mb-2 text-sm font-semibold">
+					<a href="/orgs/{slug}/analytics/sessions" class="hover:underline">Sessions Over Time</a>
+				</h4>
+				{#if data.sessions_over_time.length > 0}
+					<Chart
+						type="line"
+						data={sessionsOverTimeChartData(data)}
+						options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
+					/>
+				{:else}
+					<p class="text-muted-foreground text-sm">No data</p>
+				{/if}
+			</div>
 		</div>
 
 		<div class="grid gap-6 lg:grid-cols-2">
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>
-						<a href="/orgs/{slug}/analytics/models" class="hover:underline">Model Distribution</a>
-					</Card.Title>
-				</Card.Header>
-				<Card.Content class="flex justify-center">
+			<div class="border-border rounded-lg border p-3">
+				<h4 class="mb-2 text-sm font-semibold">
+					<a href="/orgs/{slug}/analytics/models" class="hover:underline">Model Distribution</a>
+				</h4>
+				<div class="flex justify-center">
 					{#if data.model_distribution.length > 0}
 						<div class="max-w-[300px]">
 							<Chart
@@ -411,42 +362,38 @@
 					{:else}
 						<p class="text-muted-foreground text-sm">No data</p>
 					{/if}
-				</Card.Content>
-			</Card.Root>
+				</div>
+			</div>
 
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>Recent Commits</Card.Title>
-				</Card.Header>
-				<Card.Content>
-					{#if data.recent_commits.length > 0}
-						<Table.Root>
-							<Table.Header>
-								<Table.Row>
-									<Table.Head>Commit</Table.Head>
-									<Table.Head>Author</Table.Head>
-									<Table.Head>Sessions</Table.Head>
-									<Table.Head>Tokens</Table.Head>
-									<Table.Head>Date</Table.Head>
+			<div class="border-border rounded-lg border p-3">
+				<h4 class="mb-2 text-sm font-semibold">Recent Commits</h4>
+				{#if data.recent_commits.length > 0}
+					<Table.Root class="text-xs">
+						<Table.Header>
+							<Table.Row>
+								<Table.Head>Commit</Table.Head>
+								<Table.Head>Author</Table.Head>
+								<Table.Head>Sessions</Table.Head>
+								<Table.Head>Tokens</Table.Head>
+								<Table.Head>Date</Table.Head>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{#each data.recent_commits as commit}
+								<Table.Row class="hover:bg-muted/40 transition-colors">
+									<Table.Cell class="font-mono">{commit.commit_sha.slice(0, 8)}</Table.Cell>
+									<Table.Cell>{commit.author}</Table.Cell>
+									<Table.Cell>{commit.session_count}</Table.Cell>
+									<Table.Cell class="font-mono">{fmtNum(commit.total_tokens)}</Table.Cell>
+									<Table.Cell>{fmtDate(commit.created_at)}</Table.Cell>
 								</Table.Row>
-							</Table.Header>
-							<Table.Body>
-								{#each data.recent_commits as commit}
-									<Table.Row>
-										<Table.Cell class="font-mono text-sm">{commit.commit_sha.slice(0, 8)}</Table.Cell>
-										<Table.Cell>{commit.author}</Table.Cell>
-										<Table.Cell>{commit.session_count}</Table.Cell>
-										<Table.Cell class="font-mono text-sm">{fmtNum(commit.total_tokens)}</Table.Cell>
-										<Table.Cell>{fmtDate(commit.created_at)}</Table.Cell>
-									</Table.Row>
-								{/each}
-							</Table.Body>
-						</Table.Root>
-					{:else}
-						<p class="text-muted-foreground text-sm">No commits</p>
-					{/if}
-				</Card.Content>
-			</Card.Root>
+							{/each}
+						</Table.Body>
+					</Table.Root>
+				{:else}
+					<p class="text-muted-foreground text-sm">No commits</p>
+				{/if}
+			</div>
 		</div>
 	{/if}
 </div>

@@ -3,7 +3,6 @@
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
 	import * as Table from '$lib/components/ui/table/index.js';
-	import { Badge } from '$lib/components/ui/badge/index.js';
 
 	interface Repo {
 		id: string;
@@ -41,7 +40,10 @@
 	<h1 class="text-2xl font-bold">Repos</h1>
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+			Loading...
+		</div>
 	{:else if error}
 		<p class="text-destructive">{error}</p>
 	{:else if repos.length === 0}
@@ -50,25 +52,25 @@
 		<Table.Root>
 			<Table.Header>
 				<Table.Row>
-					<Table.Head>Name</Table.Head>
-					<Table.Head>GitHub URL</Table.Head>
-					<Table.Head>Created</Table.Head>
+					<Table.Head class="text-xs">Name</Table.Head>
+					<Table.Head class="text-xs">GitHub URL</Table.Head>
+					<Table.Head class="text-xs">Created</Table.Head>
 				</Table.Row>
 			</Table.Header>
 			<Table.Body>
 				{#each repos as repo}
-					<Table.Row>
-						<Table.Cell>
+					<Table.Row class="hover:bg-muted/40 transition-colors">
+						<Table.Cell class="text-xs">
 							<a href="/orgs/{slug}/repos/{repo.id}" class="font-medium underline">{repo.name}</a>
 						</Table.Cell>
-						<Table.Cell>
+						<Table.Cell class="text-xs">
 							{#if repo.github_url}
-								<Badge variant="branch">{repo.github_url}</Badge>
+								<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">{repo.github_url}</span>
 							{:else}
 								<span class="text-muted-foreground">-</span>
 							{/if}
 						</Table.Cell>
-						<Table.Cell>{formatDate(repo.created_at)}</Table.Cell>
+						<Table.Cell class="text-xs">{formatDate(repo.created_at)}</Table.Cell>
 					</Table.Row>
 				{/each}
 			</Table.Body>

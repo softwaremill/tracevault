@@ -8,7 +8,6 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
-	import { Badge } from '$lib/components/ui/badge/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
@@ -145,6 +144,22 @@
 	function formatDate(iso: string): string {
 		return new Date(iso).toLocaleDateString();
 	}
+
+	function roleColor(role: string): { bg: string; color: string; border: string } {
+		switch (role) {
+			case 'owner': return { bg: 'rgba(246,177,68,0.12)', color: '#f6b144', border: 'rgba(246,177,68,0.25)' };
+			case 'admin': return { bg: 'rgba(167,139,250,0.12)', color: '#a78bfa', border: 'rgba(167,139,250,0.25)' };
+			default: return { bg: 'rgba(79,110,247,0.12)', color: '#4f6ef7', border: 'rgba(79,110,247,0.25)' };
+		}
+	}
+
+	function statusColor(status: string): { bg: string; color: string; border: string } {
+		switch (status) {
+			case 'approved': return { bg: 'rgba(62,207,142,0.12)', color: '#3ecf8e', border: 'rgba(62,207,142,0.25)' };
+			case 'rejected': return { bg: 'rgba(240,101,101,0.12)', color: '#f06565', border: 'rgba(240,101,101,0.25)' };
+			default: return { bg: 'rgba(79,110,247,0.12)', color: '#4f6ef7', border: 'rgba(79,110,247,0.25)' };
+		}
+	}
 </script>
 
 <svelte:head>
@@ -172,7 +187,7 @@
 	{/if}
 
 	<div class="flex items-center justify-between">
-		<h2 class="text-lg font-semibold">Members</h2>
+		<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Members</h2>
 		{#if isAdmin}
 			<Dialog.Root bind:open={inviteOpen}>
 				<Dialog.Trigger>
@@ -229,35 +244,37 @@
 	</div>
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+			Loading...
+		</div>
 	{:else if members.length === 0}
-		<p class="text-muted-foreground">No members found.</p>
+		<p class="text-muted-foreground text-sm">No members found.</p>
 	{:else}
 		<Table.Root>
 			<Table.Header>
 				<Table.Row>
-					<Table.Head>Email</Table.Head>
-					<Table.Head>Name</Table.Head>
-					<Table.Head>Role</Table.Head>
-					<Table.Head>Joined</Table.Head>
+					<Table.Head class="text-xs">Email</Table.Head>
+					<Table.Head class="text-xs">Name</Table.Head>
+					<Table.Head class="text-xs">Role</Table.Head>
+					<Table.Head class="text-xs">Joined</Table.Head>
 					{#if isOwner}
-						<Table.Head>Actions</Table.Head>
+						<Table.Head class="text-xs">Actions</Table.Head>
 					{/if}
 				</Table.Row>
 			</Table.Header>
 			<Table.Body>
 				{#each members as member}
-					<Table.Row>
-						<Table.Cell>{member.email}</Table.Cell>
-						<Table.Cell>{member.name ?? '-'}</Table.Cell>
-						<Table.Cell>
-							<Badge variant={member.role === 'owner' ? 'default' : 'outline'}>
-								{member.role}
-							</Badge>
+					<Table.Row class="hover:bg-muted/40 transition-colors">
+						<Table.Cell class="text-xs">{member.email}</Table.Cell>
+						<Table.Cell class="text-xs">{member.name ?? '-'}</Table.Cell>
+						<Table.Cell class="text-xs">
+							{@const rc = roleColor(member.role)}
+							<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: {rc.bg}; color: {rc.color}; border: 1px solid {rc.border}">{member.role}</span>
 						</Table.Cell>
-						<Table.Cell>{formatDate(member.created_at)}</Table.Cell>
+						<Table.Cell class="text-xs">{formatDate(member.created_at)}</Table.Cell>
 						{#if isOwner}
-							<Table.Cell>
+							<Table.Cell class="text-xs">
 								{#if member.role !== 'owner' && member.id !== authState.user?.user_id}
 									<div class="flex gap-1">
 										<Select.Root type="single" value={member.role} onValueChange={(v) => { if (v) changeRole(member.id, v); }}>
@@ -287,29 +304,28 @@
 	<!-- Invitation Requests -->
 	{#if isAdmin && invRequests.length > 0}
 		<div class="space-y-3 pt-4">
-			<h2 class="text-lg font-semibold">Invitation Requests</h2>
+			<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Invitation Requests</h2>
 			<Table.Root>
 				<Table.Header>
 					<Table.Row>
-						<Table.Head>Email</Table.Head>
-						<Table.Head>Name</Table.Head>
-						<Table.Head>Status</Table.Head>
-						<Table.Head>Requested</Table.Head>
-						<Table.Head>Actions</Table.Head>
+						<Table.Head class="text-xs">Email</Table.Head>
+						<Table.Head class="text-xs">Name</Table.Head>
+						<Table.Head class="text-xs">Status</Table.Head>
+						<Table.Head class="text-xs">Requested</Table.Head>
+						<Table.Head class="text-xs">Actions</Table.Head>
 					</Table.Row>
 				</Table.Header>
 				<Table.Body>
 					{#each invRequests as req}
-						<Table.Row>
-							<Table.Cell>{req.email}</Table.Cell>
-							<Table.Cell>{req.name ?? '-'}</Table.Cell>
-							<Table.Cell>
-								<Badge variant={req.status === 'pending' ? 'outline' : req.status === 'approved' ? 'default' : 'destructive'}>
-									{req.status}
-								</Badge>
+						<Table.Row class="hover:bg-muted/40 transition-colors">
+							<Table.Cell class="text-xs">{req.email}</Table.Cell>
+							<Table.Cell class="text-xs">{req.name ?? '-'}</Table.Cell>
+							<Table.Cell class="text-xs">
+								{@const sc = statusColor(req.status)}
+								<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: {sc.bg}; color: {sc.color}; border: 1px solid {sc.border}">{req.status}</span>
 							</Table.Cell>
-							<Table.Cell>{formatDate(req.created_at)}</Table.Cell>
-							<Table.Cell>
+							<Table.Cell class="text-xs">{formatDate(req.created_at)}</Table.Cell>
+							<Table.Cell class="text-xs">
 								{#if req.status === 'pending'}
 									<div class="flex gap-1">
 										<Button size="sm" onclick={() => approveRequest(req.id)}>Approve</Button>
