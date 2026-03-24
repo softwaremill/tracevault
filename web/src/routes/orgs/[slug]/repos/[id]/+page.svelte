@@ -74,7 +74,7 @@
 	let newToolNames = $state('');
 
 	onMount(async () => {
-		await Promise.all([loadRepo(), loadCommits(), loadPolicies()]);
+		await Promise.all([loadRepo().then(() => loadCommits()), loadPolicies()]);
 	});
 
 	async function loadRepo() {
@@ -116,7 +116,8 @@
 
 	async function loadCommits() {
 		try {
-			const allCommits = await api.get<CommitListItem[]>(`/api/v1/orgs/${slug}/traces`);
+			const repoFilter = repoName ? `?repo=${encodeURIComponent(repoName)}` : '';
+			const allCommits = await api.get<CommitListItem[]>(`/api/v1/orgs/${slug}/traces${repoFilter}`);
 			commits = allCommits;
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load commits';

@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "tracevault hook --event post-tool-use",
+            "statusMessage": "TraceVault: recording change",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit|Bash"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "tracevault hook --event pre-tool-use",
+            "statusMessage": "TraceVault: capturing pre-edit state",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit"
+      }
+    ]
+  }
+}
