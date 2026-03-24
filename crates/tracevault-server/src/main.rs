@@ -231,6 +231,11 @@ async fn main() {
             "/api/v1/orgs/{slug}/audit-log",
             get(api::compliance::list_audit_log),
         )
+        // Org-scoped: dashboard
+        .route(
+            "/api/v1/orgs/{slug}/dashboard",
+            get(api::dashboard::get_dashboard),
+        )
         // Org-scoped: analytics
         .route(
             "/api/v1/orgs/{slug}/analytics/filters",

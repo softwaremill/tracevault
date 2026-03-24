@@ -1,7 +1,14 @@
-use axum::http::StatusCode;
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    Json,
+};
 use chrono::{Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use crate::extractors::OrgAuth;
+use crate::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct DashboardQuery {
@@ -33,7 +40,7 @@ pub struct DashboardResponse {
     pub cache_savings_pct: f64,
 }
 
-pub(crate) fn period_ranges(
+fn period_ranges(
     period: &str,
 ) -> (
     chrono::DateTime<Utc>,
@@ -82,18 +89,18 @@ pub(crate) fn period_ranges(
     }
 }
 
-pub(crate) struct KpiTotals {
-    pub total_cost: f64,
-    pub total_sessions: i64,
-    pub total_tokens: i64,
-    pub active_authors: i64,
-    pub avg_duration_ms: i64,
-    pub avg_tool_calls: f64,
-    pub avg_compactions: f64,
-    pub total_cache_read_tokens: i64,
+struct KpiTotals {
+    total_cost: f64,
+    total_sessions: i64,
+    total_tokens: i64,
+    active_authors: i64,
+    avg_duration_ms: i64,
+    avg_tool_calls: f64,
+    avg_compactions: f64,
+    total_cache_read_tokens: i64,
 }
 
-pub(crate) async fn query_kpi_totals(
+async fn query_kpi_totals(
     pool: &sqlx::PgPool,
     org_id: Uuid,
     from: chrono::DateTime<Utc>,
@@ -135,14 +142,14 @@ pub(crate) async fn query_kpi_totals(
     })
 }
 
-pub(crate) struct SparklineDay {
-    pub cost: f64,
-    pub sessions: i64,
-    pub tokens: i64,
-    pub authors: i64,
+struct SparklineDay {
+    cost: f64,
+    sessions: i64,
+    tokens: i64,
+    authors: i64,
 }
 
-pub(crate) async fn query_sparklines(
+async fn query_sparklines(
     pool: &sqlx::PgPool,
     org_id: Uuid,
     from: chrono::DateTime<Utc>,
@@ -182,13 +189,13 @@ pub(crate) async fn query_sparklines(
         .collect())
 }
 
-pub(crate) struct ComplianceData {
-    pub sealed_count: i64,
-    pub unsigned_count: i64,
-    pub chain_verified: Option<bool>,
+struct ComplianceData {
+    sealed_count: i64,
+    unsigned_count: i64,
+    chain_verified: Option<bool>,
 }
 
-pub(crate) async fn query_compliance(
+async fn query_compliance(
     pool: &sqlx::PgPool,
     org_id: Uuid,
     from: chrono::DateTime<Utc>,
@@ -230,4 +237,89 @@ pub(crate) async fn query_compliance(
         unsigned_count: unsigned,
         chain_verified,
     })
+}
+
+pub async fn get_dashboard(
+    State(state): State<AppState>,
+    auth: OrgAuth,
+    Query(q): Query<DashboardQuery>,
+) -> Result<Json<DashboardResponse>, (StatusCode, String)> {
+    let period = q.period.as_deref().unwrap_or("7d");
+    let (cur_start, cur_end, prev_start, prev_end) = period_ranges(period);
+
+    let current = query_kpi_totals(&state.pool, auth.org_id, cur_start, cur_end).await?;
+    let previous = query_kpi_totals(&state.pool, auth.org_id, prev_start, prev_end).await?;
+    let sparkline_data = query_sparklines(&state.pool, auth.org_id, cur_start, cur_end).await?;
+    let compliance_cur = query_compliance(&state.pool, auth.org_id, cur_start, cur_end).await?;
+    let compliance_prev = query_compliance(&state.pool, auth.org_id, prev_start, prev_end).await?;
+
+    let cost_trend = trend_pct(current.total_cost, previous.total_cost);
+    let sessions_trend = trend_pct(
+        current.total_sessions as f64,
+        previous.total_sessions as f64,
+    );
+    let tokens_trend = trend_pct(current.total_tokens as f64, previous.total_tokens as f64);
+    let authors_change = current.active_authors - previous.active_authors;
+
+    let compliance_score = if compliance_cur.sealed_count > 0 {
+        ((compliance_cur.sealed_count - compliance_cur.unsigned_count) as f64
+            / compliance_cur.sealed_count as f64)
+            * 100.0
+    } else {
+        100.0
+    };
+    let prev_compliance_score = if compliance_prev.sealed_count > 0 {
+        ((compliance_prev.sealed_count - compliance_prev.unsigned_count) as f64
+            / compliance_prev.sealed_count as f64)
+            * 100.0
+    } else {
+        100.0
+    };
+    let compliance_trend = compliance_score - prev_compliance_score;
+
+    let cache_savings = state
+        .extensions
+        .pricing
+        .estimate_cache_savings("sonnet", current.total_cache_read_tokens);
+    let cache_savings_pct = if current.total_cost > 0.0 {
+        (cache_savings / current.total_cost) * 100.0
+    } else {
+        0.0
+    };
+
+    Ok(Json(DashboardResponse {
+        total_cost_usd: current.total_cost,
+        cost_trend_pct: cost_trend,
+        cost_sparkline: sparkline_data.iter().map(|d| d.cost).collect(),
+        active_authors: current.active_authors,
+        authors_change,
+        authors_sparkline: sparkline_data.iter().map(|d| d.authors as f64).collect(),
+        total_sessions: current.total_sessions,
+        sessions_trend_pct: sessions_trend,
+        sessions_sparkline: sparkline_data.iter().map(|d| d.sessions as f64).collect(),
+        total_tokens: current.total_tokens,
+        tokens_trend_pct: tokens_trend,
+        tokens_sparkline: sparkline_data.iter().map(|d| d.tokens as f64).collect(),
+        avg_session_duration_ms: current.avg_duration_ms,
+        avg_tool_calls_per_session: current.avg_tool_calls,
+        avg_compactions_per_session: current.avg_compactions,
+        compliance_score_pct: compliance_score,
+        compliance_trend_pct: compliance_trend,
+        unsigned_sessions: compliance_cur.unsigned_count,
+        chain_verified: compliance_cur.chain_verified,
+        cache_savings_usd: cache_savings,
+        cache_savings_pct,
+    }))
+}
+
+fn trend_pct(current: f64, previous: f64) -> f64 {
+    if previous == 0.0 {
+        if current > 0.0 {
+            100.0
+        } else {
+            0.0
+        }
+    } else {
+        ((current - previous) / previous) * 100.0
+    }
 }
