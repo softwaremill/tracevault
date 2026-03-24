@@ -9,6 +9,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 mod api;
+mod attribution;
 mod audit;
 mod auth;
 mod config;
@@ -252,6 +253,10 @@ async fn main() {
         .route(
             "/api/v1/orgs/{slug}/repos/{repo_id}/stream",
             post(api::stream::handle_stream),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/repos/{repo_id}/commits",
+            post(api::commit_push::handle_commit_push),
         )
         // Org-scoped: dashboard
         .route(

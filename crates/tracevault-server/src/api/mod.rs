@@ -3,6 +3,7 @@ pub mod api_keys;
 pub mod auth;
 pub mod ci;
 pub mod code;
+pub mod commit_push;
 pub mod compliance;
 pub mod dashboard;
 pub mod features;

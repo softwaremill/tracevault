@@ -35,71 +35,24 @@ pub async fn handle_commit_push(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // 2. File-level attribution
-    let file_paths = extract_file_paths(&req.diff_data);
-
-    // Clear previous attributions for idempotency
-    sqlx::query("DELETE FROM commit_attributions WHERE commit_id = $1")
-        .bind(commit_db_id)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let committed_at = req.committed_at.unwrap_or_else(chrono::Utc::now);
-    let mut attributions_count: i64 = 0;
-
-    for file_path in &file_paths {
-        // Find matching file_changes from sessions in the same repo within 24h before committed_at
-        let matches = sqlx::query_as::<_, (Uuid, Uuid)>(
-            "SELECT fc.session_id, fc.event_id
-             FROM file_changes fc
-             JOIN sessions_v2 s ON fc.session_id = s.id
-             WHERE s.repo_id = $1
-               AND fc.timestamp >= $2 - INTERVAL '24 hours'
-               AND fc.timestamp <= $2
-               AND fc.file_path LIKE '%' || $3",
+    // 2. Line-level attribution
+    let attributions_count = if let Some(diff_data) = &req.diff_data {
+        let committed_at = req.committed_at.unwrap_or_else(chrono::Utc::now);
+        crate::attribution::attribute_commit(
+            &state.pool,
+            commit_db_id,
+            repo_id,
+            diff_data,
+            committed_at,
         )
-        .bind(repo_id)
-        .bind(committed_at)
-        .bind(file_path)
-        .fetch_all(&state.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-        for (session_id, event_id) in &matches {
-            sqlx::query(
-                "INSERT INTO commit_attributions (commit_id, session_id, event_id, file_path, confidence)
-                 VALUES ($1, $2, $3, $4, 0.5)",
-            )
-            .bind(commit_db_id)
-            .bind(session_id)
-            .bind(event_id)
-            .bind(file_path)
-            .execute(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-            attributions_count += 1;
-        }
-    }
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+    } else {
+        0
+    };
 
     Ok(Json(CommitPushResponse {
         commit_db_id,
         attributions_count,
     }))
-}
-
-/// Extract file paths from diff_data JSON.
-/// Expects `{ "files": [{ "path": "..." }, ...] }`.
-fn extract_file_paths(diff_data: &Option<serde_json::Value>) -> Vec<String> {
-    let Some(data) = diff_data else {
-        return vec![];
-    };
-    let Some(files) = data.get("files").and_then(|f| f.as_array()) else {
-        return vec![];
-    };
-    files
-        .iter()
-        .filter_map(|f| f.get("path").and_then(|p| p.as_str()).map(String::from))
-        .collect()
 }
