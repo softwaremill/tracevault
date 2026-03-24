@@ -7,6 +7,7 @@ pub struct TracevaultConfig {
     pub server_url: Option<String>,
     pub api_key: Option<String>,
     pub org_slug: Option<String>,
+    pub repo_id: Option<String>,
 }
 
 impl Default for TracevaultConfig {
@@ -16,6 +17,7 @@ impl Default for TracevaultConfig {
             server_url: None,
             api_key: None,
             org_slug: None,
+            repo_id: None,
         }
     }
 }
@@ -36,6 +38,9 @@ impl TracevaultConfig {
         }
         if let Some(slug) = &self.org_slug {
             out.push_str(&format!("org_slug = \"{slug}\"\n"));
+        }
+        if let Some(rid) = &self.repo_id {
+            out.push_str(&format!("repo_id = \"{rid}\"\n"));
         }
         out
     }
@@ -59,6 +64,7 @@ impl TracevaultConfig {
             server_url: parse_field("server_url"),
             api_key: parse_field("api_key"),
             org_slug: parse_field("org_slug"),
+            repo_id: parse_field("repo_id"),
         })
     }
 }
