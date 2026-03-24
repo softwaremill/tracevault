@@ -78,8 +78,9 @@ pub async fn init_in_directory(
     // Install Claude Code hooks into .claude/settings.json
     install_claude_hooks(project_root)?;
 
-    // Install git pre-push hook
+    // Install git hooks
     install_git_hook(project_root)?;
+    install_post_commit_hook(project_root)?;
 
     let (resolved_url, resolved_token) = crate::api_client::resolve_credentials(project_root);
     let effective_url = server_url.map(String::from).or(resolved_url);
@@ -102,6 +103,11 @@ pub async fn init_in_directory(
         {
             Ok(resp) => {
                 println!("Repo registered on server (id: {})", resp.repo_id);
+                // Save repo_id to config
+                if let Some(mut cfg) = TracevaultConfig::load(project_root) {
+                    cfg.repo_id = Some(resp.repo_id.to_string());
+                    let _ = fs::write(TracevaultConfig::config_path(project_root), cfg.to_toml());
+                }
             }
             Err(e) => {
                 let msg = e.to_string();
@@ -145,7 +151,7 @@ fn install_git_hook(project_root: &Path) -> Result<(), io::Error> {
 
     let hook_path = hooks_dir.join("pre-push");
     let tracevault_block = format!(
-        "{HOOK_MARKER}\ntracevault sync 2>/dev/null || true\ntracevault check || {{ echo \"tracevault: policy check failed, push blocked.\"; exit 1; }}\ntracevault push || {{ echo \"tracevault: push failed, git push blocked.\"; exit 1; }}\n"
+        "{HOOK_MARKER}\ntracevault sync 2>/dev/null || true\ntracevault check || {{ echo \"tracevault: policy check failed\"; exit 1; }}\n"
     );
 
     if hook_path.exists() {
@@ -206,6 +212,44 @@ fn install_git_hook(project_root: &Path) -> Result<(), io::Error> {
     Ok(())
 }
 
+const POST_COMMIT_MARKER: &str = "# tracevault:post-commit";
+
+fn install_post_commit_hook(project_root: &Path) -> Result<(), io::Error> {
+    let hooks_dir = project_root.join(".git/hooks");
+    fs::create_dir_all(&hooks_dir)?;
+
+    let hook_path = hooks_dir.join("post-commit");
+    let tracevault_block = format!("{POST_COMMIT_MARKER}\ntracevault commit-push 2>/dev/null &\n");
+
+    if hook_path.exists() {
+        let existing = fs::read_to_string(&hook_path)?;
+
+        if existing.contains(POST_COMMIT_MARKER) {
+            return Ok(());
+        }
+
+        let mut content = existing;
+        if !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push_str(&tracevault_block);
+        fs::write(&hook_path, content)?;
+    } else {
+        let content = format!("#!/bin/sh\n{tracevault_block}");
+        fs::write(&hook_path, content)?;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&hook_path)?.permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&hook_path, perms)?;
+    }
+
+    Ok(())
+}
+
 fn install_claude_hooks(project_root: &Path) -> Result<(), io::Error> {
     let claude_dir = project_root.join(".claude");
     fs::create_dir_all(&claude_dir)?;
@@ -245,21 +289,30 @@ fn install_claude_hooks(project_root: &Path) -> Result<(), io::Error> {
 pub fn tracevault_hooks() -> serde_json::Value {
     serde_json::json!({
         "PreToolUse": [{
-            "matcher": "Write|Edit",
-            "hooks": [{
-                "type": "command",
-                "command": "tracevault hook --event pre-tool-use",
-                "timeout": 5,
-                "statusMessage": "TraceVault: capturing pre-edit state"
-            }]
-        }],
-        "PostToolUse": [{
             "matcher": "Write|Edit|Bash",
             "hooks": [{
                 "type": "command",
-                "command": "tracevault hook --event post-tool-use",
-                "timeout": 5,
-                "statusMessage": "TraceVault: recording change"
+                "command": "tracevault stream --event pre-tool-use",
+                "timeout": 10,
+                "statusMessage": "TraceVault: streaming pre-tool event"
+            }]
+        }],
+        "PostToolUse": [{
+            "matcher": "",
+            "hooks": [{
+                "type": "command",
+                "command": "tracevault stream --event post-tool-use",
+                "timeout": 10,
+                "statusMessage": "TraceVault: streaming post-tool event"
+            }]
+        }],
+        "Notification": [{
+            "matcher": "",
+            "hooks": [{
+                "type": "command",
+                "command": "tracevault stream --event notification",
+                "timeout": 10,
+                "statusMessage": "TraceVault: streaming notification"
             }]
         }]
     })
