@@ -99,7 +99,20 @@ fn parse_record(record: &serde_json::Value, pricing: &ModelPricing) -> Option<Tr
 
     match record_type.as_str() {
         "assistant" => {
-            let msg = record.get("message")?;
+            let msg = match record.get("message") {
+                Some(m) => m,
+                None => {
+                    return Some(TranscriptRecord {
+                        record_type,
+                        timestamp,
+                        content_types: vec![],
+                        tool_name: None,
+                        text: None,
+                        usage: None,
+                        model: None,
+                    });
+                }
+            };
             let model = msg.get("model").and_then(|v| v.as_str()).map(String::from);
 
             let mut content_types = Vec::new();
@@ -171,12 +184,12 @@ fn parse_record(record: &serde_json::Value, pricing: &ModelPricing) -> Option<Tr
             })
         }
         "user" => {
-            let msg = record.get("message")?;
             let mut content_types = Vec::new();
             let mut text = None;
             let mut tool_name = None;
 
-            match msg.get("content") {
+            let msg = record.get("message");
+            match msg.and_then(|m| m.get("content")) {
                 Some(serde_json::Value::String(s)) => {
                     content_types.push("text".to_string());
                     text = Some(s.clone());
