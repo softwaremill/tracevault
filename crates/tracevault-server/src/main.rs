@@ -248,6 +248,11 @@ async fn main() {
             "/api/v1/orgs/{slug}/pricing/{id}/recalculate",
             post(api::pricing::recalculate),
         )
+        // Org-scoped: streaming
+        .route(
+            "/api/v1/orgs/{slug}/repos/{repo_id}/stream",
+            post(api::stream::handle_stream),
+        )
         // Org-scoped: dashboard
         .route(
             "/api/v1/orgs/{slug}/dashboard",

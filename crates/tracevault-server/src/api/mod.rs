@@ -12,4 +12,5 @@ pub mod policies;
 pub mod pricing;
 pub mod repos;
 pub mod session_detail;
+pub mod stream;
 pub mod traces;
