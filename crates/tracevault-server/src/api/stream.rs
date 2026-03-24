@@ -57,6 +57,12 @@ pub async fn handle_stream(
     if let Some(ref lines) = req.transcript_lines {
         if !lines.is_empty() {
             let offset = req.transcript_offset.unwrap_or(0);
+            let mut batch_input: i64 = 0;
+            let mut batch_output: i64 = 0;
+            let mut batch_cache_read: i64 = 0;
+            let mut batch_cache_write: i64 = 0;
+            let mut detected_model: Option<String> = None;
+
             for (i, line) in lines.iter().enumerate() {
                 let chunk_index = offset as i32 + i as i32;
                 sqlx::query(
@@ -67,6 +73,73 @@ pub async fn handle_stream(
                 .bind(session_db_id)
                 .bind(chunk_index)
                 .bind(line)
+                .execute(&state.pool)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+                // Extract token usage from assistant messages
+                // Claude Code format: { type: "assistant", message: { model, usage: { input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens } } }
+                if let Some(msg) = line.get("message") {
+                    if let Some(usage) = msg.get("usage") {
+                        batch_input += usage
+                            .get("input_tokens")
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(0);
+                        batch_output += usage
+                            .get("output_tokens")
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(0);
+                        batch_cache_read += usage
+                            .get("cache_read_input_tokens")
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(0);
+                        // cache_creation_input_tokens = cache write
+                        batch_cache_write += usage
+                            .get("cache_creation_input_tokens")
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(0);
+                    }
+                    if detected_model.is_none() {
+                        detected_model =
+                            msg.get("model").and_then(|v| v.as_str()).map(String::from);
+                    }
+                }
+            }
+
+            // Update session token counts and cost if we found usage data
+            let has_tokens = batch_input > 0
+                || batch_output > 0
+                || batch_cache_read > 0
+                || batch_cache_write > 0;
+            if has_tokens {
+                let model_name = detected_model.as_deref().unwrap_or("unknown");
+                let batch_cost = crate::pricing::estimate_cost(
+                    model_name,
+                    batch_input,
+                    batch_output,
+                    batch_cache_read,
+                    batch_cache_write,
+                );
+
+                sqlx::query(
+                    "UPDATE sessions_v2 SET
+                        input_tokens = input_tokens + $2,
+                        output_tokens = output_tokens + $3,
+                        cache_read_tokens = cache_read_tokens + $4,
+                        cache_write_tokens = cache_write_tokens + $5,
+                        total_tokens = total_tokens + $2 + $3 + $4 + $5,
+                        estimated_cost_usd = estimated_cost_usd + $6,
+                        model = COALESCE($7, model),
+                        updated_at = now()
+                     WHERE id = $1",
+                )
+                .bind(session_db_id)
+                .bind(batch_input)
+                .bind(batch_output)
+                .bind(batch_cache_read)
+                .bind(batch_cache_write)
+                .bind(batch_cost)
+                .bind(&detected_model)
                 .execute(&state.pool)
                 .await
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
