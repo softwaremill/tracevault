@@ -14,5 +14,4 @@ pub mod pricing;
 pub mod repos;
 pub mod session_detail;
 pub mod stream;
-pub mod traces;
 pub mod traces_ui;

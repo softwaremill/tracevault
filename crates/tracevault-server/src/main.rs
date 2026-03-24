@@ -176,19 +176,6 @@ async fn main() {
             "/api/v1/orgs/{slug}/repos/{repo_id}/story",
             post(api::code::generate_story),
         )
-        // Org-scoped: traces (legacy push endpoint for old CLI versions)
-        .route(
-            "/api/v1/orgs/{slug}/traces",
-            post(api::traces::create_trace).get(api::traces::list_traces),
-        )
-        .route(
-            "/api/v1/orgs/{slug}/traces/{id}",
-            get(api::traces::get_trace),
-        )
-        .route(
-            "/api/v1/orgs/{slug}/traces/{id}/verify",
-            get(api::compliance::verify_trace),
-        )
         // Org-scoped: traces (v2 streaming UI)
         .route(
             "/api/v1/orgs/{slug}/traces/stats",
@@ -209,6 +196,10 @@ async fn main() {
         .route(
             "/api/v1/orgs/{slug}/traces/commits/{id}",
             get(api::traces_ui::get_commit),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/traces/commits/{id}/verify",
+            get(api::compliance::verify_trace),
         )
         .route(
             "/api/v1/orgs/{slug}/traces/timeline",
