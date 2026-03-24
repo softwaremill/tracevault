@@ -43,6 +43,10 @@ enum Cli {
     },
     /// Log out from the TraceVault server
     Logout,
+    /// Push commit metadata to server (called from post-commit hook)
+    CommitPush,
+    /// Force-sync all pending events to server
+    Flush,
     /// Verify commits are registered and sealed on the TraceVault server
     Verify {
         /// Comma-separated list of commit SHAs
@@ -116,6 +120,18 @@ async fn main() {
         Cli::Logout => {
             if let Err(e) = commands::logout::logout().await {
                 eprintln!("Logout error: {e}");
+            }
+        }
+        Cli::CommitPush => {
+            let cwd = env::current_dir().expect("Cannot determine current directory");
+            if let Err(e) = commands::commit_push::run_commit_push(&cwd).await {
+                eprintln!("Commit push error: {e}");
+            }
+        }
+        Cli::Flush => {
+            let cwd = env::current_dir().expect("Cannot determine current directory");
+            if let Err(e) = commands::flush::run_flush(&cwd).await {
+                eprintln!("Flush error: {e}");
             }
         }
         Cli::Verify { commits, range } => {
