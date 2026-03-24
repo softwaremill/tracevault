@@ -112,12 +112,12 @@ async fn query_kpi_totals(
         "SELECT
             COALESCE(SUM(s.estimated_cost_usd), 0)::float8,
             COUNT(s.id),
-            COALESCE(SUM(s.total_tokens), 0),
+            COALESCE(SUM(s.total_tokens), 0)::int8,
             COUNT(DISTINCT c.author),
             COALESCE(AVG(s.duration_ms), 0)::int8,
             COALESCE(AVG(s.total_tool_calls), 0)::float8,
             COALESCE(AVG(s.compactions), 0)::float8,
-            COALESCE(SUM(s.cache_read_tokens), 0)
+            COALESCE(SUM(s.cache_read_tokens), 0)::int8
         FROM sessions s
         JOIN commits c ON c.id = s.commit_id
         JOIN repos r ON r.id = c.repo_id
@@ -163,7 +163,7 @@ async fn query_sparklines(
             TO_CHAR(s.started_at::date, 'YYYY-MM-DD'),
             COALESCE(SUM(s.estimated_cost_usd), 0)::float8,
             COUNT(s.id),
-            COALESCE(SUM(s.total_tokens), 0),
+            COALESCE(SUM(s.total_tokens), 0)::int8,
             COUNT(DISTINCT c.author)
         FROM sessions s
         JOIN commits c ON c.id = s.commit_id
