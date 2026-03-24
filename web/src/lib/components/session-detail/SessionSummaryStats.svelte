@@ -1,0 +1,128 @@
+<script lang="ts">
+	import * as Card from '$lib/components/ui/card/index.js';
+	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
+
+	interface CacheSavings {
+		gross_savings_usd: number;
+		cache_write_overhead_usd: number;
+		net_savings_usd: number;
+		cache_hit_percentage: number;
+	}
+
+	interface CostBreakdown {
+		input_cost: number;
+		output_cost: number;
+		cache_read_cost: number;
+		cache_write_cost: number;
+		total_cost: number;
+	}
+
+	interface Props {
+		totalTokens: number;
+		estimatedCostUsd: number;
+		outputTokens: number;
+		apiCalls: number;
+		cacheSavings: CacheSavings;
+		compactions: number;
+		costBreakdown: CostBreakdown;
+	}
+
+	let {
+		totalTokens,
+		estimatedCostUsd,
+		outputTokens,
+		apiCalls,
+		cacheSavings,
+		compactions,
+		costBreakdown
+	}: Props = $props();
+
+	function fmtNum(n: number): string {
+		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+		return String(n);
+	}
+
+	function fmtCost(n: number): string {
+		return `$${n.toFixed(n < 1 ? 4 : 2)}`;
+	}
+</script>
+
+<div class="space-y-3">
+	<div class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+		<Card.Root class="p-3">
+			<div class="text-muted-foreground text-xs uppercase tracking-wide">Total Tokens</div>
+			<div class="mt-1 text-xl font-semibold">{fmtNum(totalTokens)}</div>
+		</Card.Root>
+
+		<Card.Root class="p-3">
+			<div class="text-muted-foreground text-xs uppercase tracking-wide">Total Cost</div>
+			<div class="mt-1 text-xl font-semibold" style="color: #3ecf8e">{fmtCost(estimatedCostUsd)}</div>
+		</Card.Root>
+
+		<Card.Root class="p-3">
+			<div class="text-muted-foreground text-xs uppercase tracking-wide">Output Tokens</div>
+			<div class="mt-1 text-xl font-semibold" style="color: #a78bfa">{fmtNum(outputTokens)}</div>
+		</Card.Root>
+
+		<Card.Root class="p-3">
+			<div class="text-muted-foreground text-xs uppercase tracking-wide">API Calls</div>
+			<div class="mt-1 text-xl font-semibold">{apiCalls}</div>
+		</Card.Root>
+
+		<Card.Root class="p-3">
+			<div class="text-muted-foreground text-xs uppercase tracking-wide">
+				Cache Saved
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						<span class="ml-1 cursor-help text-xs" style="color: #4f6ef7">?</span>
+					</Tooltip.Trigger>
+					<Tooltip.Portal>
+						<Tooltip.Content class="max-w-xs">
+							Percentage of input-side tokens served from cache instead of being freshly processed. Higher is better.
+						</Tooltip.Content>
+					</Tooltip.Portal>
+				</Tooltip.Root>
+			</div>
+			<div class="mt-1 text-xl font-semibold" style="color: #3ecf8e">
+				{cacheSavings.cache_hit_percentage.toFixed(1)}%
+			</div>
+			<div class="text-muted-foreground mt-0.5 text-xs">
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						<span class="cursor-help">-{fmtCost(cacheSavings.gross_savings_usd)} gross</span>
+					</Tooltip.Trigger>
+					<Tooltip.Portal>
+						<Tooltip.Content class="max-w-xs">
+							Amount saved by serving tokens from cache at the reduced cache-read rate instead of the full input rate.
+						</Tooltip.Content>
+					</Tooltip.Portal>
+				</Tooltip.Root>
+				{' · '}
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						<span class="cursor-help">-{fmtCost(cacheSavings.net_savings_usd)} net</span>
+					</Tooltip.Trigger>
+					<Tooltip.Portal>
+						<Tooltip.Content class="max-w-xs">
+							Gross savings minus the overhead of writing tokens to cache, which costs more than base input. This is your true savings.
+						</Tooltip.Content>
+					</Tooltip.Portal>
+				</Tooltip.Root>
+			</div>
+		</Card.Root>
+
+		<Card.Root class="p-3">
+			<div class="text-muted-foreground text-xs uppercase tracking-wide">Compactions</div>
+			<div class="mt-1 text-xl font-semibold">{compactions}</div>
+		</Card.Root>
+	</div>
+
+	<div class="text-muted-foreground flex flex-wrap items-center gap-4 text-sm">
+		<span>Cost breakdown:</span>
+		<span><span style="color: rgba(79,110,247,0.9)">●</span> Input {fmtCost(costBreakdown.input_cost)}</span>
+		<span><span style="color: rgba(167,139,250,0.9)">●</span> Output {fmtCost(costBreakdown.output_cost)}</span>
+		<span><span style="color: rgba(62,207,142,0.9)">●</span> Cache Read {fmtCost(costBreakdown.cache_read_cost)}</span>
+		<span><span style="color: rgba(246,177,68,0.9)">●</span> Cache Write {fmtCost(costBreakdown.cache_write_cost)}</span>
+	</div>
+</div>

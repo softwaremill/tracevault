@@ -3,7 +3,6 @@
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
 	import { orgStore } from '$lib/stores/org';
-	import * as Card from '$lib/components/ui/card/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
@@ -89,14 +88,12 @@
 	{/if}
 
 	{#if org}
-		<Card.Root class="max-w-lg">
-			<Card.Header>
-				<Card.Title>General</Card.Title>
-			</Card.Header>
-			<Card.Content class="space-y-4">
+		<div class="border-border overflow-hidden rounded-lg border max-w-lg">
+			<div class="bg-muted/30 px-4 py-3 text-sm font-semibold">General</div>
+			<div class="p-4 space-y-4">
 				<div class="flex justify-between items-center">
 					<div>
-						<span class="text-sm text-muted-foreground">GitHub Organization</span>
+						<span class="text-muted-foreground text-xs">GitHub Organization</span>
 						<p class="font-mono text-sm">{org.name}</p>
 					</div>
 					<a
@@ -129,7 +126,7 @@
 					{:else}
 						<div class="flex justify-between items-center">
 							<div>
-								<span class="text-sm text-muted-foreground">Display Name</span>
+								<span class="text-muted-foreground text-xs">Display Name</span>
 								<p class="text-sm">{org.display_name || '—'}</p>
 							</div>
 							{#if isOwner}
@@ -140,12 +137,12 @@
 				</div>
 
 				<div class="border-t pt-4">
-					<div>
-						<span class="text-sm text-muted-foreground">Created</span>
-						<p class="text-sm">{new Date(org.created_at).toLocaleDateString()}</p>
+					<div class="flex items-center justify-between py-1.5 text-sm">
+						<span class="text-muted-foreground text-xs">Created</span>
+						<span class="text-xs">{new Date(org.created_at).toLocaleDateString()}</span>
 					</div>
 				</div>
-			</Card.Content>
-		</Card.Root>
+			</div>
+		</div>
 	{/if}
 </div>

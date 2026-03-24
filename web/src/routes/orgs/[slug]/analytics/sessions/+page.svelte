@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
-	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
-	import { Badge } from '$lib/components/ui/badge/index.js';
 	import Chart from '$lib/components/chart.svelte';
+	import SessionDetailPanel from '$lib/components/session-detail/SessionDetailPanel.svelte';
 	import {
 		Chart as ChartJS,
 		CategoryScale,
@@ -66,6 +65,11 @@
 	let error = $state('');
 	let sortCol = $state<string>('started_at');
 	let sortDir = $state<'asc' | 'desc'>('desc');
+	let expandedSessionId = $state<string | null>(null);
+
+	function toggleExpand(id: string) {
+		expandedSessionId = expandedSessionId === id ? null : id;
+	}
 
 	const slug = $derived($page.params.slug);
 
@@ -180,44 +184,37 @@
 	<h1 class="text-2xl font-bold">Session Analytics</h1>
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+			Loading...
+		</div>
 	{:else if error}
 		<p class="text-destructive">{error}</p>
 	{:else if data}
-		<div class="grid grid-cols-1 gap-4 md:grid-cols-3">
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Total Sessions</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">{fmtNum(data.total_sessions)}</p>
-				</Card.Content>
-			</Card.Root>
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Avg Duration</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">{fmtDuration(data.avg_duration_ms)}</p>
-				</Card.Content>
-			</Card.Root>
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Description>Avg Messages/Session</Card.Description>
-				</Card.Header>
-				<Card.Content>
-					<p class="text-2xl font-bold">
+		<!-- Stat cards -->
+		<div class="border-border overflow-hidden rounded-lg border">
+			<div class="grid grid-cols-2 gap-px md:grid-cols-3">
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Total Sessions</div>
+					<div class="mt-1 text-lg font-semibold">{fmtNum(data.total_sessions)}</div>
+				</div>
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Avg Duration</div>
+					<div class="mt-1 text-lg font-semibold">{fmtDuration(data.avg_duration_ms)}</div>
+				</div>
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Avg Messages/Session</div>
+					<div class="mt-1 text-lg font-semibold">
 						{data.avg_messages_per_session != null ? data.avg_messages_per_session.toFixed(1) : '-'}
-					</p>
-				</Card.Content>
-			</Card.Root>
+					</div>
+				</div>
+			</div>
 		</div>
 
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>Tool Frequency</Card.Title>
-			</Card.Header>
-			<Card.Content class="flex justify-center">
+		<!-- Tool Frequency chart -->
+		<div class="border-border rounded-lg border p-3">
+			<h4 class="mb-2 text-sm font-semibold">Tool Frequency</h4>
+			<div class="flex justify-center">
 				{#if Object.keys(data.tool_frequency).length > 0}
 					<div class="max-w-[400px]">
 						<Chart
@@ -229,85 +226,92 @@
 				{:else}
 					<p class="text-muted-foreground text-sm">No tool data</p>
 				{/if}
-			</Card.Content>
-		</Card.Root>
+			</div>
+		</div>
 
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>Sessions</Card.Title>
-			</Card.Header>
-			<Card.Content>
-				{#if data.sessions.length > 0}
-					<Table.Root>
-						<Table.Header>
-							<Table.Row>
-								<Table.Head>Session ID</Table.Head>
-								<Table.Head>
-									<button class="hover:underline" onclick={() => sortBy('repo_name')}>
-										Repo{sortIndicator('repo_name')}
-									</button>
-								</Table.Head>
-								<Table.Head>
-									<button class="hover:underline" onclick={() => sortBy('author')}>
-										Author{sortIndicator('author')}
-									</button>
-								</Table.Head>
-								<Table.Head>
-									<button class="hover:underline" onclick={() => sortBy('duration_ms')}>
-										Duration{sortIndicator('duration_ms')}
-									</button>
-								</Table.Head>
-								<Table.Head>
-									<button class="hover:underline" onclick={() => sortBy('messages')}>
-										Messages{sortIndicator('messages')}
-									</button>
-								</Table.Head>
-								<Table.Head>
-									<button class="hover:underline" onclick={() => sortBy('total_tool_calls')}>
-										Tool Calls{sortIndicator('total_tool_calls')}
-									</button>
-								</Table.Head>
-								<Table.Head>
-									<button class="hover:underline" onclick={() => sortBy('estimated_cost_usd')}>
-										Cost{sortIndicator('estimated_cost_usd')}
-									</button>
-								</Table.Head>
-								<Table.Head>Model</Table.Head>
-								<Table.Head>
-									<button class="hover:underline" onclick={() => sortBy('started_at')}>
-										Started{sortIndicator('started_at')}
-									</button>
-								</Table.Head>
+		<!-- Sessions table -->
+		<div class="border-border overflow-hidden rounded-lg border">
+			<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground px-3 pt-3 pb-2">Sessions</h2>
+			{#if data.sessions.length > 0}
+				<Table.Root class="text-xs">
+					<Table.Header>
+						<Table.Row>
+							<Table.Head>Session ID</Table.Head>
+							<Table.Head>
+								<button class="hover:underline" onclick={() => sortBy('repo_name')}>
+									Repo{sortIndicator('repo_name')}
+								</button>
+							</Table.Head>
+							<Table.Head>
+								<button class="hover:underline" onclick={() => sortBy('author')}>
+									Author{sortIndicator('author')}
+								</button>
+							</Table.Head>
+							<Table.Head>
+								<button class="hover:underline" onclick={() => sortBy('duration_ms')}>
+									Duration{sortIndicator('duration_ms')}
+								</button>
+							</Table.Head>
+							<Table.Head>
+								<button class="hover:underline" onclick={() => sortBy('messages')}>
+									Messages{sortIndicator('messages')}
+								</button>
+							</Table.Head>
+							<Table.Head>
+								<button class="hover:underline" onclick={() => sortBy('total_tool_calls')}>
+									Tool Calls{sortIndicator('total_tool_calls')}
+								</button>
+							</Table.Head>
+							<Table.Head>
+								<button class="hover:underline" onclick={() => sortBy('estimated_cost_usd')}>
+									Cost{sortIndicator('estimated_cost_usd')}
+								</button>
+							</Table.Head>
+							<Table.Head>Model</Table.Head>
+							<Table.Head>
+								<button class="hover:underline" onclick={() => sortBy('started_at')}>
+									Started{sortIndicator('started_at')}
+								</button>
+							</Table.Head>
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{#each sortedSessions(data.sessions) as session}
+							<Table.Row
+								class="cursor-pointer hover:bg-muted/40 transition-colors"
+								onclick={() => toggleExpand(session.id)}
+							>
+								<Table.Cell class="font-mono text-sm">{session.session_id.slice(0, 8)}</Table.Cell>
+								<Table.Cell>{session.repo_name}</Table.Cell>
+								<Table.Cell>{session.author}</Table.Cell>
+								<Table.Cell class="font-mono text-sm">{fmtDuration(session.duration_ms)}</Table.Cell>
+								<Table.Cell class="font-mono text-sm">
+									{(session.user_messages ?? 0) + (session.assistant_messages ?? 0)}
+								</Table.Cell>
+								<Table.Cell class="font-mono text-sm">{session.total_tool_calls ?? 0}</Table.Cell>
+								<Table.Cell class="font-mono text-sm">{fmtCost(session.estimated_cost_usd)}</Table.Cell>
+								<Table.Cell>
+									{#if session.model}
+										<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(79,110,247,0.12); color: #4f6ef7; border: 1px solid rgba(79,110,247,0.25)">{session.model}</span>
+									{:else}
+										<span class="text-muted-foreground">-</span>
+									{/if}
+								</Table.Cell>
+								<Table.Cell class="text-sm">{fmtRelativeTime(session.started_at)}</Table.Cell>
 							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{#each sortedSessions(data.sessions) as session}
+							{#if expandedSessionId === session.id}
 								<Table.Row>
-									<Table.Cell class="font-mono text-sm">{session.session_id.slice(0, 8)}</Table.Cell>
-									<Table.Cell>{session.repo_name}</Table.Cell>
-									<Table.Cell>{session.author}</Table.Cell>
-									<Table.Cell class="font-mono text-sm">{fmtDuration(session.duration_ms)}</Table.Cell>
-									<Table.Cell class="font-mono text-sm">
-										{(session.user_messages ?? 0) + (session.assistant_messages ?? 0)}
+									<Table.Cell colspan={9} class="p-0">
+										<SessionDetailPanel sessionId={session.id} />
 									</Table.Cell>
-									<Table.Cell class="font-mono text-sm">{session.total_tool_calls ?? 0}</Table.Cell>
-									<Table.Cell class="font-mono text-sm">{fmtCost(session.estimated_cost_usd)}</Table.Cell>
-									<Table.Cell>
-										{#if session.model}
-											<Badge variant="outline">{session.model}</Badge>
-										{:else}
-											<span class="text-muted-foreground">-</span>
-										{/if}
-									</Table.Cell>
-									<Table.Cell class="text-sm">{fmtRelativeTime(session.started_at)}</Table.Cell>
 								</Table.Row>
-							{/each}
-						</Table.Body>
-					</Table.Root>
-				{:else}
-					<p class="text-muted-foreground text-sm">No sessions</p>
-				{/if}
-			</Card.Content>
-		</Card.Root>
+							{/if}
+						{/each}
+					</Table.Body>
+				</Table.Root>
+			{:else}
+				<p class="text-muted-foreground px-3 pb-3 text-sm">No sessions</p>
+			{/if}
+		</div>
 	{/if}
 </div>

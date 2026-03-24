@@ -237,19 +237,7 @@ pub async fn login(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Audit with nil org_id since login is org-agnostic now
-    crate::audit::log(
-        &state.pool,
-        crate::audit::user_action(
-            Uuid::nil(),
-            user_id,
-            "user.login",
-            "user",
-            Some(user_id),
-            None,
-        ),
-    )
-    .await;
+    // Login is org-agnostic — skip audit log (audit_log requires a valid org_id)
 
     Ok(Json(LoginResponse {
         token: raw_token,

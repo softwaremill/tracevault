@@ -2,11 +2,9 @@
 	import { page } from '$app/stores';
 	import { onMount, onDestroy } from 'svelte';
 	import { api } from '$lib/api';
-	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
-	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
@@ -291,9 +289,9 @@
 				{#if !repo?.github_url}
 					<span class="text-xs text-muted-foreground">No GitHub URL configured</span>
 				{:else if cloneStatus === 'error'}
-					<Badge variant="destructive">Clone failed</Badge>
+					<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(240,101,101,0.12); color: #f06565; border: 1px solid rgba(240,101,101,0.25)">Clone failed</span>
 				{:else}
-					<Badge variant="secondary">Not cloned</Badge>
+					<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(79,110,247,0.12); color: #4f6ef7; border: 1px solid rgba(79,110,247,0.25)">Not cloned</span>
 				{/if}
 			{/if}
 			<a
@@ -310,9 +308,9 @@
 	</div>
 
 	<!-- Policies Section -->
-	<Card.Root>
-		<Card.Header class="flex flex-row items-center justify-between">
-			<Card.Title>Policies</Card.Title>
+	<div class="border-border overflow-hidden rounded-lg border">
+		<div class="bg-muted/30 flex items-center justify-between px-4 py-3">
+			<span class="text-sm font-semibold">Policies</span>
 			<Dialog.Root bind:open={createOpen} onOpenChange={(open) => { if (!open) resetCreateForm(); }}>
 				<Dialog.Trigger>
 					{#snippet child({ props })}
@@ -400,46 +398,49 @@
 					</form>
 				</Dialog.Content>
 			</Dialog.Root>
-		</Card.Header>
-		<Card.Content>
+		</div>
+		<div class="p-4">
 			{#if policiesLoading}
-				<p class="text-muted-foreground">Loading...</p>
+				<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+					<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+					Loading...
+				</div>
 			{:else if policiesError}
 				<p class="text-destructive">{policiesError}</p>
 			{:else if policies.length === 0}
-				<p class="text-muted-foreground">No policies configured. Add a policy to enforce tool-call requirements.</p>
+				<p class="text-muted-foreground text-sm">No policies configured. Add a policy to enforce tool-call requirements.</p>
 			{:else}
 				<Table.Root>
 					<Table.Header>
 						<Table.Row>
-							<Table.Head>Name</Table.Head>
-							<Table.Head>Condition</Table.Head>
-							<Table.Head>Action</Table.Head>
-							<Table.Head>Severity</Table.Head>
-							<Table.Head>Scope</Table.Head>
-							<Table.Head>Enabled</Table.Head>
-							<Table.Head></Table.Head>
+							<Table.Head class="text-xs">Name</Table.Head>
+							<Table.Head class="text-xs">Condition</Table.Head>
+							<Table.Head class="text-xs">Action</Table.Head>
+							<Table.Head class="text-xs">Severity</Table.Head>
+							<Table.Head class="text-xs">Scope</Table.Head>
+							<Table.Head class="text-xs">Enabled</Table.Head>
+							<Table.Head class="text-xs"></Table.Head>
 						</Table.Row>
 					</Table.Header>
 					<Table.Body>
 						{#each policies as policy}
-							<Table.Row>
-								<Table.Cell class="font-medium">{policy.name}</Table.Cell>
+							<Table.Row class="hover:bg-muted/40 transition-colors">
+								<Table.Cell class="text-xs font-medium">{policy.name}</Table.Cell>
 								<Table.Cell class="font-mono text-xs max-w-xs truncate">{conditionSummary(policy.condition)}</Table.Cell>
-								<Table.Cell>
-									<Badge variant={policy.action === 'block_push' ? 'destructive' : 'secondary'}>
-										{policy.action === 'block_push' ? 'Block' : 'Warn'}
-									</Badge>
+								<Table.Cell class="text-xs">
+									{#if policy.action === 'block_push'}
+										<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(240,101,101,0.12); color: #f06565; border: 1px solid rgba(240,101,101,0.25)">Block</span>
+									{:else}
+										<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(246,177,68,0.12); color: #f6b144; border: 1px solid rgba(246,177,68,0.25)">Warn</span>
+									{/if}
 								</Table.Cell>
-								<Table.Cell>
-									<Badge variant="outline">{policy.severity}</Badge>
+								<Table.Cell class="text-xs">
+									<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(79,110,247,0.12); color: #4f6ef7; border: 1px solid rgba(79,110,247,0.25)">{policy.severity}</span>
 								</Table.Cell>
-								<Table.Cell>
-									<Badge variant="outline">
-										{policy.repo_id ? 'repo' : 'org'}
-									</Badge>
+								<Table.Cell class="text-xs">
+									<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">{policy.repo_id ? 'repo' : 'org'}</span>
 								</Table.Cell>
-								<Table.Cell>
+								<Table.Cell class="text-xs">
 									<Button
 										variant="ghost"
 										size="sm"
@@ -448,7 +449,7 @@
 										{policy.enabled ? 'On' : 'Off'}
 									</Button>
 								</Table.Cell>
-								<Table.Cell>
+								<Table.Cell class="text-xs">
 									{#if policy.repo_id}
 										<Button variant="destructive" size="sm" onclick={() => deletePolicy(policy.id)}>
 											Delete
@@ -460,57 +461,58 @@
 					</Table.Body>
 				</Table.Root>
 			{/if}
-		</Card.Content>
-	</Card.Root>
+		</div>
+	</div>
 
 	<!-- Commits Section -->
-	<Card.Root>
-		<Card.Header>
-			<Card.Title>Commits</Card.Title>
-		</Card.Header>
-		<Card.Content>
+	<div class="border-border overflow-hidden rounded-lg border">
+		<div class="bg-muted/30 px-4 py-3 text-sm font-semibold">Commits</div>
+		<div class="p-4">
 			{#if loading}
-				<p class="text-muted-foreground">Loading...</p>
+				<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+					<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+					Loading...
+				</div>
 			{:else if error}
 				<p class="text-destructive">{error}</p>
 			{:else if commits.length === 0}
-				<p class="text-muted-foreground">No commits found for this repo.</p>
+				<p class="text-muted-foreground text-sm">No commits found for this repo.</p>
 			{:else}
 				<Table.Root>
 					<Table.Header>
 						<Table.Row>
-							<Table.Head>Commit</Table.Head>
-							<Table.Head>Author</Table.Head>
-							<Table.Head>Branch</Table.Head>
-							<Table.Head>Sessions</Table.Head>
-							<Table.Head>Tokens</Table.Head>
-							<Table.Head>Date</Table.Head>
+							<Table.Head class="text-xs">Commit</Table.Head>
+							<Table.Head class="text-xs">Author</Table.Head>
+							<Table.Head class="text-xs">Branch</Table.Head>
+							<Table.Head class="text-xs">Sessions</Table.Head>
+							<Table.Head class="text-xs">Tokens</Table.Head>
+							<Table.Head class="text-xs">Date</Table.Head>
 						</Table.Row>
 					</Table.Header>
 					<Table.Body>
 						{#each commits as commit}
-							<Table.Row>
-								<Table.Cell>
+							<Table.Row class="hover:bg-muted/40 transition-colors">
+								<Table.Cell class="text-xs">
 									<a href="/orgs/{slug}/traces/{commit.commit_sha}" class="font-mono text-sm underline">
 										{commit.commit_sha.slice(0, 8)}
 									</a>
 								</Table.Cell>
-								<Table.Cell>{commit.author}</Table.Cell>
-								<Table.Cell>
+								<Table.Cell class="text-xs">{commit.author}</Table.Cell>
+								<Table.Cell class="text-xs">
 									{#if commit.branch}
-										<Badge variant="outline">{commit.branch}</Badge>
+										<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">{commit.branch}</span>
 									{:else}
 										<span class="text-muted-foreground">-</span>
 									{/if}
 								</Table.Cell>
-								<Table.Cell>{commit.session_count}</Table.Cell>
-								<Table.Cell class="font-mono text-sm">{fmtTokens(commit.total_tokens)}</Table.Cell>
-								<Table.Cell>{formatDate(commit.created_at)}</Table.Cell>
+								<Table.Cell class="text-xs">{commit.session_count}</Table.Cell>
+								<Table.Cell class="text-xs font-mono">{fmtTokens(commit.total_tokens)}</Table.Cell>
+								<Table.Cell class="text-xs">{formatDate(commit.created_at)}</Table.Cell>
 							</Table.Row>
 						{/each}
 					</Table.Body>
 				</Table.Root>
 			{/if}
-		</Card.Content>
-	</Card.Root>
+		</div>
+	</div>
 </div>

@@ -2,7 +2,6 @@
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
 	import { orgStore } from '$lib/stores/org';
-	import * as Card from '$lib/components/ui/card/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
@@ -102,7 +101,7 @@
 
 <div class="space-y-6">
 	<h1 class="text-2xl font-bold">LLM Configuration</h1>
-	<p class="text-muted-foreground">Configure the AI model provider used for story generation across the platform.</p>
+	<p class="text-muted-foreground text-sm">Configure the AI model provider used for story generation across the platform.</p>
 
 	{#if error}
 		<Alert.Root variant="destructive">
@@ -119,16 +118,19 @@
 	{/if}
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+			Loading...
+		</div>
 	{:else}
-		<Card.Root class="max-w-lg">
-			<Card.Header>
-				<Card.Title>LLM Provider</Card.Title>
-				<p class="text-sm text-muted-foreground">
+		<div class="border-border overflow-hidden rounded-lg border max-w-lg">
+			<div class="bg-muted/30 px-4 py-3">
+				<span class="text-sm font-semibold">LLM Provider</span>
+				<p class="text-xs text-muted-foreground mt-0.5">
 					Configure the AI model used for code story generation.
 				</p>
-			</Card.Header>
-			<Card.Content class="space-y-4">
+			</div>
+			<div class="p-4 space-y-4">
 				{#if editing}
 					<div class="grid gap-2">
 						<Label for="llm_provider">Provider</Label>
@@ -183,36 +185,33 @@
 						<Button variant="outline" onclick={cancelEditing}>Cancel</Button>
 					</div>
 				{:else}
-					<div class="flex justify-between">
-						<span class="text-muted-foreground">Provider</span>
-						<span class="capitalize">{settings?.provider ?? 'Not configured'}</span>
+					<div class="flex items-center justify-between py-1.5 text-sm">
+						<span class="text-muted-foreground text-xs">Provider</span>
+						<span class="text-xs capitalize">{settings?.provider ?? 'Not configured'}</span>
 					</div>
-					<div class="flex justify-between">
-						<span class="text-muted-foreground">API Key</span>
+					<div class="flex items-center justify-between py-1.5 text-sm">
+						<span class="text-muted-foreground text-xs">API Key</span>
 						{#if settings?.has_api_key}
-							<span
-								class="rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200"
-								>Configured</span
-							>
+							<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(62,207,142,0.12); color: #3ecf8e; border: 1px solid rgba(62,207,142,0.25)">Configured</span>
 						{:else}
-							<span class="text-muted-foreground">Not set</span>
+							<span class="text-xs text-muted-foreground">Not set</span>
 						{/if}
 					</div>
-					<div class="flex justify-between">
-						<span class="text-muted-foreground">Model</span>
-						<span>{settings?.model ?? 'Default'}</span>
+					<div class="flex items-center justify-between py-1.5 text-sm">
+						<span class="text-muted-foreground text-xs">Model</span>
+						<span class="text-xs">{settings?.model ?? 'Default'}</span>
 					</div>
 					{#if settings?.base_url}
-						<div class="flex justify-between">
-							<span class="text-muted-foreground">Base URL</span>
-							<span class="truncate max-w-[200px]">{settings.base_url}</span>
+						<div class="flex items-center justify-between py-1.5 text-sm">
+							<span class="text-muted-foreground text-xs">Base URL</span>
+							<span class="text-xs truncate max-w-[200px]">{settings.base_url}</span>
 						</div>
 					{/if}
 					{#if isOwnerOrAdmin}
 						<Button variant="outline" onclick={startEditing}>Edit</Button>
 					{/if}
 				{/if}
-			</Card.Content>
-		</Card.Root>
+			</div>
+		</div>
 	{/if}
 </div>

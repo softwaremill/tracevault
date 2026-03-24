@@ -100,7 +100,7 @@
 
 {#if loading}
 	<div class="flex min-h-screen items-center justify-center">
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm"><span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>Loading...</div>
 	</div>
 {:else if showSigningKey}
 	<div class="flex min-h-screen items-center justify-center">
@@ -163,14 +163,14 @@
 				</div>
 				<div class="grid gap-3">
 					{#each orgs as org}
-						<a href="/orgs/{org.org_name}/repos" class="flex items-center justify-between p-4 border rounded-md hover:bg-muted">
+						<a href="/orgs/{org.org_name}/repos" class="border-border flex items-center justify-between overflow-hidden rounded-lg border p-4 hover:bg-muted/40 transition-colors">
 							<div>
 								<div class="font-semibold">{org.display_name || org.org_name}</div>
 								{#if org.display_name}
 									<div class="text-xs text-muted-foreground">{org.org_name}</div>
 								{/if}
 							</div>
-							<span class="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">{org.role}</span>
+							<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">{org.role}</span>
 						</a>
 					{/each}
 				</div>
@@ -192,7 +192,7 @@
 
 			{#if showCreateForm || orgs.length === 0}
 				<form onsubmit={(e) => { e.preventDefault(); createOrg(); }} class="space-y-4 border-t pt-4">
-					<h2 class="text-lg font-semibold">Create Organization</h2>
+					<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Create Organization</h2>
 					<div class="space-y-2">
 						<label for="orgName" class="text-sm font-medium">GitHub organization</label>
 						<input

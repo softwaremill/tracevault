@@ -4,9 +4,7 @@
 	import { api } from '$lib/api';
 	import { features } from '$lib/stores/features';
 	import EnterpriseUpgrade from '$lib/components/enterprise-upgrade.svelte';
-	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
-	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 
 	interface ComplianceSettings {
@@ -128,39 +126,31 @@
 </svelte:head>
 
 {#if !$features.loaded}
-	<p class="text-muted-foreground">Loading...</p>
+	<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm"><span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>Loading...</div>
 {:else if $features.compliance}
 <div class="space-y-6">
 	<h1 class="text-2xl font-bold">Compliance Dashboard</h1>
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm"><span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>Loading...</div>
 	{:else if error}
 		<p class="text-destructive">{error}</p>
 	{:else}
 		<!-- Top Cards Row -->
 		<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 			<!-- Chain Integrity -->
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Title class="text-sm font-medium">Chain Integrity</Card.Title>
-				</Card.Header>
-				<Card.Content>
+			<div class="border-border overflow-hidden rounded-lg border">
+				<div class="bg-muted/30 px-4 py-3 text-sm font-semibold">Chain Integrity</div>
+				<div class="p-4 space-y-3">
 					{#if chainStatus}
 						<div class="flex items-center gap-2 mb-2">
-							<Badge
-								variant={chainStatus.status === 'pass'
-									? 'success'
-									: chainStatus.status === 'never_run'
-										? 'secondary'
-										: 'error'}
-							>
-								{chainStatus.status === 'pass'
-									? 'Verified'
-									: chainStatus.status === 'never_run'
-										? 'Not Verified'
-										: 'Failed'}
-							</Badge>
+							{#if chainStatus.status === 'pass'}
+								<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(62,207,142,0.12); color: #3ecf8e; border: 1px solid rgba(62,207,142,0.25)">Verified</span>
+							{:else if chainStatus.status === 'never_run'}
+								<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(79,110,247,0.12); color: #4f6ef7; border: 1px solid rgba(79,110,247,0.25)">Not Verified</span>
+							{:else}
+								<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(240,101,101,0.12); color: #f06565; border: 1px solid rgba(240,101,101,0.25)">Failed</span>
+							{/if}
 						</div>
 						{#if chainStatus.status !== 'never_run'}
 							<p class="text-xs text-muted-foreground">
@@ -182,22 +172,19 @@
 							{verifying ? 'Verifying...' : 'Verify Now'}
 						</Button>
 					{/if}
-				</Card.Content>
-			</Card.Root>
+				</div>
+			</div>
 
 			<!-- Compliance Mode -->
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Title class="text-sm font-medium">Compliance Mode</Card.Title>
-				</Card.Header>
-				<Card.Content>
+			<div class="border-border overflow-hidden rounded-lg border">
+				<div class="bg-muted/30 px-4 py-3 text-sm font-semibold">Compliance Mode</div>
+				<div class="p-4 space-y-3">
 					{#if settings}
-						<Badge
-							variant={settings.compliance_mode !== 'none' ? 'success' : 'secondary'}
-							class="text-lg px-3 py-1"
-						>
-							{modeLabel(settings.compliance_mode)}
-						</Badge>
+						{#if settings.compliance_mode !== 'none'}
+							<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(62,207,142,0.12); color: #3ecf8e; border: 1px solid rgba(62,207,142,0.25)">{modeLabel(settings.compliance_mode)}</span>
+						{:else}
+							<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(79,110,247,0.12); color: #4f6ef7; border: 1px solid rgba(79,110,247,0.25)">{modeLabel(settings.compliance_mode)}</span>
+						{/if}
 						<p class="text-xs text-muted-foreground mt-2">
 							Signing: {settings.signing_enabled ? 'Enabled' : 'Disabled'}
 						</p>
@@ -205,15 +192,13 @@
 							>Configure</a
 						>
 					{/if}
-				</Card.Content>
-			</Card.Root>
+				</div>
+			</div>
 
 			<!-- Retention -->
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Title class="text-sm font-medium">Data Retention</Card.Title>
-				</Card.Header>
-				<Card.Content>
+			<div class="border-border overflow-hidden rounded-lg border">
+				<div class="bg-muted/30 px-4 py-3 text-sm font-semibold">Data Retention</div>
+				<div class="p-4 space-y-3">
 					{#if settings}
 						<p class="text-2xl font-bold">{settings.retention_days} days</p>
 						<p class="text-xs text-muted-foreground">
@@ -223,20 +208,18 @@
 								: ''} retention policy
 						</p>
 					{/if}
-				</Card.Content>
-			</Card.Root>
+				</div>
+			</div>
 		</div>
 
 		<!-- Role Distribution -->
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>Role Distribution</Card.Title>
-			</Card.Header>
-			<Card.Content>
+		<div class="border-border overflow-hidden rounded-lg border">
+			<div class="bg-muted/30 px-4 py-3 text-sm font-semibold">Role Distribution</div>
+			<div class="p-4 space-y-3">
 				<div class="flex flex-wrap gap-4">
 					{#each Object.entries(roleCounts()) as [role, count]}
 						<div class="flex items-center gap-2">
-							<Badge variant="outline">{role}</Badge>
+							<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">{role}</span>
 							<span class="text-sm font-medium">{count}</span>
 						</div>
 					{/each}
@@ -244,38 +227,38 @@
 						<p class="text-sm text-muted-foreground">No members data available</p>
 					{/if}
 				</div>
-			</Card.Content>
-		</Card.Root>
+			</div>
+		</div>
 
 		<!-- Recent Audit Log -->
-		<Card.Root>
-			<Card.Header class="flex flex-row items-center justify-between">
-				<Card.Title>Recent Audit Log</Card.Title>
+		<div class="border-border overflow-hidden rounded-lg border">
+			<div class="bg-muted/30 flex items-center justify-between px-4 py-3">
+				<span class="text-sm font-semibold">Recent Audit Log</span>
 				<a href="/orgs/{slug}/compliance/audit-log">
 					<Button variant="outline" size="sm">View All</Button>
 				</a>
-			</Card.Header>
-			<Card.Content>
+			</div>
+			<div class="p-4 space-y-3">
 				{#if recentAudit.length === 0}
 					<p class="text-muted-foreground">No audit log entries yet.</p>
 				{:else}
 					<Table.Root>
 						<Table.Header>
 							<Table.Row>
-								<Table.Head>Time</Table.Head>
-								<Table.Head>Action</Table.Head>
-								<Table.Head>Resource</Table.Head>
-								<Table.Head>Details</Table.Head>
+								<Table.Head class="text-xs">Time</Table.Head>
+								<Table.Head class="text-xs">Action</Table.Head>
+								<Table.Head class="text-xs">Resource</Table.Head>
+								<Table.Head class="text-xs">Details</Table.Head>
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
 							{#each recentAudit as entry}
-								<Table.Row>
+								<Table.Row class="hover:bg-muted/40 transition-colors">
 									<Table.Cell class="text-xs"
 										>{formatDate(entry.created_at)}</Table.Cell
 									>
 									<Table.Cell>
-										<Badge variant="action">{entry.action}</Badge>
+										<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(79,110,247,0.12); color: #4f6ef7; border: 1px solid rgba(79,110,247,0.25)">{entry.action}</span>
 									</Table.Cell>
 									<Table.Cell class="text-xs font-mono"
 										>{entry.resource_type}</Table.Cell
@@ -288,8 +271,8 @@
 						</Table.Body>
 					</Table.Root>
 				{/if}
-			</Card.Content>
-		</Card.Root>
+			</div>
+		</div>
 	{/if}
 </div>
 {:else}

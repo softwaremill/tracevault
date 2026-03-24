@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
-	import * as Card from '$lib/components/ui/card/index.js';
 	import Chart from '$lib/components/chart.svelte';
 	import {
 		Chart as ChartJS,
@@ -156,97 +155,83 @@
 	<h1 class="text-2xl font-bold">AI Attribution Analytics</h1>
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+			Loading...
+		</div>
 	{:else if error}
 		<p class="text-destructive">{error}</p>
 	{:else if data}
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>Summary</Card.Title>
-			</Card.Header>
-			<Card.Content>
-				<div class="grid grid-cols-3 gap-4 text-center">
-					<div>
-						<p class="text-muted-foreground text-sm">AI Lines</p>
-						<p class="text-2xl font-bold" style="color: {AI_COLOR}">{fmtNum(data.totals.ai_lines)}</p>
-					</div>
-					<div>
-						<p class="text-muted-foreground text-sm">Human Lines</p>
-						<p class="text-2xl font-bold" style="color: {HUMAN_COLOR}">{fmtNum(data.totals.human_lines)}</p>
-					</div>
-					<div>
-						<p class="text-muted-foreground text-sm">Overall AI %</p>
-						<p class="text-2xl font-bold">{data.totals.ai_pct.toFixed(1)}%</p>
-					</div>
+		<div class="border-border overflow-hidden rounded-lg border">
+			<div class="grid grid-cols-3 gap-px">
+				<div class="bg-background p-3 text-center">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">AI Lines</div>
+					<div class="mt-1 text-lg font-semibold" style="color: {AI_COLOR}">{fmtNum(data.totals.ai_lines)}</div>
 				</div>
-			</Card.Content>
-		</Card.Root>
+				<div class="bg-background p-3 text-center">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Human Lines</div>
+					<div class="mt-1 text-lg font-semibold" style="color: {HUMAN_COLOR}">{fmtNum(data.totals.human_lines)}</div>
+				</div>
+				<div class="bg-background p-3 text-center">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Overall AI %</div>
+					<div class="mt-1 text-lg font-semibold">{data.totals.ai_pct.toFixed(1)}%</div>
+				</div>
+			</div>
+		</div>
 
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>AI vs Human Trend</Card.Title>
-			</Card.Header>
-			<Card.Content>
-				{#if data.trend.length > 0}
-					<Chart
+		<div class="border-border rounded-lg border p-3">
+			<h4 class="mb-2 text-sm font-semibold">AI vs Human Trend</h4>
+			{#if data.trend.length > 0}
+				<Chart
 					type="line"
-						data={trendChartData(data)}
+					data={trendChartData(data)}
+					options={{
+						responsive: true,
+						scales: { y: { stacked: true, max: 100 } },
+						plugins: { legend: { position: 'top' } }
+					}}
+				/>
+			{:else}
+				<p class="text-muted-foreground text-sm">No data</p>
+			{/if}
+		</div>
+
+		<div class="grid gap-6 lg:grid-cols-2">
+			<div class="border-border rounded-lg border p-3">
+				<h4 class="mb-2 text-sm font-semibold">By Repository</h4>
+				{#if data.by_repo.length > 0}
+					<Chart
+						type="bar"
+						data={repoChartData(data)}
 						options={{
 							responsive: true,
-							scales: { y: { stacked: true, max: 100 } },
+							indexAxis: 'y',
+							scales: { x: { stacked: true, max: 100 } },
 							plugins: { legend: { position: 'top' } }
 						}}
 					/>
 				{:else}
 					<p class="text-muted-foreground text-sm">No data</p>
 				{/if}
-			</Card.Content>
-		</Card.Root>
+			</div>
 
-		<div class="grid gap-6 lg:grid-cols-2">
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>By Repository</Card.Title>
-				</Card.Header>
-				<Card.Content>
-					{#if data.by_repo.length > 0}
-						<Chart
-							type="bar"
-							data={repoChartData(data)}
-							options={{
-								responsive: true,
-								indexAxis: 'y',
-								scales: { x: { stacked: true, max: 100 } },
-								plugins: { legend: { position: 'top' } }
-							}}
-						/>
-					{:else}
-						<p class="text-muted-foreground text-sm">No data</p>
-					{/if}
-				</Card.Content>
-			</Card.Root>
-
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>By Author</Card.Title>
-				</Card.Header>
-				<Card.Content>
-					{#if data.by_author.length > 0}
-						<Chart
-							type="bar"
-							data={authorChartData(data)}
-							options={{
-								responsive: true,
-								indexAxis: 'y',
-								scales: { x: { stacked: true, max: 100 } },
-								plugins: { legend: { position: 'top' } }
-							}}
-						/>
-					{:else}
-						<p class="text-muted-foreground text-sm">No data</p>
-					{/if}
-				</Card.Content>
-			</Card.Root>
+			<div class="border-border rounded-lg border p-3">
+				<h4 class="mb-2 text-sm font-semibold">By Author</h4>
+				{#if data.by_author.length > 0}
+					<Chart
+						type="bar"
+						data={authorChartData(data)}
+						options={{
+							responsive: true,
+							indexAxis: 'y',
+							scales: { x: { stacked: true, max: 100 } },
+							plugins: { legend: { position: 'top' } }
+						}}
+					/>
+				{:else}
+					<p class="text-muted-foreground text-sm">No data</p>
+				{/if}
+			</div>
 		</div>
 	{/if}
 </div>
