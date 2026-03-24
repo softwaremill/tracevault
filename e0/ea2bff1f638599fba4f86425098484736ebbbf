@@ -1,0 +1,49 @@
+web/src/routes/orgs/[slug]/traces/commits/[id]/+page.svelte
+  d70964b21f1e2f66 61-68,70-78,80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "e0ea2bff1f638599fba4f86425098484736ebbbf",
+  "prompts": {
+    "5f40f3c4af6f099f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3a4792d2-19b7-4c12-98da-7485e017ed46",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 467,
+      "overriden_lines": 0
+    },
+    "87dda0f0c747b0e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "90a218ea-126f-421e-82c8-ec8c6e6ca2f4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 148,
+      "overriden_lines": 0
+    },
+    "d70964b21f1e2f66": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f9ec3c28-23c3-4782-a973-356cbe2043bc",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 18,
+      "total_deletions": 4,
+      "accepted_lines": 18,
+      "overriden_lines": 0
+    }
+  }
+}
