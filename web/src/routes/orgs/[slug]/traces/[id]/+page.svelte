@@ -2,8 +2,6 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
-	import * as Card from '$lib/components/ui/card/index.js';
-import { Badge } from '$lib/components/ui/badge/index.js';
 	import SessionDetailPanel from '$lib/components/session-detail/SessionDetailPanel.svelte';
 
 	interface SessionDetail {
@@ -220,234 +218,203 @@ let expandedFiles: Set<string> = $state(new Set());
 	<title>Commit Detail - TraceVault</title>
 </svelte:head>
 
-<div class="space-y-4">
-	<div class="flex items-center gap-2">
-		<a href="/orgs/{slug}/traces" class="text-muted-foreground hover:underline">Commits</a>
-		<span class="text-muted-foreground">/</span>
-		<h1 class="text-2xl font-bold font-mono">{commitId.slice(0, 8)}</h1>
+<div class="space-y-5">
+	<!-- Header -->
+	<div class="flex items-center gap-3">
+		<a href="/orgs/{slug}/traces" class="text-muted-foreground text-sm hover:text-foreground transition-colors">&larr; Commits</a>
+		<span class="text-muted-foreground/40">/</span>
+		<h1 class="font-mono text-xl font-semibold">{commitId.slice(0, 8)}</h1>
+		{#if commit?.branch}
+			<span class="rounded-full px-2.5 py-0.5 text-[11px]" style="background: rgba(62,207,142,0.12); color: #3ecf8e; border: 1px solid rgba(62,207,142,0.25)">{commit.branch}</span>
+		{/if}
+		{#if verification}
+			{#if verification.signature_valid && verification.chain_valid}
+				<span class="rounded-full px-2.5 py-0.5 text-[11px]" style="background: rgba(62,207,142,0.12); color: #3ecf8e; border: 1px solid rgba(62,207,142,0.25)">Verified</span>
+			{:else if verification.sealed_at}
+				<span class="rounded-full px-2.5 py-0.5 text-[11px]" style="background: rgba(240,101,101,0.12); color: #f06565; border: 1px solid rgba(240,101,101,0.25)">Verification Failed</span>
+			{:else}
+				<span class="text-muted-foreground/50 text-[11px]">Not Sealed</span>
+			{/if}
+		{/if}
 	</div>
 
 	{#if loading}
-		<p class="text-muted-foreground">Loading...</p>
+		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+			Loading...
+		</div>
 	{:else if error}
 		<p class="text-destructive">{error}</p>
 	{:else if commit}
-		<div class="grid gap-4 md:grid-cols-2">
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>Commit Info</Card.Title>
-				</Card.Header>
-				<Card.Content class="space-y-2">
-					<div class="flex justify-between">
-						<span class="text-muted-foreground">SHA</span>
-						<span class="font-mono text-sm">{commit.commit_sha}</span>
-					</div>
-					{#if commit.branch}
-						<div class="flex justify-between">
-							<span class="text-muted-foreground">Branch</span>
-							<Badge variant="outline">{commit.branch}</Badge>
-						</div>
-					{/if}
-					<div class="flex justify-between">
-						<span class="text-muted-foreground">Author</span>
-						<span>{commit.author}</span>
-					</div>
-					<div class="flex justify-between">
-						<span class="text-muted-foreground">Date</span>
-						<span>{formatDate(commit.created_at)}</span>
-					</div>
-					<div class="flex justify-between">
-						<span class="text-muted-foreground">Sessions</span>
-						<span>{commit.sessions.length}</span>
-					</div>
-					{#if verification}
-						<div class="flex items-center gap-2 pt-2">
-							<span class="text-muted-foreground">Integrity</span>
-							{#if verification.signature_valid && verification.chain_valid}
-								<Badge variant="default">Signature Verified</Badge>
-							{:else if verification.sealed_at}
-								<Badge variant="destructive">Verification Failed</Badge>
-							{:else}
-								<Badge variant="secondary">Not Sealed</Badge>
-							{/if}
-						</div>
-					{/if}
-				</Card.Content>
-			</Card.Root>
+		<!-- Compact info bar + stats -->
+		<div class="border-border overflow-hidden rounded-lg border">
+			<!-- Commit metadata row -->
+			<div class="bg-muted/30 flex flex-wrap items-center gap-x-6 gap-y-1 px-4 py-3 text-sm">
+				<div class="flex items-center gap-2">
+					<span class="text-muted-foreground text-xs uppercase tracking-wide">SHA</span>
+					<span class="font-mono text-xs">{commit.commit_sha}</span>
+				</div>
+				<div class="flex items-center gap-2">
+					<span class="text-muted-foreground text-xs uppercase tracking-wide">Author</span>
+					<span class="text-xs">{commit.author}</span>
+				</div>
+				<div class="flex items-center gap-2">
+					<span class="text-muted-foreground text-xs uppercase tracking-wide">Date</span>
+					<span class="text-xs">{formatDate(commit.created_at)}</span>
+				</div>
+			</div>
 
-			{#if attrData}
-				<Card.Root>
-					<Card.Header>
-						<Card.Title>AI Attribution</Card.Title>
-					</Card.Header>
-					<Card.Content class="space-y-2">
-						<div class="flex justify-between">
-							<span class="text-muted-foreground">AI Percentage</span>
-							<span class="font-semibold">{attrData.summary.ai_percentage.toFixed(1)}%</span>
-						</div>
-						<div class="flex justify-between">
-							<span class="text-muted-foreground">Human Percentage</span>
-							<span class="font-semibold">{attrData.summary.human_percentage.toFixed(1)}%</span>
-						</div>
-						<div class="flex justify-between">
-							<span class="text-muted-foreground">Lines Added</span>
+			<!-- Stats grid -->
+			<div class="grid grid-cols-2 gap-px md:grid-cols-4 lg:grid-cols-5">
+				{#if aggregatedStats}
+					<div class="bg-background p-3">
+						<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Total Tokens</div>
+						<div class="mt-1 text-lg font-semibold">{fmtTokens(aggregatedStats.totalTokens)}</div>
+						<div class="text-muted-foreground text-[11px]">{fmtTokens(aggregatedStats.totalInput)} in / {fmtTokens(aggregatedStats.totalOutput)} out</div>
+					</div>
+				{/if}
+
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Sessions</div>
+					<div class="mt-1 text-lg font-semibold">{commit.sessions.length}</div>
+				</div>
+
+				<div class="bg-background p-3">
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Files Changed</div>
+					<div class="mt-1 text-lg font-semibold">{diffSummary.fileCount}</div>
+					<div class="text-[11px]">
+						<span class="text-green-600">+{diffSummary.totalAdded}</span>
+						<span class="text-red-500 ml-1">-{diffSummary.totalDeleted}</span>
+					</div>
+				</div>
+
+				{#if attrData}
+					<div class="bg-background p-3">
+						<div class="text-muted-foreground text-[11px] uppercase tracking-wide">AI Authored</div>
+						<div class="mt-1 text-lg font-semibold" style="color: #a78bfa">{attrData.summary.ai_percentage.toFixed(1)}%</div>
+						<div class="text-[11px]">
 							<span class="text-green-600">+{attrData.summary.total_lines_added}</span>
+							<span class="text-red-500 ml-1">-{attrData.summary.total_lines_deleted}</span>
 						</div>
-						<div class="flex justify-between">
-							<span class="text-muted-foreground">Lines Deleted</span>
-							<span class="text-red-600">-{attrData.summary.total_lines_deleted}</span>
-						</div>
-					</Card.Content>
-				</Card.Root>
-			{/if}
+					</div>
+
+					<div class="bg-background p-3">
+						<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Human Authored</div>
+						<div class="mt-1 text-lg font-semibold" style="color: #3ecf8e">{attrData.summary.human_percentage.toFixed(1)}%</div>
+					</div>
+				{/if}
+			</div>
 		</div>
 
-		{#if aggregatedStats}
-			<div class="grid gap-4 md:grid-cols-3">
-				<Card.Root>
-					<Card.Header class="pb-2">
-						<Card.Title class="text-sm font-medium text-muted-foreground">Total Tokens</Card.Title>
-					</Card.Header>
-					<Card.Content>
-						<div class="text-2xl font-bold">{fmtTokens(aggregatedStats.totalTokens)}</div>
-						<p class="text-xs text-muted-foreground">
-							{fmtTokens(aggregatedStats.totalInput)} in / {fmtTokens(aggregatedStats.totalOutput)} out
-						</p>
-					</Card.Content>
-				</Card.Root>
+		<!-- Sessions -->
+		{#if commit.sessions.length > 0}
+			<div class="space-y-3">
+				<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Sessions</h2>
+				{#each commit.sessions as session (session.id)}
+					<div class="border-border overflow-hidden rounded-lg border">
+						<button
+							class="hover:bg-muted/40 flex w-full items-center gap-3 px-4 py-3 text-left transition-colors"
+							onclick={() => toggleSession(session.id)}
+						>
+							<span class="text-muted-foreground/50 text-xs">{expandedSessions.has(session.id) ? '▼' : '▶'}</span>
+							<span class="font-mono text-xs">{session.session_id}</span>
+							{#if session.model}
+								<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">{session.model}</span>
+							{/if}
+							{#if session.tool}
+								<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(79,110,247,0.12); color: #4f6ef7; border: 1px solid rgba(79,110,247,0.25)">{session.tool}</span>
+							{/if}
+							<span class="text-muted-foreground ml-auto flex items-center gap-4 text-xs">
+								{#if session.total_tokens}
+									<span>{fmtTokens(session.total_tokens)} tokens</span>
+								{/if}
+								{#if session.estimated_cost_usd}
+									<span style="color: #3ecf8e">${session.estimated_cost_usd.toFixed(2)}</span>
+								{/if}
+								<span>{new Date(session.created_at).toLocaleString()}</span>
+							</span>
+						</button>
 
-				<Card.Root>
-					<Card.Header class="pb-2">
-						<Card.Title class="text-sm font-medium text-muted-foreground">Sessions</Card.Title>
-					</Card.Header>
-					<Card.Content>
-						<div class="text-2xl font-bold">{commit.sessions.length}</div>
-					</Card.Content>
-				</Card.Root>
-
-				<Card.Root>
-					<Card.Header class="pb-2">
-						<Card.Title class="text-sm font-medium text-muted-foreground">Files Changed</Card.Title>
-					</Card.Header>
-					<Card.Content>
-						<div class="text-2xl font-bold">{diffSummary.fileCount}</div>
-						<p class="text-xs text-muted-foreground">
-							<span class="text-green-600">+{diffSummary.totalAdded}</span>
-							<span class="text-red-600 ml-1">-{diffSummary.totalDeleted}</span>
-						</p>
-					</Card.Content>
-				</Card.Root>
+						{#if expandedSessions.has(session.id)}
+							<div class="border-border border-t">
+								<SessionDetailPanel sessionId={session.id} />
+							</div>
+						{/if}
+					</div>
+				{/each}
 			</div>
 		{/if}
 
-		{#if commit.sessions.length > 0}
-			<h2 class="text-lg font-semibold">Sessions</h2>
-			{#each commit.sessions as session (session.id)}
-				<Card.Root>
-					<Card.Header>
-						<button
-							class="flex w-full items-center justify-between text-left"
-							onclick={() => toggleSession(session.id)}
-						>
-							<div class="flex items-center gap-2">
-								<span class="text-muted-foreground">{expandedSessions.has(session.id) ? '▼' : '▶'}</span>
-								<Card.Title class="text-base">
-									Session <span class="font-mono text-sm">{session.session_id}</span>
-								</Card.Title>
-								{#if session.model}
-									<Badge variant="secondary">{session.model}</Badge>
-								{/if}
-								{#if session.tool}
-									<Badge variant="outline">{session.tool}</Badge>
-								{/if}
-							</div>
-							<div class="flex items-center gap-4 text-sm text-muted-foreground">
-								<span>{fmtTokens(session.total_tokens)} tokens</span>
-								<span>{new Date(session.created_at).toLocaleString()}</span>
-							</div>
-						</button>
-					</Card.Header>
-
-					{#if expandedSessions.has(session.id)}
-						<Card.Content>
-							<SessionDetailPanel sessionId={session.id} />
-						</Card.Content>
-					{/if}
-				</Card.Root>
-			{/each}
-		{/if}
-
+		<!-- Changes / Diff -->
 		{#if diffFiles.length > 0}
-			<Card.Root>
-				<Card.Header class="pb-2">
-					<Card.Title class="flex items-center gap-3">
-						<span>Changes</span>
-						<Badge variant="secondary">{diffSummary.fileCount} file{diffSummary.fileCount !== 1 ? 's' : ''}</Badge>
-						<span class="text-sm font-normal">
-							<span class="text-green-600">+{diffSummary.totalAdded}</span>
-							<span class="text-red-600 ml-1">-{diffSummary.totalDeleted}</span>
-						</span>
-						{#if attrData}
-							<Badge variant="outline" class="text-xs">
-								{attrData.summary.ai_percentage.toFixed(0)}% AI
-							</Badge>
-						{/if}
-					</Card.Title>
-				</Card.Header>
-				<Card.Content class="space-y-2 p-0">
-					{#if !attrData}
-						<div class="mx-4 mt-2 mb-2 rounded border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950 p-3 text-sm text-blue-700 dark:text-blue-300">
-							Attribution data not available. Install <a href="https://usegitai.com" class="underline font-medium" target="_blank" rel="noopener">git-ai</a> to track which lines were written by AI agents vs humans.
-						</div>
+			<div class="space-y-3">
+				<div class="flex items-center gap-3">
+					<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Changes</h2>
+					<span class="text-muted-foreground text-xs">{diffSummary.fileCount} file{diffSummary.fileCount !== 1 ? 's' : ''}</span>
+					<span class="text-xs">
+						<span class="text-green-600">+{diffSummary.totalAdded}</span>
+						<span class="text-red-500 ml-1">-{diffSummary.totalDeleted}</span>
+					</span>
+					{#if attrData}
+						<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">{attrData.summary.ai_percentage.toFixed(0)}% AI</span>
 					{/if}
+				</div>
+
+				{#if !attrData}
+					<div class="rounded-lg border px-4 py-3 text-xs" style="background: rgba(79,110,247,0.06); border-color: rgba(79,110,247,0.2); color: rgba(79,110,247,0.8)">
+						Attribution data not available. Install <a href="https://usegitai.com" class="font-medium underline" target="_blank" rel="noopener">git-ai</a> to track which lines were written by AI agents vs humans.
+					</div>
+				{/if}
+
+				<div class="border-border overflow-hidden rounded-lg border">
 					{#each diffFiles as file}
-						<div class="border-t first:border-t-0">
+						<div class="border-border border-b last:border-b-0">
 							<button
-								class="flex w-full items-center gap-2 px-4 py-2 text-left text-sm hover:bg-muted/50"
+								class="hover:bg-muted/40 flex w-full items-center gap-2 px-4 py-2 text-left text-xs transition-colors"
 								onclick={() => toggleFile(file.path)}
 							>
-								<span class="text-muted-foreground">{expandedFiles.has(file.path) ? '▼' : '▶'}</span>
+								<span class="text-muted-foreground/50">{expandedFiles.has(file.path) ? '▼' : '▶'}</span>
 								<span class="font-mono font-medium">{file.path}</span>
 								{#if file.old_path}
-									<span class="text-muted-foreground text-xs">(renamed from {file.old_path})</span>
+									<span class="text-muted-foreground">(from {file.old_path})</span>
 								{/if}
-								<span class="ml-auto text-xs">
+								<span class="ml-auto">
 									<span class="text-green-600">+{fileAddedCount(file)}</span>
-									<span class="text-red-600 ml-1">-{fileDeletedCount(file)}</span>
+									<span class="text-red-500 ml-1">-{fileDeletedCount(file)}</span>
 								</span>
 								{#if attrData && fileAiLineCount(file.path) > 0}
-									<Badge variant="outline" class="text-xs">AI: {fileAiLineCount(file.path)} lines</Badge>
+									<span class="rounded-full px-1.5 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa">AI: {fileAiLineCount(file.path)}</span>
 								{:else if attrData}
-									<span class="text-xs text-muted-foreground">Human only</span>
+									<span class="text-muted-foreground/50">Human</span>
 								{/if}
 							</button>
 							{#if expandedFiles.has(file.path)}
 								<div class="overflow-x-auto">
 									{#each file.hunks as hunk}
-										<div class="bg-blue-50 dark:bg-blue-950/30 px-4 py-1 text-xs font-mono text-muted-foreground border-y">
+										<div class="border-border bg-muted/30 border-y px-4 py-1 font-mono text-[11px]" style="color: rgba(79,110,247,0.6)">
 											@@ -{hunk.old_start},{hunk.old_count} +{hunk.new_start},{hunk.new_count} @@
 										</div>
 										{#each hunk.lines as line}
 											{@const isAi = line.kind === 'add' && line.new_line_number != null && isAiLine(file.path, line.new_line_number)}
 											<div
-												class="flex font-mono text-xs leading-5 {
+												class="flex font-mono text-[11px] leading-5 {
 													line.kind === 'delete'
-														? 'bg-red-500/10'
+														? 'bg-red-500/8'
 														: line.kind === 'add'
 															? isAi
-																? 'bg-violet-500/10'
-																: 'bg-green-500/10'
+																? 'bg-violet-500/8'
+																: 'bg-green-500/8'
 															: ''
 												}"
 											>
-												<span class="w-12 shrink-0 select-none text-right pr-2 text-muted-foreground/50 border-r">
+												<span class="border-border text-muted-foreground/30 w-10 shrink-0 select-none border-r pr-1 text-right">
 													{line.old_line_number ?? ''}
 												</span>
-												<span class="w-12 shrink-0 select-none text-right pr-2 text-muted-foreground/50 border-r">
+												<span class="border-border text-muted-foreground/30 w-10 shrink-0 select-none border-r pr-1 text-right">
 													{line.new_line_number ?? ''}
 												</span>
-												<span class="w-5 shrink-0 select-none text-center {
-													line.kind === 'add' ? 'text-green-600' : line.kind === 'delete' ? 'text-red-600' : 'text-muted-foreground/30'
+												<span class="w-4 shrink-0 select-none text-center {
+													line.kind === 'add' ? 'text-green-600' : line.kind === 'delete' ? 'text-red-500' : 'text-muted-foreground/20'
 												}">
 													{line.kind === 'add' ? '+' : line.kind === 'delete' ? '-' : ' '}
 												</span>
@@ -459,26 +426,34 @@ let expandedFiles: Set<string> = $state(new Set());
 							{/if}
 						</div>
 					{/each}
-				</Card.Content>
-			</Card.Root>
+				</div>
+			</div>
 		{/if}
 
-		{#if commit.attribution}
-			<details>
-				<summary class="cursor-pointer text-sm text-muted-foreground hover:text-foreground">
-					Attribution Details
-				</summary>
-				<pre class="mt-2 overflow-auto rounded bg-muted p-4 text-sm">{formatJson(commit.attribution)}</pre>
-			</details>
+		<!-- Raw data sections -->
+		{#if commit.attribution || commit.sessions.some((s) => s.session_data)}
+			<div class="space-y-2">
+				<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Raw Data</h2>
+				<div class="border-border overflow-hidden rounded-lg border">
+					{#if commit.attribution}
+						<details class="border-border border-b last:border-b-0">
+							<summary class="hover:bg-muted/40 cursor-pointer px-4 py-2.5 text-xs transition-colors">
+								<span class="text-muted-foreground">Attribution Details</span>
+							</summary>
+							<pre class="bg-muted/20 border-border max-h-96 overflow-auto border-t p-4 font-mono text-[11px] leading-relaxed">{formatJson(commit.attribution)}</pre>
+						</details>
+					{/if}
+					{#each commit.sessions.filter((s) => s.session_data) as session (session.id)}
+						<details class="border-border border-b last:border-b-0">
+							<summary class="hover:bg-muted/40 cursor-pointer px-4 py-2.5 text-xs transition-colors">
+								<span class="text-muted-foreground">Session Data</span>
+								<span class="font-mono ml-1">{session.session_id}</span>
+							</summary>
+							<pre class="bg-muted/20 border-border max-h-96 overflow-auto border-t p-4 font-mono text-[11px] leading-relaxed">{formatJson(session.session_data)}</pre>
+						</details>
+					{/each}
+				</div>
+			</div>
 		{/if}
-
-		{#each commit.sessions.filter((s) => s.session_data) as session (session.id)}
-			<details>
-				<summary class="cursor-pointer text-sm text-muted-foreground hover:text-foreground">
-					Session Data — <span class="font-mono">{session.session_id}</span>
-				</summary>
-				<pre class="mt-2 overflow-auto rounded bg-muted p-4 text-sm max-h-96">{formatJson(session.session_data)}</pre>
-			</details>
-		{/each}
 	{/if}
 </div>
