@@ -3,8 +3,7 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import * as Card from '$lib/components/ui/card/index.js';
-	import * as Table from '$lib/components/ui/table/index.js';
-	import { Badge } from '$lib/components/ui/badge/index.js';
+import { Badge } from '$lib/components/ui/badge/index.js';
 	import SessionDetailPanel from '$lib/components/session-detail/SessionDetailPanel.svelte';
 
 	interface SessionDetail {
@@ -34,45 +33,7 @@
 		sessions: SessionDetail[];
 	}
 
-	interface TokenUsage {
-		input_tokens: number;
-		output_tokens: number;
-		cache_creation_input_tokens: number;
-		cache_read_input_tokens: number;
-	}
-
-	interface TranscriptEntry {
-		index: number;
-		timestamp: string | null;
-		type: string;
-		subtype: string | null;
-		summary: string;
-		model: string | null;
-		usage: TokenUsage | null;
-		prompt: string | null;
-		toolNames: string[];
-		raw: unknown;
-	}
-
-	interface ModelStats {
-		model: string;
-		tokens: number;
-		count: number;
-	}
-
-	interface TranscriptStats {
-		totalInputTokens: number;
-		totalOutputTokens: number;
-		totalCacheReadTokens: number;
-		totalCacheCreationTokens: number;
-		byModel: ModelStats[];
-		toolUsageCounts: Record<string, number>;
-		turnCount: number;
-		userMessageCount: number;
-		totalDurationMs: number;
-	}
-
-	interface DiffLine {
+interface DiffLine {
 		kind: 'add' | 'delete' | 'context';
 		content: string;
 		new_line_number: number | null;
@@ -117,198 +78,10 @@
 		};
 	}
 
-	function truncate(s: string, max: number): string {
-		if (s.length <= max) return s;
-		return s.slice(0, max) + '…';
-	}
-
-	function parseTranscript(raw: unknown[]): TranscriptEntry[] {
-		const entries: TranscriptEntry[] = [];
-
-		for (let i = 0; i < raw.length; i++) {
-			const e = raw[i] as Record<string, unknown>;
-			const type = (e.type as string) ?? 'unknown';
-			const dataObj = e.data as Record<string, unknown> | undefined;
-			const subtype = (e.subtype as string) ?? (dataObj?.type as string) ?? null;
-			const timestamp = (e.timestamp as string) ?? null;
-			const msg = e.message as Record<string, unknown> | undefined;
-
-			let summary = type;
-			let model: string | null = null;
-			let usage: TokenUsage | null = null;
-			let prompt: string | null = null;
-			const toolNames: string[] = [];
-
-			if (type === 'assistant' && msg) {
-				model = (msg.model as string) ?? null;
-				const rawUsage = msg.usage as Record<string, number> | undefined;
-				if (rawUsage) {
-					usage = {
-						input_tokens: rawUsage.input_tokens ?? 0,
-						output_tokens: rawUsage.output_tokens ?? 0,
-						cache_creation_input_tokens: rawUsage.cache_creation_input_tokens ?? 0,
-						cache_read_input_tokens: rawUsage.cache_read_input_tokens ?? 0
-					};
-				}
-				const content = msg.content;
-				if (Array.isArray(content)) {
-					const textParts: string[] = [];
-					for (const block of content) {
-						const b = block as Record<string, unknown>;
-						if (b.type === 'text') textParts.push(b.text as string);
-						else if (b.type === 'tool_use') toolNames.push(b.name as string);
-					}
-					if (textParts.length > 0) {
-						summary = truncate(textParts.join(' ').replace(/\s+/g, ' '), 120);
-					} else if (toolNames.length > 0) {
-						summary = `tool calls: ${toolNames.join(', ')}`;
-					} else {
-						summary = 'assistant response';
-					}
-				}
-			} else if (type === 'user') {
-				const content = msg?.content;
-				if (typeof content === 'string') {
-					prompt = content;
-					summary = truncate(content.replace(/\s+/g, ' '), 120);
-				} else if (Array.isArray(content)) {
-					const toolResults = content.filter(
-						(b: Record<string, unknown>) => (b as Record<string, unknown>).type === 'tool_result'
-					);
-					summary = `${toolResults.length} tool result${toolResults.length !== 1 ? 's' : ''}`;
-				} else {
-					summary = 'user message';
-				}
-			} else if (type === 'progress' && subtype === 'agent_progress') {
-				const data = e.data as Record<string, unknown> | undefined;
-				if (data) {
-					prompt = (data.prompt as string) ?? null;
-					const nestedMsg = data.message as Record<string, unknown> | undefined;
-					const innerMsg = nestedMsg?.message as Record<string, unknown> | undefined;
-					if (innerMsg) {
-						model = (innerMsg.model as string) ?? null;
-						const rawUsage = innerMsg.usage as Record<string, number> | undefined;
-						if (rawUsage) {
-							usage = {
-								input_tokens: rawUsage.input_tokens ?? 0,
-								output_tokens: rawUsage.output_tokens ?? 0,
-								cache_creation_input_tokens: rawUsage.cache_creation_input_tokens ?? 0,
-								cache_read_input_tokens: rawUsage.cache_read_input_tokens ?? 0
-							};
-						}
-					}
-					summary = prompt ? truncate(prompt.replace(/\s+/g, ' '), 120) : 'agent progress';
-				}
-			} else if (type === 'system' && subtype === 'turn_duration') {
-				const data = e.data as Record<string, unknown> | undefined;
-				const durationMs = (data?.durationMs as number) ?? 0;
-				summary = `turn duration: ${fmtDuration(durationMs)}`;
-			}
-
-			entries.push({
-				index: i,
-				timestamp,
-				type,
-				subtype: subtype,
-				summary,
-				model,
-				usage,
-				prompt,
-				toolNames,
-				raw: e
-			});
-		}
-
-		return entries;
-	}
-
-	function computeStats(entries: TranscriptEntry[]): TranscriptStats {
-		let totalInputTokens = 0;
-		let totalOutputTokens = 0;
-		let totalCacheReadTokens = 0;
-		let totalCacheCreationTokens = 0;
-		let userMessageCount = 0;
-		let totalDurationMs = 0;
-		let minTime = Infinity;
-		let maxTime = -Infinity;
-		const modelMap = new Map<string, { tokens: number; count: number }>();
-		const toolCounts: Record<string, number> = {};
-
-		for (const entry of entries) {
-			if (entry.timestamp) {
-				const t = new Date(entry.timestamp).getTime();
-				if (t < minTime) minTime = t;
-				if (t > maxTime) maxTime = t;
-			}
-			if (entry.usage) {
-				totalInputTokens += entry.usage.input_tokens;
-				totalOutputTokens += entry.usage.output_tokens;
-				totalCacheReadTokens += entry.usage.cache_read_input_tokens;
-				totalCacheCreationTokens += entry.usage.cache_creation_input_tokens;
-			}
-			if (entry.model && entry.usage) {
-				const existing = modelMap.get(entry.model) ?? { tokens: 0, count: 0 };
-				existing.tokens +=
-					entry.usage.input_tokens +
-					entry.usage.output_tokens +
-					entry.usage.cache_read_input_tokens +
-					entry.usage.cache_creation_input_tokens;
-				existing.count++;
-				modelMap.set(entry.model, existing);
-			}
-			if (entry.type === 'user' && entry.prompt) {
-				userMessageCount++;
-			}
-			for (const tool of entry.toolNames) {
-				toolCounts[tool] = (toolCounts[tool] ?? 0) + 1;
-			}
-			if (entry.type === 'system' && entry.subtype === 'turn_duration') {
-				const data = (entry.raw as Record<string, unknown>).data as
-					| Record<string, unknown>
-					| undefined;
-				totalDurationMs += (data?.durationMs as number) ?? 0;
-			}
-		}
-
-		// Prefer timestamp range over turn_duration sum
-		if (minTime !== Infinity && maxTime !== -Infinity && maxTime > minTime) {
-			totalDurationMs = maxTime - minTime;
-		}
-
-		const byModel: ModelStats[] = Array.from(modelMap.entries())
-			.map(([model, { tokens, count }]) => ({ model, tokens, count }))
-			.sort((a, b) => b.tokens - a.tokens);
-
-		return {
-			totalInputTokens,
-			totalOutputTokens,
-			totalCacheReadTokens,
-			totalCacheCreationTokens,
-			byModel,
-			toolUsageCounts: toolCounts,
-			turnCount: entries.length,
-			userMessageCount,
-			totalDurationMs
-		};
-	}
-
 	function fmtTokens(n: number | undefined | null): string {
 		if (n == null || n === 0) return '-';
 		if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
 		return String(n);
-	}
-
-	function fmtTime(iso: string | null): string {
-		if (!iso) return '-';
-		return new Date(iso).toLocaleTimeString();
-	}
-
-	function fmtDuration(ms: number): string {
-		if (ms === 0) return '-';
-		if (ms < 1000) return `${Math.round(ms)}ms`;
-		if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-		if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`;
-		return `${Math.floor(ms / 3_600_000)}h ${Math.floor((ms % 3_600_000) / 60_000)}m`;
 	}
 
 	interface VerifyResponse {
@@ -323,7 +96,6 @@
 	let loading = $state(true);
 	let error = $state('');
 	let expandedSessions: Set<string> = $state(new Set());
-	let expandedEntries: Set<string> = $state(new Set());
 	let verification: VerifyResponse | null = $state(null);
 	let verifyLoading = $state(false);
 
@@ -375,29 +147,14 @@
 		return { totalTokens, totalInput, totalOutput };
 	});
 
-	// Per-session transcript data
-	function sessionTranscript(session: SessionDetail) {
-		if (!session.transcript) return { entries: [] as TranscriptEntry[], stats: computeStats([]) };
-		const entries = parseTranscript(session.transcript);
-		const stats = computeStats(entries);
-		return { entries, stats };
-	}
-
-	function toggleSession(sessionId: string) {
+function toggleSession(sessionId: string) {
 		const next = new Set(expandedSessions);
 		if (next.has(sessionId)) next.delete(sessionId);
 		else next.add(sessionId);
 		expandedSessions = next;
 	}
 
-	function toggleEntry(key: string) {
-		const next = new Set(expandedEntries);
-		if (next.has(key)) next.delete(key);
-		else next.add(key);
-		expandedEntries = next;
-	}
-
-	let expandedFiles: Set<string> = $state(new Set());
+let expandedFiles: Set<string> = $state(new Set());
 
 	const diffFiles = $derived.by(() => {
 		if (!commit?.diff_data) return [] as FileDiff[];
@@ -586,7 +343,6 @@
 		{#if commit.sessions.length > 0}
 			<h2 class="text-lg font-semibold">Sessions</h2>
 			{#each commit.sessions as session (session.id)}
-				{@const tx = sessionTranscript(session)}
 				<Card.Root>
 					<Card.Header>
 						<button
@@ -613,62 +369,8 @@
 					</Card.Header>
 
 					{#if expandedSessions.has(session.id)}
-						<Card.Content class="space-y-4">
+						<Card.Content>
 							<SessionDetailPanel sessionId={session.id} />
-
-							{#if tx.entries.length > 0}
-								<Table.Root>
-									<Table.Header>
-										<Table.Row>
-											<Table.Head class="w-12">#</Table.Head>
-											<Table.Head class="w-24">Time</Table.Head>
-											<Table.Head class="w-28">Type</Table.Head>
-											<Table.Head>Summary</Table.Head>
-											<Table.Head class="w-36">Model</Table.Head>
-											<Table.Head class="w-20 text-right">In</Table.Head>
-											<Table.Head class="w-20 text-right">Out</Table.Head>
-											<Table.Head class="w-20 text-right">Cache</Table.Head>
-										</Table.Row>
-									</Table.Header>
-									<Table.Body>
-										{#each tx.entries as entry (entry.index)}
-											{@const entryKey = `${session.id}-${entry.index}`}
-											<Table.Row class="cursor-pointer hover:bg-muted/50" onclick={() => toggleEntry(entryKey)}>
-												<Table.Cell class="font-mono text-xs text-muted-foreground">
-													<span class="text-muted-foreground mr-1">{expandedEntries.has(entryKey) ? '▼' : '▶'}</span>{entry.index}
-												</Table.Cell>
-												<Table.Cell class="text-xs">{fmtTime(entry.timestamp)}</Table.Cell>
-												<Table.Cell>
-													<Badge variant="outline" class="text-xs">{entry.type}{entry.subtype ? `:${entry.subtype}` : ''}</Badge>
-												</Table.Cell>
-												<Table.Cell class="max-w-md truncate" title={entry.summary}>
-													{entry.summary}
-												</Table.Cell>
-												<Table.Cell>
-													{#if entry.model}
-														<Badge variant="secondary" class="text-xs">{entry.model}</Badge>
-													{:else}
-														<span class="text-muted-foreground">-</span>
-													{/if}
-												</Table.Cell>
-												<Table.Cell class="text-right font-mono text-xs">{fmtTokens(entry.usage?.input_tokens)}</Table.Cell>
-												<Table.Cell class="text-right font-mono text-xs">{fmtTokens(entry.usage?.output_tokens)}</Table.Cell>
-												<Table.Cell class="text-right font-mono text-xs">
-													{fmtTokens(entry.usage ? entry.usage.cache_read_input_tokens + entry.usage.cache_creation_input_tokens : undefined)}
-												</Table.Cell>
-											</Table.Row>
-											{#if expandedEntries.has(entryKey)}
-												<Table.Row>
-													<Table.Cell colspan={8} class="p-0">
-														<pre class="overflow-auto bg-muted p-4 text-xs max-h-96">{formatJson(entry.raw)}</pre>
-													</Table.Cell>
-												</Table.Row>
-											{/if}
-										{/each}
-									</Table.Body>
-								</Table.Root>
-							{/if}
-
 						</Card.Content>
 					{/if}
 				</Card.Root>
