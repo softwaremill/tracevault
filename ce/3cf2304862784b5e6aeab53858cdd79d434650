@@ -1,0 +1,65 @@
+web/src/routes/orgs/[slug]/traces/branches/+page.svelte
+  d70964b21f1e2f66 1-227
+web/src/routes/orgs/[slug]/traces/commits/[id]/+page.svelte
+  d70964b21f1e2f66 1-174
+web/src/routes/orgs/[slug]/traces/commits/+page.svelte
+  d70964b21f1e2f66 1-117
+web/src/routes/orgs/[slug]/traces/+page.svelte
+  d70964b21f1e2f66 2,7-8
+web/src/routes/orgs/[slug]/traces/+layout.svelte
+  d70964b21f1e2f66 2-4,6-89,92-160,162-164
+web/src/lib/components/app-sidebar.svelte
+  d70964b21f1e2f66 85-92
+web/src/routes/orgs/[slug]/traces/sessions/+page.svelte
+  d70964b21f1e2f66 1-176
+web/src/routes/orgs/[slug]/traces/timeline/+page.svelte
+  d70964b21f1e2f66 1-195
+web/src/routes/orgs/[slug]/traces/sessions/[id]/+page.svelte
+  d70964b21f1e2f66 1-535
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "ce3cf2304862784b5e6aeab53858cdd79d434650",
+  "prompts": {
+    "5f40f3c4af6f099f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3a4792d2-19b7-4c12-98da-7485e017ed46",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 467,
+      "overriden_lines": 0
+    },
+    "87dda0f0c747b0e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "90a218ea-126f-421e-82c8-ec8c6e6ca2f4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 148,
+      "overriden_lines": 0
+    },
+    "d70964b21f1e2f66": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f9ec3c28-23c3-4782-a973-356cbe2043bc",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1594,
+      "overriden_lines": 0
+    }
+  }
+}
