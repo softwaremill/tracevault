@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -143,6 +145,7 @@ async fn query_kpi_totals(
 }
 
 struct SparklineDay {
+    date: String,
     cost: f64,
     sessions: i64,
     tokens: i64,
@@ -180,7 +183,8 @@ async fn query_sparklines(
 
     Ok(rows
         .into_iter()
-        .map(|(_d, cost, sessions, tokens, authors)| SparklineDay {
+        .map(|(date, cost, sessions, tokens, authors)| SparklineDay {
+            date,
             cost,
             sessions,
             tokens,
@@ -247,11 +251,42 @@ pub async fn get_dashboard(
     let period = q.period.as_deref().unwrap_or("7d");
     let (cur_start, cur_end, prev_start, prev_end) = period_ranges(period);
 
-    let current = query_kpi_totals(&state.pool, auth.org_id, cur_start, cur_end).await?;
-    let previous = query_kpi_totals(&state.pool, auth.org_id, prev_start, prev_end).await?;
-    let sparkline_data = query_sparklines(&state.pool, auth.org_id, cur_start, cur_end).await?;
-    let compliance_cur = query_compliance(&state.pool, auth.org_id, cur_start, cur_end).await?;
-    let compliance_prev = query_compliance(&state.pool, auth.org_id, prev_start, prev_end).await?;
+    let (current, previous, sparkline_raw, compliance_cur, compliance_prev) = tokio::try_join!(
+        query_kpi_totals(&state.pool, auth.org_id, cur_start, cur_end),
+        query_kpi_totals(&state.pool, auth.org_id, prev_start, prev_end),
+        query_sparklines(&state.pool, auth.org_id, cur_start, cur_end),
+        query_compliance(&state.pool, auth.org_id, cur_start, cur_end),
+        query_compliance(&state.pool, auth.org_id, prev_start, prev_end),
+    )?;
+
+    // Fill sparkline gaps: generate all dates in [cur_start, cur_end) and zero-fill missing days
+    let sparkline_map: HashMap<String, &SparklineDay> =
+        sparkline_raw.iter().map(|d| (d.date.clone(), d)).collect();
+
+    let mut sparkline_data = Vec::new();
+    let mut date = cur_start.date_naive();
+    let end_date = cur_end.date_naive();
+    while date < end_date {
+        let key = date.format("%Y-%m-%d").to_string();
+        if let Some(day) = sparkline_map.get(&key) {
+            sparkline_data.push(SparklineDay {
+                date: key,
+                cost: day.cost,
+                sessions: day.sessions,
+                tokens: day.tokens,
+                authors: day.authors,
+            });
+        } else {
+            sparkline_data.push(SparklineDay {
+                date: key,
+                cost: 0.0,
+                sessions: 0,
+                tokens: 0,
+                authors: 0,
+            });
+        }
+        date += chrono::Duration::days(1);
+    }
 
     let cost_trend = trend_pct(current.total_cost, previous.total_cost);
     let sessions_trend = trend_pct(
