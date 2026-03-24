@@ -473,14 +473,6 @@ pub async fn get_commit(
     }))
 }
 
-/// Deprecated shim for old POST /api/v1/orgs/{slug}/traces
-pub async fn traces_gone() -> (StatusCode, String) {
-    (
-        StatusCode::GONE,
-        "This endpoint is deprecated. Please upgrade your tracevault CLI to use the streaming architecture.".to_string(),
-    )
-}
-
 // ── Timeline ────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
