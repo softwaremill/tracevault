@@ -1,0 +1,59 @@
+crates/tracevault-server/src/api/pricing.rs
+  d70964b21f1e2f66 86-87,304-305,347
+crates/tracevault-server/src/api/analytics.rs
+  d70964b21f1e2f66 71,73-76,171,193,200-202,205-225,228-230,241,265,268-270,273-277,291-293,295-297,310,312-322,335-339,341-342,364-366,369-371,387-389,393-395,408-410,414,417-423,425-431,512,515-517,520-524,541-543,545-547,560-563,566-568,583-585,588-590,687,689-693,695-696,698-700,703-705,723,820-834,838-839,841-844,847-850,852-857,860,882,884-894,908-919,978,1024,1177-1182,1185-1187,1207-1209,1212-1214,1225-1226,1240-1244,1305-1307,1310-1312,1331,1333-1335,1338-1341,1353,1355-1357,1359-1367,1382-1384,1386-1388,1402-1405,1408-1410
+crates/tracevault-server/src/api/session_detail.rs
+  d70964b21f1e2f66 438,440-442,459-471,473-476,490,494
+crates/tracevault-server/src/story.rs
+  d70964b21f1e2f66 116-119,121-127,130-131,133-137,145-180
+crates/tracevault-server/src/api/dashboard.rs
+  d70964b21f1e2f66 116,119,121-123,167-170,212-213
+crates/tracevault-server/src/api/ci.rs
+  d70964b21f1e2f66 170-173,180-182,185-198,202-214
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "7351790f846c892ff69501c28e53349f850a77c7",
+  "prompts": {
+    "5f40f3c4af6f099f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3a4792d2-19b7-4c12-98da-7485e017ed46",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 467,
+      "overriden_lines": 0
+    },
+    "87dda0f0c747b0e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "90a218ea-126f-421e-82c8-ec8c6e6ca2f4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 148,
+      "overriden_lines": 0
+    },
+    "d70964b21f1e2f66": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f9ec3c28-23c3-4782-a973-356cbe2043bc",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 401,
+      "total_deletions": 380,
+      "accepted_lines": 396,
+      "overriden_lines": 0
+    }
+  }
+}
