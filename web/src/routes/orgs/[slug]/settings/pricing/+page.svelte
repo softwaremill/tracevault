@@ -21,12 +21,22 @@
 		effective_from: string;
 		effective_until: string | null;
 		created_at: string;
+		source: string;
 	}
 
 	interface RecalculateResult {
 		affected_sessions: number;
 		total_old_cost: number;
 		total_new_cost: number;
+	}
+
+	interface SyncStatus {
+		last_synced_at: string | null;
+	}
+
+	interface SyncResult {
+		models_updated: string[];
+		last_synced_at: string | null;
 	}
 
 	const slug = $derived($page.params.slug);
@@ -59,6 +69,8 @@
 	let formLoading = $state(false);
 
 	let recalculating: string | null = $state(null);
+	let syncStatus: SyncStatus | null = $state(null);
+	let syncing = $state(false);
 
 	onMount(() => loadData());
 
@@ -66,9 +78,10 @@
 		loading = true;
 		error = '';
 		try {
-			[entries, models] = await Promise.all([
+			[entries, models, syncStatus] = await Promise.all([
 				api.get<PricingEntry[]>(`/api/v1/orgs/${slug}/pricing`),
-				api.get<string[]>(`/api/v1/orgs/${slug}/pricing/models`)
+				api.get<string[]>(`/api/v1/orgs/${slug}/pricing/models`),
+				api.get<SyncStatus>(`/api/v1/orgs/${slug}/pricing/sync/status`)
 			]);
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load pricing data';
@@ -189,6 +202,39 @@
 			recalculating = null;
 		}
 	}
+
+	async function handleSync() {
+		syncing = true;
+		error = '';
+		success = '';
+		try {
+			const result = await api.post<SyncResult>(`/api/v1/orgs/${slug}/pricing/sync`);
+			if (result) {
+				if (result.models_updated.length > 0) {
+					success = `Synced pricing for: ${result.models_updated.join(', ')}`;
+				} else {
+					success = 'All prices are up to date.';
+				}
+				await loadData();
+			}
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Sync failed';
+		} finally {
+			syncing = false;
+		}
+	}
+
+	function timeAgo(iso: string): string {
+		const diff = Date.now() - new Date(iso).getTime();
+		const hours = Math.floor(diff / 3600000);
+		if (hours < 1) {
+			const mins = Math.floor(diff / 60000);
+			return mins <= 1 ? 'just now' : `${mins} minutes ago`;
+		}
+		if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+		const days = Math.floor(hours / 24);
+		return `${days} day${days === 1 ? '' : 's'} ago`;
+	}
 </script>
 
 <svelte:head>
@@ -206,6 +252,24 @@
 		Manage pricing rates used to calculate session costs in analytics. Changes to pricing can be
 		applied retroactively.
 	</p>
+
+	<div class="rounded-md border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-sm text-blue-200">
+		<div class="flex items-center justify-between">
+			<span>Pricing is automatically synced from <a href="https://github.com/BerriAI/litellm" target="_blank" rel="noopener" class="underline hover:text-blue-100">LiteLLM's</a> open-source pricing database. You can override any model's pricing manually.</span>
+			{#if isOwnerOrAdmin}
+				<div class="flex items-center gap-3 ml-4 shrink-0">
+					{#if syncStatus?.last_synced_at}
+						<span class="text-xs text-muted-foreground">Last synced: {timeAgo(syncStatus.last_synced_at)}</span>
+					{/if}
+					<Button variant="outline" size="sm" disabled={syncing} onclick={handleSync}>
+						{syncing ? 'Syncing...' : 'Sync Now'}
+					</Button>
+				</div>
+			{:else if syncStatus?.last_synced_at}
+				<span class="text-xs text-muted-foreground ml-4 shrink-0">Last synced: {timeAgo(syncStatus.last_synced_at)}</span>
+			{/if}
+		</div>
+	</div>
 
 	{#if error}
 		<Alert.Root variant="destructive">
@@ -295,6 +359,19 @@
 										{#if current.effective_until}
 											<span>Until: <b>{formatDate(current.effective_until)}</b></span>
 										{/if}
+										<span>
+											{#if current.source === 'litellm_sync'}
+												<span
+													class="rounded-full px-2 py-0.5 text-[10px]"
+													style="background: rgba(99,102,241,0.12); color: #818cf8; border: 1px solid rgba(99,102,241,0.25)"
+												>auto</span>
+											{:else}
+												<span
+													class="rounded-full px-2 py-0.5 text-[10px]"
+													style="background: rgba(234,179,8,0.12); color: #eab308; border: 1px solid rgba(234,179,8,0.25)"
+												>manual override</span>
+											{/if}
+										</span>
 									</div>
 
 									{#if history.length > 0}
