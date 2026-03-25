@@ -3,39 +3,12 @@
 	import { api } from '$lib/api';
 	import DataTable from '$lib/components/DataTable.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
-	import Chart from '$lib/components/chart.svelte';
 	import SessionDetailPanel from '$lib/components/session-detail/SessionDetailPanel.svelte';
 	import MonitorPlayIcon from '@lucide/svelte/icons/monitor-play';
 	import ClockIcon from '@lucide/svelte/icons/clock';
 	import MessageSquareIcon from '@lucide/svelte/icons/message-square';
 	import DollarSignIcon from '@lucide/svelte/icons/dollar-sign';
 	import CpuIcon from '@lucide/svelte/icons/cpu';
-	import {
-		Chart as ChartJS,
-		CategoryScale,
-		LinearScale,
-		PointElement,
-		LineElement,
-		BarElement,
-		ArcElement,
-		Title,
-		Tooltip,
-		Legend,
-		Filler
-	} from 'chart.js';
-
-	ChartJS.register(
-		CategoryScale,
-		LinearScale,
-		PointElement,
-		LineElement,
-		BarElement,
-		ArcElement,
-		Title,
-		Tooltip,
-		Legend,
-		Filler
-	);
 
 	const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
@@ -168,19 +141,19 @@
 		return 'just now';
 	}
 
-	function toolFrequencyChartData(d: SessionsResponse) {
-		const entries = Object.entries(d.tool_frequency).sort((a, b) => b[1] - a[1]).slice(0, 10);
-		return {
-			labels: entries.map(([k]) => k),
-			datasets: [
-				{
-					data: entries.map(([, v]) => v),
-					backgroundColor: COLORS.slice(0, entries.length).concat(
-						Array(Math.max(0, entries.length - COLORS.length)).fill('#94a3b8')
-					)
-				}
-			]
-		};
+	function toolFrequencyEntries(d: SessionsResponse): Array<{ name: string; count: number; color: string }> {
+		return Object.entries(d.tool_frequency)
+			.sort((a, b) => b[1] - a[1])
+			.slice(0, 12)
+			.map(([name, count], i) => ({
+				name,
+				count: count as number,
+				color: COLORS[i % COLORS.length]
+			}));
+	}
+
+	function toolFrequencyTotal(d: SessionsResponse): number {
+		return Object.values(d.tool_frequency).reduce((s, v) => s + (v as number), 0);
 	}
 </script>
 
@@ -216,19 +189,34 @@
 		<!-- Tool Frequency chart -->
 		<div class="border-border rounded-lg border p-3">
 			<h4 class="mb-2 text-sm font-semibold">Tool Frequency</h4>
-			<div class="flex justify-center">
-				{#if Object.keys(data.tool_frequency).length > 0}
-					<div class="max-w-[400px]">
-						<Chart
-							type="doughnut"
-							data={toolFrequencyChartData(data)}
-							options={{ responsive: true, plugins: { legend: { position: 'bottom' } } }}
-						/>
-					</div>
-				{:else}
-					<p class="text-muted-foreground text-sm">No tool data</p>
-				{/if}
-			</div>
+			{#if Object.keys(data.tool_frequency).length > 0}
+				{@const entries = toolFrequencyEntries(data)}
+				{@const total = toolFrequencyTotal(data)}
+				<div class="flex h-9 overflow-hidden rounded-md">
+					{#each entries as entry}
+						<div
+							class="flex items-center justify-center overflow-hidden text-xs font-semibold text-white transition-all hover:brightness-110"
+							style="flex: {entry.count}; background: {entry.color}"
+							title="{entry.name}: {entry.count}"
+						>
+							{#if entry.count / total > 0.06}
+								<span class="truncate px-1">{entry.name}</span>
+							{/if}
+						</div>
+					{/each}
+				</div>
+				<div class="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+					{#each entries as entry}
+						<div class="text-muted-foreground flex items-center gap-1.5 text-xs">
+							<span class="inline-block h-2.5 w-2.5 rounded-sm" style="background: {entry.color}"></span>
+							{entry.name}
+							<span class="text-muted-foreground/60">{entry.count}</span>
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<p class="text-muted-foreground text-sm">No tool data</p>
+			{/if}
 		</div>
 
 		<!-- Sessions table -->
