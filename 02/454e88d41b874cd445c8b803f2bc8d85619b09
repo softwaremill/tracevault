@@ -1,0 +1,25 @@
+crates/tracevault-server/src/api/pricing.rs
+  734286ae00d2bbaa 308-315,321-323
+crates/tracevault-server/src/pricing.rs
+  734286ae00d2bbaa 21-32,43,73-74,79-80,85-86,179-232,234-281,312-319
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "02454e88d41b874cd445c8b803f2bc8d85619b09",
+  "prompts": {
+    "734286ae00d2bbaa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8c163980-121e-403c-8f8d-d71bc09f2daf",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 139,
+      "total_deletions": 121,
+      "accepted_lines": 140,
+      "overriden_lines": 1
+    }
+  }
+}
