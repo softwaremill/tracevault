@@ -26,10 +26,9 @@ services:
       PORT: 3000
       RUST_LOG: info
       CORS_ORIGIN: http://localhost:5173
-      # Required: persistent Ed25519 signing key (base64-encoded 32-byte seed).
+      # Required: AES-256 encryption key for per-org signing keys, deploy keys, etc.
       # Generate with: openssl rand -base64 32
-      # Without this, signatures won't survive server restarts.
-      TRACEVAULT_SIGNING_KEY: ${TRACEVAULT_SIGNING_KEY:?Set TRACEVAULT_SIGNING_KEY env var (openssl rand -base64 32)}
+      TRACEVAULT_ENCRYPTION_KEY: ${TRACEVAULT_ENCRYPTION_KEY:?Set TRACEVAULT_ENCRYPTION_KEY env var (openssl rand -base64 32)}
     ports:
       - "3000:3000"
 
