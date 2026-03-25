@@ -1,0 +1,47 @@
+web/src/routes/orgs/[slug]/analytics/tokens/+page.svelte
+  d0cc5c3b33f0d568 4-5,7-9,91-107,162-180,196-210
+web/src/routes/orgs/[slug]/analytics/sessions/+page.svelte
+  d0cc5c3b33f0d568 4-5,8-12,76-101,103-119,203-213,235-274
+web/src/lib/components/StatCard.svelte
+  d0cc5c3b33f0d568 1-33
+web/src/routes/orgs/[slug]/traces/attribution/+page.svelte
+  d0cc5c3b33f0d568 21,287-288,293-294,309-327,335-345
+web/src/routes/orgs/[slug]/analytics/cost/+page.svelte
+  d0cc5c3b33f0d568 7-10,171-174
+web/src/lib/components/DataTable.svelte
+  d0cc5c3b33f0d568 1-229
+web/src/routes/orgs/[slug]/settings/llm/+page.svelte
+  d0cc5c3b33f0d568 9,137-146
+web/src/routes/orgs/[slug]/traces/sessions/+page.svelte
+  d0cc5c3b33f0d568 4,102-114,149-176
+web/src/routes/orgs/[slug]/traces/+layout.svelte
+  d0cc5c3b33f0d568 6-11,84,104-114,127-131
+web/src/routes/orgs/[slug]/traces/timeline/+page.svelte
+  d0cc5c3b33f0d568 5,99-120
+web/src/routes/orgs/[slug]/analytics/+page.svelte
+  d0cc5c3b33f0d568 4-5,7-15,225-242,260-269,362-380
+web/src/routes/orgs/[slug]/compliance/+page.svelte
+  d0cc5c3b33f0d568 7,234-235,241-268
+web/src/routes/auth/setup/+page.svelte
+  d0cc5c3b33f0d568 11,337-347
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "5a0332e15f78aa200893c8a5a90510f1a7593013",
+  "prompts": {
+    "d0cc5c3b33f0d568": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "129ef0ee-6ced-42ab-809b-fb4cf3729694",
+        "model": "<synthetic>"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 709,
+      "total_deletions": 543,
+      "accepted_lines": 663,
+      "overriden_lines": 0
+    }
+  }
+}
