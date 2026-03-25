@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
-	import * as Table from '$lib/components/ui/table/index.js';
+	import DataTable from '$lib/components/DataTable.svelte';
 
 	interface SessionItem {
 		id: string;
@@ -99,6 +99,19 @@
 		{ value: 'completed', label: 'Completed' },
 		{ value: 'stale', label: 'Stale' }
 	];
+
+	const columns = [
+		{ key: '_status', label: 'Status' },
+		{ key: 'session_id', label: 'Session ID' },
+		{ key: 'repo_name', label: 'Repo', sortable: true },
+		{ key: 'total_tool_calls', label: 'Tool Calls', sortable: true },
+		{ key: 'total_tokens', label: 'Tokens', sortable: true },
+		{ key: 'started_at', label: 'Started', sortable: true }
+	];
+
+	const tableRows = $derived(
+		sessions.map((s) => ({ ...s, _status: displayStatus(s) }) as Record<string, unknown>)
+	);
 </script>
 
 <svelte:head>
@@ -133,44 +146,33 @@
 	{:else if sessions.length === 0}
 		<p class="text-muted-foreground py-8 text-center text-sm">No sessions found.</p>
 	{:else}
-		<div class="border-border overflow-hidden rounded-lg border">
-			<Table.Root class="text-xs">
-				<Table.Header>
-					<Table.Row>
-						<Table.Head>Status</Table.Head>
-						<Table.Head>Session ID</Table.Head>
-						<Table.Head>Repo</Table.Head>
-						<Table.Head>Tool Calls</Table.Head>
-						<Table.Head>Tokens</Table.Head>
-						<Table.Head>Started</Table.Head>
-					</Table.Row>
-				</Table.Header>
-				<Table.Body>
-					{#each sessions as session (session.id)}
-						{@const status = displayStatus(session)}
-						{@const sc = statusColors[status]}
-						<Table.Row class="hover:bg-muted/40 transition-colors">
-							<Table.Cell>
-								<span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium {sc.bg} {sc.text}">
-									{sc.label}
-								</span>
-							</Table.Cell>
-							<Table.Cell>
-								<a
-									href="/orgs/{slug}/traces/sessions/{session.id}"
-									class="font-mono text-sm underline"
-								>
-									{session.session_id.slice(0, 8)}
-								</a>
-							</Table.Cell>
-							<Table.Cell>{session.repo_name}</Table.Cell>
-							<Table.Cell class="font-mono text-sm">{fmtNum(session.total_tool_calls)}</Table.Cell>
-							<Table.Cell class="font-mono text-sm">{fmtNum(session.total_tokens)}</Table.Cell>
-							<Table.Cell class="text-sm">{fmtRelativeTime(session.started_at)}</Table.Cell>
-						</Table.Row>
-					{/each}
-				</Table.Body>
-			</Table.Root>
-		</div>
+		<DataTable
+			{columns}
+			rows={tableRows}
+			searchKeys={['session_id', 'repo_name']}
+			defaultSort="started_at"
+			rowIdKey="id"
+		>
+			{#snippet children({ row, col })}
+				{#if col.key === '_status'}
+					{@const sc = statusColors[String(row._status)]}
+					<span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium {sc.bg} {sc.text}">
+						{sc.label}
+					</span>
+				{:else if col.key === 'session_id'}
+					<a href="/orgs/{slug}/traces/sessions/{row.id}" class="font-mono text-sm underline">
+						{String(row.session_id).slice(0, 8)}
+					</a>
+				{:else if col.key === 'total_tool_calls'}
+					<span class="font-mono text-sm">{fmtNum(row.total_tool_calls as number | null)}</span>
+				{:else if col.key === 'total_tokens'}
+					<span class="font-mono text-sm">{fmtNum(row.total_tokens as number | null)}</span>
+				{:else if col.key === 'started_at'}
+					{fmtRelativeTime(row.started_at as string | null)}
+				{:else}
+					{row[col.key] ?? '-'}
+				{/if}
+			{/snippet}
+		</DataTable>
 	{/if}
 </div>

@@ -1,9 +1,15 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
-	import * as Table from '$lib/components/ui/table/index.js';
+	import DataTable from '$lib/components/DataTable.svelte';
+	import StatCard from '$lib/components/StatCard.svelte';
 	import Chart from '$lib/components/chart.svelte';
 	import SessionDetailPanel from '$lib/components/session-detail/SessionDetailPanel.svelte';
+	import MonitorPlayIcon from '@lucide/svelte/icons/monitor-play';
+	import ClockIcon from '@lucide/svelte/icons/clock';
+	import MessageSquareIcon from '@lucide/svelte/icons/message-square';
+	import DollarSignIcon from '@lucide/svelte/icons/dollar-sign';
+	import CpuIcon from '@lucide/svelte/icons/cpu';
 	import {
 		Chart as ChartJS,
 		CategoryScale,
@@ -63,15 +69,53 @@
 	let data: SessionsResponse | null = $state(null);
 	let loading = $state(true);
 	let error = $state('');
-	let sortCol = $state<string>('started_at');
-	let sortDir = $state<'asc' | 'desc'>('desc');
 	let expandedSessionId = $state<string | null>(null);
 
-	function toggleExpand(id: string) {
-		expandedSessionId = expandedSessionId === id ? null : id;
-	}
-
 	const slug = $derived($page.params.slug);
+
+	const tableColumns = [
+		{ key: 'session_id', label: 'Session ID' },
+		{ key: 'repo_name', label: 'Repo', sortable: true },
+		{ key: 'author', label: 'Author', sortable: true },
+		{ key: 'duration_ms', label: 'Duration', sortable: true },
+		{ key: '_messages', label: 'Messages', sortable: true },
+		{ key: 'total_tool_calls', label: 'Tool Calls', sortable: true },
+		{ key: 'estimated_cost_usd', label: 'Cost', sortable: true },
+		{ key: 'model', label: 'Model' },
+		{ key: 'started_at', label: 'Started', sortable: true }
+	];
+
+	const tableRows = $derived.by(() => {
+		const d = data;
+		if (!d) return [] as Record<string, unknown>[];
+		return d.sessions.map((s) => ({
+			...s,
+			_messages: (s.user_messages ?? 0) + (s.assistant_messages ?? 0)
+		}));
+	});
+
+	const totalCost = $derived.by(() => {
+		const d = data;
+		if (!d) return 0;
+		return d.sessions.reduce((sum: number, s) => sum + (s.estimated_cost_usd ?? 0), 0);
+	});
+
+	const topModel = $derived.by(() => {
+		const d = data;
+		const freq: Record<string, number> = {};
+		for (const s of d?.sessions ?? []) {
+			if (s.model) freq[s.model] = (freq[s.model] ?? 0) + 1;
+		}
+		let best = '-';
+		let bestCount = 0;
+		for (const [model, count] of Object.entries(freq)) {
+			if (count > bestCount) {
+				best = model;
+				bestCount = count;
+			}
+		}
+		return best;
+	});
 
 	async function fetchData(search: string) {
 		loading = true;
@@ -124,42 +168,6 @@
 		return 'just now';
 	}
 
-	function sortBy(col: string) {
-		if (sortCol === col) {
-			sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-		} else {
-			sortCol = col;
-			sortDir = 'desc';
-		}
-	}
-
-	function sortedSessions(sessions: SessionItem[]): SessionItem[] {
-		return [...sessions].sort((a, b) => {
-			let av: number | string | null;
-			let bv: number | string | null;
-			switch (sortCol) {
-				case 'duration_ms': av = a.duration_ms; bv = b.duration_ms; break;
-				case 'messages': av = (a.user_messages ?? 0) + (a.assistant_messages ?? 0); bv = (b.user_messages ?? 0) + (b.assistant_messages ?? 0); break;
-				case 'total_tool_calls': av = a.total_tool_calls; bv = b.total_tool_calls; break;
-				case 'estimated_cost_usd': av = a.estimated_cost_usd; bv = b.estimated_cost_usd; break;
-				case 'started_at': av = a.started_at ?? ''; bv = b.started_at ?? ''; break;
-				case 'repo_name': av = a.repo_name; bv = b.repo_name; break;
-				case 'author': av = a.author; bv = b.author; break;
-				default: av = a.started_at ?? ''; bv = b.started_at ?? '';
-			}
-			if (av == null && bv == null) return 0;
-			if (av == null) return 1;
-			if (bv == null) return -1;
-			const diff = typeof av === 'string' ? av.localeCompare(bv as string) : (av as number) - (bv as number);
-			return sortDir === 'asc' ? diff : -diff;
-		});
-	}
-
-	function sortIndicator(col: string): string {
-		if (sortCol !== col) return '';
-		return sortDir === 'asc' ? ' \u2191' : ' \u2193';
-	}
-
 	function toolFrequencyChartData(d: SessionsResponse) {
 		const entries = Object.entries(d.tool_frequency).sort((a, b) => b[1] - a[1]).slice(0, 10);
 		return {
@@ -192,23 +200,17 @@
 		<p class="text-destructive">{error}</p>
 	{:else if data}
 		<!-- Stat cards -->
-		<div class="border-border overflow-hidden rounded-lg border">
-			<div class="grid grid-cols-2 gap-px md:grid-cols-3">
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Total Sessions</div>
-					<div class="mt-1 text-lg font-semibold">{fmtNum(data.total_sessions)}</div>
-				</div>
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Avg Duration</div>
-					<div class="mt-1 text-lg font-semibold">{fmtDuration(data.avg_duration_ms)}</div>
-				</div>
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Avg Messages/Session</div>
-					<div class="mt-1 text-lg font-semibold">
-						{data.avg_messages_per_session != null ? data.avg_messages_per_session.toFixed(1) : '-'}
-					</div>
-				</div>
-			</div>
+		<div class="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+			<StatCard label="Total Sessions" value={fmtNum(data.total_sessions)} icon={MonitorPlayIcon} color="#3b82f6" />
+			<StatCard label="Avg Duration" value={fmtDuration(data.avg_duration_ms)} icon={ClockIcon} color="#10b981" />
+			<StatCard
+				label="Avg Messages/Session"
+				value={data.avg_messages_per_session != null ? data.avg_messages_per_session.toFixed(1) : '-'}
+				icon={MessageSquareIcon}
+				color="#f59e0b"
+			/>
+			<StatCard label="Total Cost" value={fmtCost(totalCost)} icon={DollarSignIcon} color="#dc2626" />
+			<StatCard label="Top Model" value={topModel} icon={CpuIcon} color="#8b5cf6" />
 		</div>
 
 		<!-- Tool Frequency chart -->
@@ -230,88 +232,45 @@
 		</div>
 
 		<!-- Sessions table -->
-		<div class="border-border overflow-hidden rounded-lg border">
-			<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground px-3 pt-3 pb-2">Sessions</h2>
-			{#if data.sessions.length > 0}
-				<Table.Root class="text-xs">
-					<Table.Header>
-						<Table.Row>
-							<Table.Head>Session ID</Table.Head>
-							<Table.Head>
-								<button class="hover:underline" onclick={() => sortBy('repo_name')}>
-									Repo{sortIndicator('repo_name')}
-								</button>
-							</Table.Head>
-							<Table.Head>
-								<button class="hover:underline" onclick={() => sortBy('author')}>
-									Author{sortIndicator('author')}
-								</button>
-							</Table.Head>
-							<Table.Head>
-								<button class="hover:underline" onclick={() => sortBy('duration_ms')}>
-									Duration{sortIndicator('duration_ms')}
-								</button>
-							</Table.Head>
-							<Table.Head>
-								<button class="hover:underline" onclick={() => sortBy('messages')}>
-									Messages{sortIndicator('messages')}
-								</button>
-							</Table.Head>
-							<Table.Head>
-								<button class="hover:underline" onclick={() => sortBy('total_tool_calls')}>
-									Tool Calls{sortIndicator('total_tool_calls')}
-								</button>
-							</Table.Head>
-							<Table.Head>
-								<button class="hover:underline" onclick={() => sortBy('estimated_cost_usd')}>
-									Cost{sortIndicator('estimated_cost_usd')}
-								</button>
-							</Table.Head>
-							<Table.Head>Model</Table.Head>
-							<Table.Head>
-								<button class="hover:underline" onclick={() => sortBy('started_at')}>
-									Started{sortIndicator('started_at')}
-								</button>
-							</Table.Head>
-						</Table.Row>
-					</Table.Header>
-					<Table.Body>
-						{#each sortedSessions(data.sessions) as session}
-							<Table.Row
-								class="cursor-pointer hover:bg-muted/40 transition-colors"
-								onclick={() => toggleExpand(session.id)}
-							>
-								<Table.Cell class="font-mono text-sm">{session.session_id.slice(0, 8)}</Table.Cell>
-								<Table.Cell>{session.repo_name}</Table.Cell>
-								<Table.Cell>{session.author}</Table.Cell>
-								<Table.Cell class="font-mono text-sm">{fmtDuration(session.duration_ms)}</Table.Cell>
-								<Table.Cell class="font-mono text-sm">
-									{(session.user_messages ?? 0) + (session.assistant_messages ?? 0)}
-								</Table.Cell>
-								<Table.Cell class="font-mono text-sm">{session.total_tool_calls ?? 0}</Table.Cell>
-								<Table.Cell class="font-mono text-sm">{fmtCost(session.estimated_cost_usd)}</Table.Cell>
-								<Table.Cell>
-									{#if session.model}
-										<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(79,110,247,0.12); color: #4f6ef7; border: 1px solid rgba(79,110,247,0.25)">{session.model}</span>
-									{:else}
-										<span class="text-muted-foreground">-</span>
-									{/if}
-								</Table.Cell>
-								<Table.Cell class="text-sm">{fmtRelativeTime(session.started_at)}</Table.Cell>
-							</Table.Row>
-							{#if expandedSessionId === session.id}
-								<Table.Row>
-									<Table.Cell colspan={9} class="p-0">
-										<SessionDetailPanel sessionId={session.id} />
-									</Table.Cell>
-								</Table.Row>
-							{/if}
-						{/each}
-					</Table.Body>
-				</Table.Root>
-			{:else}
-				<p class="text-muted-foreground px-3 pb-3 text-sm">No sessions</p>
-			{/if}
-		</div>
+		<DataTable
+			columns={tableColumns}
+			rows={tableRows}
+			searchKeys={['session_id', 'repo_name', 'author', 'model']}
+			defaultSort="started_at"
+			defaultSortDir="desc"
+			rowIdKey="id"
+			onRowClick={(row) => {
+				const id = row.id as string;
+				expandedSessionId = expandedSessionId === id ? null : id;
+			}}
+			expandedRowId={expandedSessionId}
+		>
+			{#snippet children({ row, col })}
+				{#if col.key === 'session_id'}
+					<span class="font-mono">{(row.session_id as string).slice(0, 8)}</span>
+				{:else if col.key === 'duration_ms'}
+					<span class="font-mono">{fmtDuration(row.duration_ms as number | null)}</span>
+				{:else if col.key === '_messages'}
+					<span class="font-mono">{row._messages}</span>
+				{:else if col.key === 'total_tool_calls'}
+					<span class="font-mono">{row.total_tool_calls ?? 0}</span>
+				{:else if col.key === 'estimated_cost_usd'}
+					<span class="font-mono">{fmtCost(row.estimated_cost_usd as number | null)}</span>
+				{:else if col.key === 'model'}
+					{#if row.model}
+						<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(79,110,247,0.12); color: #4f6ef7; border: 1px solid rgba(79,110,247,0.25)">{row.model}</span>
+					{:else}
+						<span class="text-muted-foreground">-</span>
+					{/if}
+				{:else if col.key === 'started_at'}
+					{fmtRelativeTime(row.started_at as string | null)}
+				{:else}
+					{row[col.key] ?? '-'}
+				{/if}
+			{/snippet}
+			{#snippet expandedRow({ row })}
+				<SessionDetailPanel sessionId={row.id as string} />
+			{/snippet}
+		</DataTable>
 	{/if}
 </div>

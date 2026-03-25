@@ -4,7 +4,7 @@
 	import { api } from '$lib/api';
 	import { features } from '$lib/stores/features';
 	import EnterpriseUpgrade from '$lib/components/enterprise-upgrade.svelte';
-	import * as Table from '$lib/components/ui/table/index.js';
+	import DataTable from '$lib/components/DataTable.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 
 	interface ComplianceSettings {
@@ -231,47 +231,41 @@
 		</div>
 
 		<!-- Recent Audit Log -->
-		<div class="border-border overflow-hidden rounded-lg border">
-			<div class="bg-muted/30 flex items-center justify-between px-4 py-3">
+		<div>
+			<div class="flex items-center justify-between px-4 py-3">
 				<span class="text-sm font-semibold">Recent Audit Log</span>
 				<a href="/orgs/{slug}/compliance/audit-log">
 					<Button variant="outline" size="sm">View All</Button>
 				</a>
 			</div>
-			<div class="p-4 space-y-3">
-				{#if recentAudit.length === 0}
-					<p class="text-muted-foreground">No audit log entries yet.</p>
-				{:else}
-					<Table.Root>
-						<Table.Header>
-							<Table.Row>
-								<Table.Head class="text-xs">Time</Table.Head>
-								<Table.Head class="text-xs">Action</Table.Head>
-								<Table.Head class="text-xs">Resource</Table.Head>
-								<Table.Head class="text-xs">Details</Table.Head>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{#each recentAudit as entry}
-								<Table.Row class="hover:bg-muted/40 transition-colors">
-									<Table.Cell class="text-xs"
-										>{formatDate(entry.created_at)}</Table.Cell
-									>
-									<Table.Cell>
-										<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(79,110,247,0.12); color: #4f6ef7; border: 1px solid rgba(79,110,247,0.25)">{entry.action}</span>
-									</Table.Cell>
-									<Table.Cell class="text-xs font-mono"
-										>{entry.resource_type}</Table.Cell
-									>
-									<Table.Cell class="text-xs max-w-xs truncate">
-										{entry.details ? JSON.stringify(entry.details) : '-'}
-									</Table.Cell>
-								</Table.Row>
-							{/each}
-						</Table.Body>
-					</Table.Root>
-				{/if}
-			</div>
+			<DataTable
+				columns={[
+					{ key: 'created_at', label: 'Time', sortable: true },
+					{ key: 'action', label: 'Action', sortable: true },
+					{ key: 'resource_type', label: 'Resource', sortable: true },
+					{ key: '_details', label: 'Details' }
+				]}
+				rows={recentAudit.map((entry) => ({
+					...entry,
+					_details: entry.details ? JSON.stringify(entry.details) : '-'
+				}))}
+				searchKeys={['action', 'resource_type']}
+				defaultSort="created_at"
+				defaultSortDir="desc"
+				rowIdKey="id"
+			>
+				{#snippet children({ row, col })}
+					{#if col.key === 'created_at'}
+						{formatDate(String(row.created_at))}
+					{:else if col.key === 'action'}
+						<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(79,110,247,0.12); color: #4f6ef7; border: 1px solid rgba(79,110,247,0.25)">{row.action}</span>
+					{:else if col.key === 'resource_type'}
+						<span class="font-mono">{row.resource_type}</span>
+					{:else if col.key === '_details'}
+						<span class="max-w-xs truncate">{row._details}</span>
+					{/if}
+				{/snippet}
+			</DataTable>
 		</div>
 	{/if}
 </div>

@@ -3,6 +3,12 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
+	import * as Select from '$lib/components/ui/select/index.js';
+	import StatCard from '$lib/components/StatCard.svelte';
+	import ActivityIcon from '@lucide/svelte/icons/activity';
+	import MonitorPlayIcon from '@lucide/svelte/icons/monitor-play';
+	import GitCommitHorizontalIcon from '@lucide/svelte/icons/git-commit-horizontal';
+	import ZapIcon from '@lucide/svelte/icons/zap';
 
 	let { children } = $props();
 
@@ -75,9 +81,7 @@
 		return String(n);
 	}
 
-	function onRepoChange(e: Event) {
-		const select = e.target as HTMLSelectElement;
-		const val = select.value;
+	function onRepoSelect(val: string) {
 		const url = new URL($page.url);
 		if (val) {
 			url.searchParams.set('repo_id', val);
@@ -97,16 +101,17 @@
 	<div class="flex items-center justify-between">
 		<h1 class="text-xl font-semibold">Traces</h1>
 		{#if repos.length > 0}
-			<select
-				class="rounded-md border border-border bg-background px-3 py-1.5 text-sm"
-				value={repoId}
-				onchange={onRepoChange}
-			>
-				<option value="">All repos</option>
-				{#each repos as repo}
-					<option value={repo.id}>{repo.name}</option>
-				{/each}
-			</select>
+			<Select.Root type="single" value={repoId} onValueChange={(v) => onRepoSelect(v)}>
+				<Select.Trigger size="sm">
+					<span data-slot="select-value">{repoId ? repos.find(r => r.id === repoId)?.name ?? 'All repos' : 'All repos'}</span>
+				</Select.Trigger>
+				<Select.Content>
+					<Select.Item value="">All repos</Select.Item>
+					{#each repos as repo}
+						<Select.Item value={repo.id}>{repo.name}</Select.Item>
+					{/each}
+				</Select.Content>
+			</Select.Root>
 		{/if}
 	</div>
 
@@ -119,25 +124,11 @@
 	{:else if statsError}
 		<p class="text-destructive text-sm">{statsError}</p>
 	{:else if stats}
-		<div class="border-border overflow-hidden rounded-lg border">
-			<div class="grid grid-cols-2 gap-px md:grid-cols-4">
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Active Sessions</div>
-					<div class="mt-1 text-lg font-semibold">{fmtNum(stats.active_sessions)}</div>
-				</div>
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Total Sessions</div>
-					<div class="mt-1 text-lg font-semibold">{fmtNum(stats.total_sessions)}</div>
-				</div>
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Total Commits</div>
-					<div class="mt-1 text-lg font-semibold">{fmtNum(stats.total_commits)}</div>
-				</div>
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Total Events</div>
-					<div class="mt-1 text-lg font-semibold">{fmtNum(stats.total_events)}</div>
-				</div>
-			</div>
+		<div class="grid grid-cols-2 gap-4 md:grid-cols-4">
+			<StatCard label="Active Sessions" value={fmtNum(stats.active_sessions)} icon={ActivityIcon} color="#10b981" />
+			<StatCard label="Total Sessions" value={fmtNum(stats.total_sessions)} icon={MonitorPlayIcon} color="#3b82f6" />
+			<StatCard label="Total Commits" value={fmtNum(stats.total_commits)} icon={GitCommitHorizontalIcon} color="#f59e0b" />
+			<StatCard label="Total Events" value={fmtNum(stats.total_events)} icon={ZapIcon} color="#8b5cf6" />
 		</div>
 	{/if}
 

@@ -8,6 +8,7 @@
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
+	import * as Select from '$lib/components/ui/select/index.js';
 	import PasswordStrength from '$lib/components/password-strength.svelte';
 
 	interface Features {
@@ -333,18 +334,17 @@
 					{/if}
 					<form onsubmit={handleRequestInvitation} class="grid gap-4">
 						<div class="grid gap-2">
-							<Label for="req_org">Organization</Label>
-							<select
-								id="req_org"
-								bind:value={reqOrgName}
-								required
-								class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-							>
-								<option value="" disabled>Select an organization</option>
-								{#each orgs as org}
-									<option value={org.name}>{org.display_name || org.name}</option>
-								{/each}
-							</select>
+							<Label>Organization</Label>
+							<Select.Root type="single" value={reqOrgName} onValueChange={(v) => reqOrgName = v}>
+								<Select.Trigger class="w-full">
+									<span data-slot="select-value">{reqOrgName ? (orgs.find(o => o.name === reqOrgName)?.display_name || reqOrgName) : 'Select an organization'}</span>
+								</Select.Trigger>
+								<Select.Content>
+									{#each orgs as org}
+										<Select.Item value={org.name}>{org.display_name || org.name}</Select.Item>
+									{/each}
+								</Select.Content>
+							</Select.Root>
 						</div>
 						<div class="grid gap-2">
 							<Label for="req_name">Your name</Label>

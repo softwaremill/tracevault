@@ -2,6 +2,7 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api';
+	import * as Select from '$lib/components/ui/select/index.js';
 
 	const TOOL_COLORS: Record<string, string> = {
 		Edit: '#f59e0b',
@@ -95,26 +96,28 @@
 
 	<!-- Filter row -->
 	<div class="flex flex-wrap items-center gap-3">
-		<select
-			class="border-border bg-background rounded border px-2 py-1 text-xs"
-			bind:value={toolFilter}
-			onchange={applyFilters}
-		>
-			<option value="">All tools</option>
-			{#each uniqueTools as tool}
-				<option value={tool}>{tool}</option>
-			{/each}
-		</select>
-		<select
-			class="border-border bg-background rounded border px-2 py-1 text-xs"
-			bind:value={sessionFilter}
-			onchange={applyFilters}
-		>
-			<option value="">All sessions</option>
-			{#each uniqueSessions as sid}
-				<option value={sid}>{sid}</option>
-			{/each}
-		</select>
+		<Select.Root type="single" value={toolFilter} onValueChange={(v) => { toolFilter = v; applyFilters(); }}>
+			<Select.Trigger size="sm">
+				<span data-slot="select-value">{toolFilter || 'All tools'}</span>
+			</Select.Trigger>
+			<Select.Content>
+				<Select.Item value="">All tools</Select.Item>
+				{#each uniqueTools as tool}
+					<Select.Item value={tool}>{tool}</Select.Item>
+				{/each}
+			</Select.Content>
+		</Select.Root>
+		<Select.Root type="single" value={sessionFilter} onValueChange={(v) => { sessionFilter = v; applyFilters(); }}>
+			<Select.Trigger size="sm">
+				<span data-slot="select-value">{sessionFilter || 'All sessions'}</span>
+			</Select.Trigger>
+			<Select.Content>
+				<Select.Item value="">All sessions</Select.Item>
+				{#each uniqueSessions as sid}
+					<Select.Item value={sid}>{sid}</Select.Item>
+				{/each}
+			</Select.Content>
+		</Select.Root>
 	</div>
 
 	{#if loading}

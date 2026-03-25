@@ -4,6 +4,10 @@
 	import { features } from '$lib/stores/features';
 	import EnterpriseUpgrade from '$lib/components/enterprise-upgrade.svelte';
 	import Chart from '$lib/components/chart.svelte';
+	import StatCard from '$lib/components/StatCard.svelte';
+	import DollarSign from '@lucide/svelte/icons/dollar-sign';
+	import PiggyBank from '@lucide/svelte/icons/piggy-bank';
+	import Calculator from '@lucide/svelte/icons/calculator';
 	import {
 		Chart as ChartJS,
 		CategoryScale,
@@ -164,21 +168,10 @@
 	{:else if error}
 		<p class="text-destructive">{error}</p>
 	{:else if data}
-		<div class="border-border overflow-hidden rounded-lg border">
-			<div class="grid grid-cols-2 gap-px md:grid-cols-3">
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Total Cost</div>
-					<div class="mt-1 text-lg font-semibold">{fmtCost(data.total_cost)}</div>
-				</div>
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Cache Savings</div>
-					<div class="mt-1 text-lg font-semibold">{fmtCost(data.cache_savings_usd)}</div>
-				</div>
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Avg Cost/Session</div>
-					<div class="mt-1 text-lg font-semibold">{fmtCost(data.avg_cost_per_session)}</div>
-				</div>
-			</div>
+		<div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+			<StatCard label="Total Cost" value={fmtCost(data.total_cost)} icon={DollarSign} color="#dc2626" />
+			<StatCard label="Cache Savings" value={fmtCost(data.cache_savings_usd)} icon={PiggyBank} color="#10b981" />
+			<StatCard label="Avg Cost/Session" value={fmtCost(data.avg_cost_per_session)} icon={Calculator} color="#3b82f6" />
 		</div>
 
 		<div class="border-border rounded-lg border p-3">
