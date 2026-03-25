@@ -652,7 +652,7 @@
 																: 'bg-muted/50 mr-auto'}"
 												>
 													<div class="text-muted-foreground mb-1 text-[10px] font-medium uppercase">{turn.role}</div>
-													<div class="whitespace-pre-wrap break-words">{block.text.trim()}</div>
+													<div class="whitespace-pre-wrap break-words">{block.text.trim().replace(/\n{3,}/g, '\n\n')}</div>
 												</div>
 											{:else if block.type === 'tool_use'}
 												{@const style = toolBlockStyles[block.name] ?? defaultToolBlockStyle}
