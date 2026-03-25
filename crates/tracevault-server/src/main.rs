@@ -307,6 +307,14 @@ async fn main() {
             get(api::pricing::list_models),
         )
         .route(
+            "/api/v1/orgs/{slug}/pricing/sync",
+            post(api::pricing::trigger_sync),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/pricing/sync/status",
+            get(api::pricing::sync_status),
+        )
+        .route(
             "/api/v1/orgs/{slug}/pricing/{id}",
             put(api::pricing::update_pricing),
         )

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::permissions::Permission;
-use crate::{audit, extractors::OrgAuth, AppState};
+use crate::{audit, extractors::OrgAuth, pricing_sync, AppState};
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -322,4 +322,75 @@ pub async fn recalculate(
         total_old_cost: result.total_old_cost,
         total_new_cost: result.total_new_cost,
     }))
+}
+
+// ── Sync endpoints ────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct SyncResponse {
+    pub models_updated: Vec<String>,
+    pub last_synced_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SyncStatusResponse {
+    pub last_synced_at: Option<DateTime<Utc>>,
+}
+
+/// POST /api/v1/orgs/{slug}/pricing/sync
+pub async fn trigger_sync(
+    State(state): State<AppState>,
+    auth: OrgAuth,
+) -> Result<Json<SyncResponse>, (StatusCode, String)> {
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, Permission::OrgSettingsManage)
+    {
+        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
+    }
+
+    // Rate limit: skip if last sync was <5 minutes ago
+    if let Some(last) = pricing_sync::last_sync_time(&state.pool).await {
+        let elapsed = Utc::now() - last;
+        if elapsed.num_seconds() < 300 {
+            return Ok(Json(SyncResponse {
+                models_updated: vec![],
+                last_synced_at: Some(last),
+            }));
+        }
+    }
+
+    let result = pricing_sync::sync_pricing(&state.pool, &state.http_client)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    audit::log(
+        &state.pool,
+        audit::user_action(
+            auth.org_id,
+            auth.user_id,
+            "pricing_sync",
+            "model_pricing",
+            None,
+            Some(serde_json::json!({
+                "models_updated": result.models_updated,
+            })),
+        ),
+    )
+    .await;
+
+    Ok(Json(SyncResponse {
+        models_updated: result.models_updated,
+        last_synced_at: Some(result.last_synced_at),
+    }))
+}
+
+/// GET /api/v1/orgs/{slug}/pricing/sync/status
+pub async fn sync_status(
+    State(state): State<AppState>,
+    _auth: OrgAuth,
+) -> Result<Json<SyncStatusResponse>, (StatusCode, String)> {
+    let last = pricing_sync::last_sync_time(&state.pool).await;
+    Ok(Json(SyncStatusResponse { last_synced_at: last }))
 }
