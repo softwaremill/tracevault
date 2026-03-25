@@ -1,0 +1,25 @@
+docker-compose.yml
+  561f010c9019d9b0 29,31
+README.md
+  561f010c9019d9b0 65-77,110-111,124,126,129,131-132,135-137,142,144,146,154-158,160,208,227-300,406,408,410,414-418
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "5855c151e2c84efc7b80b040474c2abd6ba78d78",
+  "prompts": {
+    "561f010c9019d9b0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "709c9dd2-7285-4b31-a8c1-8ddace73c4ef",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 142,
+      "total_deletions": 66,
+      "accepted_lines": 123,
+      "overriden_lines": 0
+    }
+  }
+}
