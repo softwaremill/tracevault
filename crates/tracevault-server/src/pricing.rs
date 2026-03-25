@@ -30,17 +30,14 @@ pub fn canonical_model_name(model: &str) -> &'static str {
     }
 }
 
-/// Look up pricing from model_pricing table.
-/// Uses substring matching: "opus" matches "claude-opus-4-6".
-/// Uses effective_from/until to match the given timestamp.
-/// Falls back to Sonnet rates if no match found.
+/// Look up pricing from model_pricing table using exact model name match.
+/// Falls back to hardcoded rates if no match found.
 pub async fn fetch_pricing_for_model(
     pool: &PgPool,
     model: &str,
     at: Option<DateTime<Utc>>,
 ) -> ModelPricing {
     let at = at.unwrap_or_else(Utc::now);
-    let canonical = canonical_model_name(model);
 
     let row = sqlx::query_as::<_, (f64, f64, f64, f64)>(
         "SELECT input_per_mtok, output_per_mtok, cache_read_per_mtok, cache_write_per_mtok
@@ -51,7 +48,7 @@ pub async fn fetch_pricing_for_model(
          ORDER BY effective_from DESC
          LIMIT 1",
     )
-    .bind(canonical)
+    .bind(model)
     .bind(at)
     .fetch_optional(pool)
     .await;
@@ -202,7 +199,7 @@ pub async fn recalculate_sessions_for_pricing(
          FROM sessions_v2 s
          WHERE s.created_at >= $1
            AND ($2::timestamptz IS NULL OR s.created_at < $2)
-           AND LOWER(COALESCE(s.model, '')) LIKE '%' || $3 || '%'
+           AND s.model = $3
            AND ($4::uuid IS NULL OR s.org_id = $4)",
     )
     .bind(effective_from)

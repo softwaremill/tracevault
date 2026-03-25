@@ -4,8 +4,6 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use sqlx::PgPool;
 
-use crate::pricing::canonical_model_name;
-
 const LITELLM_URL: &str =
     "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
 
@@ -25,11 +23,19 @@ struct LiteLLMEntry {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedPricing {
-    pub canonical: String,
+    pub model: String,
     pub input_per_mtok: f64,
     pub output_per_mtok: f64,
     pub cache_write_per_mtok: f64,
     pub cache_read_per_mtok: f64,
+}
+
+#[derive(Debug, Clone)]
+struct LiteLLMPricing {
+    input_per_mtok: f64,
+    output_per_mtok: f64,
+    cache_write_per_mtok: f64,
+    cache_read_per_mtok: f64,
 }
 
 fn extract_date_suffix(key: &str) -> &str {
@@ -42,14 +48,21 @@ fn extract_date_suffix(key: &str) -> &str {
     ""
 }
 
-pub fn parse_litellm_pricing(
+fn strip_provider_prefix(key: &str) -> &str {
+    // LiteLLM keys may have prefixes like "anthropic/", "bedrock/", etc.
+    key.rsplit_once('/').map(|(_, rest)| rest).unwrap_or(key)
+}
+
+/// Parse ALL entries for the given provider from LiteLLM JSON.
+/// Returns a HashMap keyed by LiteLLM model key.
+fn parse_litellm_entries(
     data: &[u8],
     provider: &str,
-) -> Result<Vec<ParsedPricing>, serde_json::Error> {
+) -> Result<HashMap<String, LiteLLMPricing>, serde_json::Error> {
     let entries: HashMap<String, LiteLLMEntry> = serde_json::from_slice(data)?;
-    let mut best: HashMap<String, (String, &LiteLLMEntry)> = HashMap::new();
+    let mut result = HashMap::new();
 
-    for (key, entry) in &entries {
+    for (key, entry) in entries {
         let is_provider = entry
             .litellm_provider
             .as_deref()
@@ -62,33 +75,46 @@ pub fn parse_litellm_pricing(
             continue;
         }
 
-        let canonical = canonical_model_name(key).to_string();
-        let date_suffix = extract_date_suffix(key);
-        let replace = match best.get(&canonical) {
-            None => true,
-            Some((existing_key, _)) => date_suffix > extract_date_suffix(existing_key),
-        };
-
-        if replace {
-            best.insert(canonical, (key.clone(), entry));
-        }
-    }
-
-    let result = best
-        .into_iter()
-        .map(|(canonical, (_key, entry))| {
-            let to_mtok = |v: Option<f64>| v.unwrap_or(0.0) * 1_000_000.0;
-            ParsedPricing {
-                canonical,
+        let to_mtok = |v: Option<f64>| v.unwrap_or(0.0) * 1_000_000.0;
+        result.insert(
+            key,
+            LiteLLMPricing {
                 input_per_mtok: to_mtok(entry.input_cost_per_token),
                 output_per_mtok: to_mtok(entry.output_cost_per_token),
                 cache_write_per_mtok: to_mtok(entry.cache_creation_input_token_cost),
                 cache_read_per_mtok: to_mtok(entry.cache_read_input_token_cost),
-            }
-        })
-        .collect();
+            },
+        );
+    }
 
     Ok(result)
+}
+
+/// Find the best matching LiteLLM entry for a session model name.
+/// e.g., "claude-sonnet-4-6" matches "claude-sonnet-4-6-20260514" or "anthropic/claude-sonnet-4-6-20260514"
+fn match_litellm_entry<'a>(
+    session_model: &str,
+    entries: &'a HashMap<String, LiteLLMPricing>,
+) -> Option<&'a LiteLLMPricing> {
+    let mut best_key: Option<&str> = None;
+    let mut best_entry: Option<&LiteLLMPricing> = None;
+
+    for (key, entry) in entries {
+        let stripped = strip_provider_prefix(key);
+        // Check if the LiteLLM key (stripped of prefix) starts with the session model name
+        if stripped.starts_with(session_model) {
+            let replace = match best_key {
+                None => true,
+                Some(existing) => extract_date_suffix(key) > extract_date_suffix(existing),
+            };
+            if replace {
+                best_key = Some(key);
+                best_entry = Some(entry);
+            }
+        }
+    }
+
+    best_entry
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -111,10 +137,10 @@ pub async fn sync_pricing(
         .await
         .map_err(|e| format!("Failed to read LiteLLM response: {e}"))?;
 
-    let parsed = parse_litellm_pricing(&bytes, "anthropic")
+    let litellm_entries = parse_litellm_entries(&bytes, "anthropic")
         .map_err(|e| format!("Failed to parse LiteLLM JSON: {e}"))?;
 
-    if parsed.is_empty() {
+    if litellm_entries.is_empty() {
         tracing::warn!("No Anthropic models found in LiteLLM pricing data");
         log_sync(pool, &[], None).await;
         return Ok(SyncResult {
@@ -123,18 +149,39 @@ pub async fn sync_pricing(
         });
     }
 
+    // Get distinct model names actually used in sessions
+    let session_models = sqlx::query_scalar::<_, String>(
+        "SELECT DISTINCT model FROM sessions_v2 WHERE model IS NOT NULL",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to query session models: {e}"))?;
+
     let mut updated_models = Vec::new();
 
-    for entry in &parsed {
-        let changed = diff_and_update(pool, entry)
-            .await
-            .map_err(|e| format!("Failed to update pricing for {}: {e}", entry.canonical))?;
+    for session_model in &session_models {
+        if let Some(litellm_pricing) = match_litellm_entry(session_model, &litellm_entries) {
+            let entry = ParsedPricing {
+                model: session_model.clone(),
+                input_per_mtok: litellm_pricing.input_per_mtok,
+                output_per_mtok: litellm_pricing.output_per_mtok,
+                cache_write_per_mtok: litellm_pricing.cache_write_per_mtok,
+                cache_read_per_mtok: litellm_pricing.cache_read_per_mtok,
+            };
 
-        if changed {
-            updated_models.push(entry.canonical.clone());
+            let changed = diff_and_update(pool, &entry)
+                .await
+                .map_err(|e| format!("Failed to update pricing for {session_model}: {e}"))?;
+
+            if changed {
+                updated_models.push(session_model.clone());
+            }
+        } else {
+            tracing::debug!("No LiteLLM pricing found for session model: {session_model}");
         }
     }
 
+    // Recalculate affected sessions
     for model in &updated_models {
         let old_from = sqlx::query_scalar::<_, DateTime<Utc>>(
             "SELECT effective_from FROM model_pricing
@@ -174,7 +221,7 @@ async fn diff_and_update(pool: &PgPool, entry: &ParsedPricing) -> Result<bool, s
          WHERE model = $1 AND source = 'litellm_sync' AND effective_until IS NULL
          ORDER BY effective_from DESC LIMIT 1",
     )
-    .bind(&entry.canonical)
+    .bind(&entry.model)
     .fetch_optional(pool)
     .await?;
 
@@ -207,7 +254,7 @@ async fn diff_and_update(pool: &PgPool, entry: &ParsedPricing) -> Result<bool, s
         "INSERT INTO model_pricing (model, input_per_mtok, output_per_mtok, cache_read_per_mtok, cache_write_per_mtok, effective_from, source)
          VALUES ($1, $2, $3, $4, $5, $6, 'litellm_sync')",
     )
-    .bind(&entry.canonical)
+    .bind(&entry.model)
     .bind(entry.input_per_mtok)
     .bind(entry.output_per_mtok)
     .bind(entry.cache_read_per_mtok)
@@ -218,7 +265,7 @@ async fn diff_and_update(pool: &PgPool, entry: &ParsedPricing) -> Result<bool, s
 
     tracing::info!(
         "Updated pricing for {}: input=${}/Mtok, output=${}/Mtok",
-        entry.canonical,
+        entry.model,
         entry.input_per_mtok,
         entry.output_per_mtok
     );
@@ -253,8 +300,12 @@ pub async fn last_sync_time(pool: &PgPool) -> Option<DateTime<Utc>> {
 mod tests {
     use super::*;
 
+    fn make_entries(json: &str) -> HashMap<String, LiteLLMPricing> {
+        parse_litellm_entries(json.as_bytes(), "anthropic").unwrap()
+    }
+
     #[test]
-    fn test_parse_litellm_anthropic_only() {
+    fn test_parse_filters_by_provider() {
         let json = r#"{
             "claude-opus-4-6-20260310": {
                 "litellm_provider": "anthropic",
@@ -270,17 +321,29 @@ mod tests {
             }
         }"#;
 
-        let result = parse_litellm_pricing(json.as_bytes(), "anthropic").unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].canonical, "opus");
-        assert!((result[0].input_per_mtok - 15.0).abs() < 0.001);
-        assert!((result[0].output_per_mtok - 75.0).abs() < 0.001);
-        assert!((result[0].cache_write_per_mtok - 18.75).abs() < 0.001);
-        assert!((result[0].cache_read_per_mtok - 1.5).abs() < 0.001);
+        let entries = make_entries(json);
+        assert_eq!(entries.len(), 1);
+        assert!(entries.contains_key("claude-opus-4-6-20260310"));
+        let p = &entries["claude-opus-4-6-20260310"];
+        assert!((p.input_per_mtok - 15.0).abs() < 0.001);
+        assert!((p.output_per_mtok - 75.0).abs() < 0.001);
+        assert!((p.cache_write_per_mtok - 18.75).abs() < 0.001);
+        assert!((p.cache_read_per_mtok - 1.5).abs() < 0.001);
     }
 
     #[test]
-    fn test_parse_picks_latest_date_suffix() {
+    fn test_parse_skips_missing_pricing() {
+        let json = r#"{
+            "claude-opus-4-6-20260310": {
+                "litellm_provider": "anthropic"
+            }
+        }"#;
+        let entries = make_entries(json);
+        assert_eq!(entries.len(), 0);
+    }
+
+    #[test]
+    fn test_match_finds_best_entry() {
         let json = r#"{
             "claude-sonnet-4-5-20241022": {
                 "litellm_provider": "anthropic",
@@ -293,40 +356,62 @@ mod tests {
                 "output_cost_per_token": 0.000010
             }
         }"#;
+        let entries = make_entries(json);
 
-        let result = parse_litellm_pricing(json.as_bytes(), "anthropic").unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].canonical, "sonnet");
-        assert!((result[0].input_per_mtok - 2.0).abs() < 0.001);
+        // "claude-sonnet-4-6" should match "claude-sonnet-4-6-20260514"
+        let matched = match_litellm_entry("claude-sonnet-4-6", &entries).unwrap();
+        assert!((matched.input_per_mtok - 2.0).abs() < 0.001);
+
+        // "claude-sonnet-4-5" should match "claude-sonnet-4-5-20241022"
+        let matched = match_litellm_entry("claude-sonnet-4-5", &entries).unwrap();
+        assert!((matched.input_per_mtok - 3.0).abs() < 0.001);
     }
 
     #[test]
-    fn test_parse_skips_missing_pricing() {
+    fn test_match_with_provider_prefix() {
         let json = r#"{
-            "claude-opus-4-6-20260310": {
-                "litellm_provider": "anthropic"
-            }
-        }"#;
-
-        let result = parse_litellm_pricing(json.as_bytes(), "anthropic").unwrap();
-        assert_eq!(result.len(), 0);
-    }
-
-    #[test]
-    fn test_parse_missing_cache_defaults_to_zero() {
-        let json = r#"{
-            "claude-haiku-4-5-20251001": {
+            "anthropic/claude-opus-4-6-20260310": {
                 "litellm_provider": "anthropic",
-                "input_cost_per_token": 0.0000008,
-                "output_cost_per_token": 0.000004
+                "input_cost_per_token": 0.000015,
+                "output_cost_per_token": 0.000075
             }
         }"#;
+        let entries = make_entries(json);
+        let matched = match_litellm_entry("claude-opus-4-6", &entries).unwrap();
+        assert!((matched.input_per_mtok - 15.0).abs() < 0.001);
+    }
 
-        let result = parse_litellm_pricing(json.as_bytes(), "anthropic").unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].canonical, "haiku");
-        assert!((result[0].cache_write_per_mtok - 0.0).abs() < 0.001);
-        assert!((result[0].cache_read_per_mtok - 0.0).abs() < 0.001);
+    #[test]
+    fn test_match_picks_latest_date_suffix() {
+        let json = r#"{
+            "claude-sonnet-4-6-20260101": {
+                "litellm_provider": "anthropic",
+                "input_cost_per_token": 0.000003,
+                "output_cost_per_token": 0.000015
+            },
+            "claude-sonnet-4-6-20260514": {
+                "litellm_provider": "anthropic",
+                "input_cost_per_token": 0.000002,
+                "output_cost_per_token": 0.000010
+            }
+        }"#;
+        let entries = make_entries(json);
+        let matched = match_litellm_entry("claude-sonnet-4-6", &entries).unwrap();
+        // Should pick 20260514 (later)
+        assert!((matched.input_per_mtok - 2.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_match_no_match() {
+        let json = r#"{
+            "claude-sonnet-4-6-20260514": {
+                "litellm_provider": "anthropic",
+                "input_cost_per_token": 0.000002,
+                "output_cost_per_token": 0.000010
+            }
+        }"#;
+        let entries = make_entries(json);
+        assert!(match_litellm_entry("claude-opus-4-6", &entries).is_none());
     }
 
     #[test]
@@ -341,23 +426,30 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_picks_latest_with_provider_prefix() {
+    fn test_strip_provider_prefix() {
+        assert_eq!(
+            strip_provider_prefix("anthropic/claude-opus-4-6"),
+            "claude-opus-4-6"
+        );
+        assert_eq!(strip_provider_prefix("claude-opus-4-6"), "claude-opus-4-6");
+        assert_eq!(
+            strip_provider_prefix("bedrock/claude-sonnet-4-6"),
+            "claude-sonnet-4-6"
+        );
+    }
+
+    #[test]
+    fn test_missing_cache_defaults_to_zero() {
         let json = r#"{
-            "anthropic/claude-sonnet-4-6-20260514": {
+            "claude-haiku-4-5-20251001": {
                 "litellm_provider": "anthropic",
-                "input_cost_per_token": 0.000002,
-                "output_cost_per_token": 0.000010
-            },
-            "claude-sonnet-4-5-20241022": {
-                "litellm_provider": "anthropic",
-                "input_cost_per_token": 0.000003,
-                "output_cost_per_token": 0.000015
+                "input_cost_per_token": 0.0000008,
+                "output_cost_per_token": 0.000004
             }
         }"#;
-
-        let result = parse_litellm_pricing(json.as_bytes(), "anthropic").unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].canonical, "sonnet");
-        assert!((result[0].input_per_mtok - 2.0).abs() < 0.001);
+        let entries = make_entries(json);
+        let matched = match_litellm_entry("claude-haiku-4-5", &entries).unwrap();
+        assert!((matched.cache_write_per_mtok - 0.0).abs() < 0.001);
+        assert!((matched.cache_read_per_mtok - 0.0).abs() < 0.001);
     }
 }

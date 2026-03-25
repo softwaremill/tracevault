@@ -77,20 +77,16 @@ pub async fn list_pricing(
 }
 
 /// GET /api/v1/orgs/{slug}/pricing/models
-/// Distinct model names from sessions (org-scoped) + model_pricing table.
+/// Distinct model names from sessions (org-scoped).
 pub async fn list_models(
     State(state): State<AppState>,
     auth: OrgAuth,
 ) -> Result<Json<Vec<String>>, (StatusCode, String)> {
     let models = sqlx::query_scalar::<_, String>(
-        "SELECT DISTINCT model FROM (
-            SELECT DISTINCT model FROM sessions_v2 s
-            JOIN repos r ON s.repo_id = r.id
-            WHERE r.org_id = $1 AND s.model IS NOT NULL
-            UNION
-            SELECT DISTINCT model FROM model_pricing
-        ) AS combined
-        ORDER BY model",
+        "SELECT DISTINCT model FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         WHERE r.org_id = $1 AND s.model IS NOT NULL
+         ORDER BY model",
     )
     .bind(auth.org_id)
     .fetch_all(&state.pool)
