@@ -65,6 +65,9 @@
 
 	let expandedEvents = $state(new Set<string>());
 	let expandedFiles = $state(new Set<string>());
+	let expandedTools = $state(new Set<string>());
+	let expandedResults = $state(new Set<string>());
+	let expandedToolsInitialized = false;
 	let sectionsOpen = $state({
 		events: true,
 		files: false,
@@ -93,12 +96,29 @@
 
 	const toolColors: Record<string, string> = {
 		Edit: 'bg-amber-500',
+		Write: 'bg-amber-500',
 		Bash: 'bg-cyan-500',
 		Read: 'bg-purple-500',
 		Grep: 'bg-green-500',
-		Agent: 'bg-blue-500',
-		Glob: 'bg-indigo-500'
+		Glob: 'bg-indigo-500',
+		Skill: 'bg-pink-500',
+		Agent: 'bg-blue-500'
 	};
+
+	const toolBlockStyles: Record<string, { badge: string; badgeText: string; border: string }> = {
+		Edit:  { badge: 'bg-amber-500/15',  badgeText: 'text-amber-600 dark:text-amber-400',   border: 'border-amber-500/30' },
+		Write: { badge: 'bg-amber-500/15',  badgeText: 'text-amber-600 dark:text-amber-400',   border: 'border-amber-500/30' },
+		Bash:  { badge: 'bg-cyan-500/15',   badgeText: 'text-cyan-600 dark:text-cyan-400',     border: 'border-cyan-500/30' },
+		Read:  { badge: 'bg-purple-500/15', badgeText: 'text-purple-600 dark:text-purple-400', border: 'border-purple-500/30' },
+		Grep:  { badge: 'bg-green-500/15',  badgeText: 'text-green-600 dark:text-green-400',   border: 'border-green-500/30' },
+		Glob:  { badge: 'bg-indigo-500/15', badgeText: 'text-indigo-600 dark:text-indigo-400', border: 'border-indigo-500/30' },
+		Skill: { badge: 'bg-pink-500/15',   badgeText: 'text-pink-600 dark:text-pink-400',     border: 'border-pink-500/30' },
+		Agent: { badge: 'bg-blue-500/15',   badgeText: 'text-blue-600 dark:text-blue-400',     border: 'border-blue-500/30' }
+	};
+
+	const defaultToolBlockStyle = { badge: 'bg-gray-500/15', badgeText: 'text-gray-600 dark:text-gray-400', border: 'border-gray-500/30' };
+
+	const FILE_MODIFYING_TOOLS = new Set(['Edit', 'Write', 'Bash']);
 
 	function getToolColor(toolName: string | null): string {
 		if (!toolName) return 'bg-zinc-400';
@@ -119,6 +139,31 @@
 		}
 		if (input.pattern) return String(input.pattern);
 		return '';
+	}
+
+	function toolSummary(name: string, input: Record<string, unknown>): string {
+		switch (name) {
+			case 'Edit':
+			case 'Write':
+			case 'Read':
+				return input.file_path ? String(input.file_path) : '';
+			case 'Bash':
+				return input.command
+					? String(input.command).slice(0, 100)
+					: input.description
+						? String(input.description)
+						: '';
+			case 'Grep':
+				return `"${input.pattern ?? ''}" in ${input.path ?? '.'}`;
+			case 'Glob':
+				return input.pattern ? String(input.pattern) : '';
+			case 'Skill':
+				return input.skill ? String(input.skill) : '';
+			case 'Agent':
+				return input.description ? String(input.description) : '';
+			default:
+				return '';
+		}
 	}
 
 	async function fetchDetail() {
@@ -195,6 +240,25 @@
 		expandedFiles = next;
 	}
 
+	function toggleTool(id: string) {
+		const next = new Set(expandedTools);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		expandedTools = next;
+	}
+
+	function initExpandedTools(toolUseMap: Map<string, ContentBlock & { type: 'tool_use' }>) {
+		if (expandedToolsInitialized) return;
+		expandedToolsInitialized = true;
+		const initial = new Set<string>();
+		for (const [id, block] of toolUseMap) {
+			if (FILE_MODIFYING_TOOLS.has(block.name)) {
+				initial.add(id);
+			}
+		}
+		expandedTools = initial;
+	}
+
 	interface DiffLine {
 		type: 'add' | 'remove' | 'header';
 		content: string;
@@ -217,76 +281,100 @@
 		return lines;
 	}
 
+	type ContentBlock =
+		| { type: 'text'; text: string }
+		| { type: 'tool_use'; name: string; id: string; input: Record<string, unknown>; result?: string };
+
 	interface TranscriptTurn {
 		role: string;
-		content: string;
+		blocks: ContentBlock[];
 	}
 
 	function extractTurns(chunks: TranscriptChunk[]): TranscriptTurn[] {
 		const turns: TranscriptTurn[] = [];
+		const toolUseMap = new Map<string, ContentBlock & { type: 'tool_use' }>();
+
 		for (const chunk of chunks) {
 			if (!chunk.data) continue;
 			const obj = chunk.data as Record<string, unknown>;
 
-			// Claude Code JSONL format: { type: "user"|"assistant", message: { role, content } }
+			let role: string | undefined;
+			let content: unknown;
+
 			const type = obj.type as string | undefined;
 			if (type === 'user' || type === 'assistant') {
+				role = type;
 				const msg = obj.message as Record<string, unknown> | undefined;
-				if (msg) {
-					turns.push({
-						role: type,
-						content: extractContent(msg.content)
-					});
-				} else if (obj.content) {
-					turns.push({
-						role: type,
-						content: extractContent(obj.content)
-					});
-				}
+				content = msg ? msg.content : obj.content;
+			} else if (obj.role && (obj.role === 'user' || obj.role === 'assistant')) {
+				role = String(obj.role);
+				content = obj.content;
 			}
-			// Also handle standard { role, content } format
-			else if (obj.role && (obj.role === 'user' || obj.role === 'assistant')) {
-				turns.push({
-					role: String(obj.role),
-					content: extractContent(obj.content)
-				});
+
+			if (!role || content === undefined) continue;
+
+			const blocks = extractBlocks(content, toolUseMap);
+			if (blocks.length > 0) {
+				turns.push({ role, blocks });
 			}
 		}
+
+		initExpandedTools(toolUseMap);
 		return turns;
 	}
 
-	function extractContent(content: unknown): string {
+	function extractBlocks(
+		content: unknown,
+		toolUseMap: Map<string, ContentBlock & { type: 'tool_use' }>
+	): ContentBlock[] {
+		if (typeof content === 'string') {
+			return content.trim() ? [{ type: 'text', text: content }] : [];
+		}
+		if (Array.isArray(content)) {
+			const blocks: ContentBlock[] = [];
+			for (const c of content) {
+				if (typeof c === 'string') {
+					if (c.trim()) blocks.push({ type: 'text', text: c });
+					continue;
+				}
+				if (c && typeof c === 'object') {
+					const item = c as Record<string, unknown>;
+					if (item.type === 'text' && item.text) {
+						const text = String(item.text).trim();
+						if (text) blocks.push({ type: 'text', text });
+					} else if (item.type === 'tool_use') {
+						const block: ContentBlock & { type: 'tool_use' } = {
+							type: 'tool_use',
+							name: String(item.name ?? 'Unknown'),
+							id: String(item.id ?? ''),
+							input: (item.input as Record<string, unknown>) ?? {}
+						};
+						blocks.push(block);
+						if (block.id) toolUseMap.set(block.id, block);
+					} else if (item.type === 'tool_result') {
+						const useId = String(item.tool_use_id ?? '');
+						const target = toolUseMap.get(useId);
+						if (target) {
+							target.result = flattenToolResult(item.content);
+						}
+					}
+				}
+			}
+			return blocks;
+		}
+		if (content && typeof content === 'object') {
+			return [{ type: 'text', text: JSON.stringify(content, null, 2) }];
+		}
+		return [];
+	}
+
+	function flattenToolResult(content: unknown): string {
 		if (typeof content === 'string') return content;
 		if (Array.isArray(content)) {
 			return content
-				.map((c) => {
-					if (typeof c === 'string') return c;
-					if (c && typeof c === 'object') {
-						const block = c as Record<string, unknown>;
-						if (block.type === 'text' && block.text) return String(block.text);
-						if (block.type === 'tool_use') return `[Tool: ${block.name}]`;
-						if (block.type === 'tool_result') {
-							const resultContent = block.content;
-							if (typeof resultContent === 'string') return resultContent.length > 200 ? resultContent.slice(0, 200) + '...' : resultContent;
-							if (Array.isArray(resultContent)) {
-								return resultContent
-									.filter((r: Record<string, unknown>) => r.type === 'text')
-									.map((r: Record<string, unknown>) => {
-										const txt = String(r.text ?? '');
-										return txt.length > 200 ? txt.slice(0, 200) + '...' : txt;
-									})
-									.join('\n');
-							}
-							return '[Tool result]';
-						}
-					}
-					return '';
-				})
-				.filter(Boolean)
+				.filter((r) => r && typeof r === 'object' && (r as Record<string, unknown>).type === 'text')
+				.map((r) => String((r as Record<string, unknown>).text ?? ''))
 				.join('\n');
-		}
-		if (content && typeof content === 'object') {
-			return JSON.stringify(content, null, 2);
 		}
 		return String(content ?? '');
 	}
@@ -545,18 +633,71 @@
 								</div>
 							{:else}
 								<div class="space-y-2 p-4">
-									{#each turns as turn, i}
-										<div
-											class="max-w-[85%] rounded-lg px-3 py-2 text-xs
-												{turn.role === 'user'
-													? 'bg-primary/10 mr-auto'
-													: turn.role === 'assistant'
-														? 'bg-muted ml-auto'
-														: 'bg-muted/50 mr-auto'}"
-										>
-											<div class="text-muted-foreground mb-1 text-[10px] font-medium uppercase">{turn.role}</div>
-											<div class="whitespace-pre-wrap break-words">{turn.content}</div>
-										</div>
+									{#each turns as turn}
+										{#each turn.blocks as block}
+											{#if block.type === 'text'}
+												<div
+													class="max-w-[85%] rounded-lg px-3 py-2 text-xs
+														{turn.role === 'user'
+															? 'bg-primary/10 mr-auto'
+															: turn.role === 'assistant'
+																? 'bg-muted ml-auto'
+																: 'bg-muted/50 mr-auto'}"
+												>
+													<div class="text-muted-foreground mb-1 text-[10px] font-medium uppercase">{turn.role}</div>
+													<div class="whitespace-pre-wrap break-words">{block.text}</div>
+												</div>
+											{:else if block.type === 'tool_use'}
+												{@const style = toolBlockStyles[block.name] ?? defaultToolBlockStyle}
+												{@const expanded = expandedTools.has(block.id)}
+												{@const summary = toolSummary(block.name, block.input)}
+												<div class="rounded-lg border overflow-hidden {style.border}">
+													<button
+														class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/30"
+														onclick={() => toggleTool(block.id)}
+													>
+														<span class="text-muted-foreground text-[10px]">{expanded ? '▼' : '▶'}</span>
+														<span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold {style.badge} {style.badgeText}">
+															{block.name}
+														</span>
+														{#if summary}
+															<span class="text-muted-foreground min-w-0 flex-1 truncate font-mono text-[11px]">{summary}</span>
+														{/if}
+													</button>
+													{#if expanded}
+														<div class="border-t border-border/50 px-3 py-2.5 space-y-2">
+															{#if Object.keys(block.input).length > 0}
+																<div>
+																	<span class="text-muted-foreground text-[10px] uppercase tracking-wide">Input</span>
+																	<pre class="bg-muted/20 mt-1 max-h-60 overflow-auto rounded p-2.5 font-mono text-[11px] leading-relaxed">{formatJson(block.input)}</pre>
+																</div>
+															{/if}
+															{#if block.result}
+																{@const truncated = block.result.length > 500}
+																{@const resultId = block.id + '-result'}
+																<div>
+																	<span class="text-muted-foreground text-[10px] uppercase tracking-wide">Result</span>
+																	<pre class="bg-muted/20 mt-1 max-h-60 overflow-auto rounded p-2.5 font-mono text-[11px] leading-relaxed">{truncated && !expandedResults.has(resultId) ? block.result.slice(0, 500) + '...' : block.result}</pre>
+																	{#if truncated}
+																		<button
+																			class="text-[10px] text-muted-foreground hover:text-foreground mt-1"
+																			onclick={() => {
+																				const next = new Set(expandedResults);
+																				if (next.has(resultId)) next.delete(resultId);
+																				else next.add(resultId);
+																				expandedResults = next;
+																			}}
+																		>
+																			{expandedResults.has(resultId) ? 'Show less' : 'Show more'}
+																		</button>
+																	{/if}
+																</div>
+															{/if}
+														</div>
+													{/if}
+												</div>
+											{/if}
+										{/each}
 									{/each}
 								</div>
 							{/if}
