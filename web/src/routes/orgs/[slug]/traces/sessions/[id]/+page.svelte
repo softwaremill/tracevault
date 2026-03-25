@@ -643,6 +643,7 @@
 							{:else}
 								<div class="space-y-1.5 p-4" style="outline: 2px solid blue;">
 									{#each extracted.turns as turn}
+									<div style="outline: 2px solid magenta; margin-bottom: 2px;">
 										{#each turn.blocks as block}
 											{#if block.type === 'text' && block.text.trim()}
 												<div
@@ -708,6 +709,7 @@
 												</div>
 											{/if}
 										{/each}
+									</div>
 									{/each}
 								</div>
 							{/if}
