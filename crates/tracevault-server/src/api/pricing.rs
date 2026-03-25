@@ -23,6 +23,7 @@ pub struct PricingEntry {
     pub effective_from: DateTime<Utc>,
     pub effective_until: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    pub source: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,7 +65,7 @@ pub async fn list_pricing(
 ) -> Result<Json<Vec<PricingEntry>>, (StatusCode, String)> {
     let entries = sqlx::query_as::<_, PricingEntry>(
         "SELECT id, model, input_per_mtok, output_per_mtok, cache_read_per_mtok, cache_write_per_mtok,
-                effective_from, effective_until, created_at
+                effective_from, effective_until, created_at, source
          FROM model_pricing
          ORDER BY model, effective_from DESC",
     )
@@ -161,6 +162,7 @@ pub async fn create_pricing(
             effective_from: req.effective_from,
             effective_until: req.effective_until,
             created_at,
+            source: "manual".to_string(),
         }),
     ))
 }
@@ -182,7 +184,7 @@ pub async fn update_pricing(
 
     let existing = sqlx::query_as::<_, PricingEntry>(
         "SELECT id, model, input_per_mtok, output_per_mtok, cache_read_per_mtok, cache_write_per_mtok,
-                effective_from, effective_until, created_at
+                effective_from, effective_until, created_at, source
          FROM model_pricing WHERE id = $1",
     )
     .bind(pricing_id)
@@ -245,6 +247,7 @@ pub async fn update_pricing(
         effective_from: new_from,
         effective_until: new_until,
         created_at: existing.created_at,
+        source: existing.source,
     }))
 }
 
