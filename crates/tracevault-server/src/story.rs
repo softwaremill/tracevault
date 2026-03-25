@@ -113,34 +113,28 @@ pub async fn gather_story_context(
     // 2. Enrich with TraceVault DB data (async)
     let mut changes = Vec::new();
     for gc in &git_commits {
-        // Fetch commit UUID, attribution, and first transcript for context
-        let tv_data =
-            sqlx::query_as::<_, (Uuid, Option<serde_json::Value>, Option<serde_json::Value>)>(
-                "SELECT c.id, c.attribution, s.transcript \
-             FROM commits c LEFT JOIN sessions s ON s.commit_id = c.id \
+        // Fetch commit UUID and attribution from commits_v2
+        let tv_data = sqlx::query_as::<_, (Uuid, Option<serde_json::Value>)>(
+            "SELECT c.id, c.diff_data \
+             FROM commits_v2 c \
              WHERE c.repo_id = $1 AND c.commit_sha = $2 LIMIT 1",
-            )
-            .bind(repo_id)
-            .bind(&gc.sha)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten();
+        )
+        .bind(repo_id)
+        .bind(&gc.sha)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
 
         let (commit_uuid, ai_percentage, session_excerpt, model, sessions) =
-            if let Some((c_id, attr, transcript)) = &tv_data {
-                let pct = attr
-                    .as_ref()
-                    .and_then(|a| a.get("ai_percentage"))
-                    .and_then(|v| v.as_f64());
-                let excerpt = transcript
-                    .as_ref()
-                    .and_then(|t| extract_relevant_excerpt(t, file_path, &scope.name));
-
-                // Fetch all sessions for this commit
+            if let Some((c_id, _diff_data)) = &tv_data {
+                // Fetch sessions linked via commit_attributions
                 let session_rows = sqlx::query_as::<_, (Uuid, String, Option<String>)>(
-                    "SELECT s.id, s.session_id, s.model \
-                     FROM sessions s WHERE s.commit_id = $1 ORDER BY s.created_at",
+                    "SELECT DISTINCT s.id, s.session_id, s.model \
+                     FROM sessions_v2 s \
+                     JOIN commit_attributions ca ON ca.session_id = s.id \
+                     WHERE ca.commit_id = $1 \
+                     ORDER BY s.id",
                 )
                 .bind(c_id)
                 .fetch_all(pool)
@@ -148,6 +142,42 @@ pub async fn gather_story_context(
                 .unwrap_or_default();
 
                 let model = session_rows.first().and_then(|r| r.2.clone());
+
+                // Get transcript excerpt from the first session's transcript_chunks
+                let excerpt = if let Some((first_sid, _, _)) = session_rows.first() {
+                    let chunks: Vec<(serde_json::Value,)> = sqlx::query_as(
+                        "SELECT data FROM transcript_chunks \
+                         WHERE session_id = $1 \
+                         ORDER BY chunk_index ASC",
+                    )
+                    .bind(first_sid)
+                    .fetch_all(pool)
+                    .await
+                    .unwrap_or_default();
+
+                    if !chunks.is_empty() {
+                        let transcript_array: Vec<serde_json::Value> =
+                            chunks.into_iter().map(|(d,)| d).collect();
+                        let transcript_val = serde_json::Value::Array(transcript_array);
+                        extract_relevant_excerpt(&transcript_val, file_path, &scope.name)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                // Compute ai_percentage from attributions
+                let pct: Option<f64> = sqlx::query_scalar(
+                    "SELECT AVG(ca.confidence)::float8 * 100.0 \
+                     FROM commit_attributions ca \
+                     WHERE ca.commit_id = $1",
+                )
+                .bind(c_id)
+                .fetch_one(pool)
+                .await
+                .ok();
+
                 let sessions: Vec<SessionRef> = session_rows
                     .into_iter()
                     .map(|(id, sid, m)| SessionRef {

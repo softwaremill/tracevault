@@ -167,37 +167,51 @@ pub async fn verify_commits(
             _ => false,
         };
 
-        // Re-evaluate policies from stored session data
-        let sessions = sqlx::query_as::<_, (Option<serde_json::Value>,)>(
-            "SELECT session_data FROM sessions WHERE commit_id = $1",
+        // Re-evaluate policies from events/file_changes linked via commit_attributions
+        // Get distinct session IDs linked to this commit
+        let session_ids = sqlx::query_as::<_, (Uuid,)>(
+            "SELECT DISTINCT ca.session_id FROM commit_attributions ca WHERE ca.commit_id = $1",
         )
         .bind(commit_id)
         .fetch_all(&state.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-        // Aggregate tool_calls and files_modified across all sessions
+        let sids: Vec<Uuid> = session_ids.into_iter().map(|(id,)| id).collect();
+
+        // Aggregate tool_calls from events table
         let mut all_tool_calls: std::collections::HashMap<String, i64> =
             std::collections::HashMap::new();
-        let mut all_files: Vec<String> = Vec::new();
 
-        for (session_data,) in &sessions {
-            if let Some(data) = session_data {
-                if let Some(tc) = data.get("tool_calls").and_then(|v| v.as_object()) {
-                    for (k, v) in tc {
-                        let count = v.as_i64().unwrap_or(0);
-                        *all_tool_calls.entry(k.clone()).or_insert(0) += count;
-                    }
-                }
-                if let Some(files) = data.get("files_modified").and_then(|v| v.as_array()) {
-                    for f in files {
-                        if let Some(s) = f.as_str() {
-                            all_files.push(s.to_string());
-                        }
-                    }
-                }
+        if !sids.is_empty() {
+            let tool_counts = sqlx::query_as::<_, (String, i64)>(
+                "SELECT e.tool_name, COUNT(*) FROM events e
+                 WHERE e.session_id = ANY($1) AND e.tool_name IS NOT NULL
+                 GROUP BY e.tool_name",
+            )
+            .bind(&sids)
+            .fetch_all(&state.pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+            for (name, count) in tool_counts {
+                *all_tool_calls.entry(name).or_insert(0) += count;
             }
         }
+
+        // Aggregate files_modified from file_changes table
+        let all_files: Vec<String> = if !sids.is_empty() {
+            sqlx::query_scalar::<_, String>(
+                "SELECT DISTINCT fc.file_path FROM file_changes fc
+                 WHERE fc.session_id = ANY($1)",
+            )
+            .bind(&sids)
+            .fetch_all(&state.pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        } else {
+            vec![]
+        };
 
         // Evaluate each policy
         let mut policy_results = Vec::new();
