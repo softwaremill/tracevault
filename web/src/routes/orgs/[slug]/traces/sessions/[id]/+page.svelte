@@ -476,7 +476,7 @@
 											<span class="text-muted-foreground truncate font-mono">{fc.file_path}</span>
 										</button>
 										{#if expandedFiles.has(fc.id)}
-											<div class="border-border border-t bg-zinc-950/50">
+											<div class="border-border border-t bg-muted/30">
 												{#if fc.diff_text}
 													{@const diffLines = parseDiff(fc.diff_text)}
 													<div class="overflow-x-auto">
@@ -484,21 +484,21 @@
 															<tbody>
 																{#each diffLines as line, i}
 																	<tr class="{line.type === 'add'
-																		? 'bg-green-500/10'
+																		? 'bg-green-100 dark:bg-green-500/15'
 																		: line.type === 'remove'
-																			? 'bg-red-500/10'
+																			? 'bg-red-100 dark:bg-red-500/15'
 																			: ''}">
-																		<td class="select-none border-r border-border/30 px-2 text-right font-mono text-[10px] leading-relaxed {line.type === 'remove' ? 'text-red-400/50' : line.type === 'add' ? 'text-green-400/50' : 'text-muted-foreground/30'}" style="width: 1px; white-space: nowrap;">
+																		<td class="select-none border-r border-border/40 px-2 text-right font-mono text-[10px] leading-relaxed {line.type === 'remove' ? 'text-red-400/60 dark:text-red-400/50' : line.type === 'add' ? 'text-green-500/60 dark:text-green-400/50' : 'text-muted-foreground/40'}" style="width: 1px; white-space: nowrap;">
 																			{i + 1}
 																		</td>
-																		<td class="select-none border-r border-border/30 px-1.5 text-center font-mono text-[11px] leading-relaxed {line.type === 'add' ? 'text-green-400' : line.type === 'remove' ? 'text-red-400' : 'text-muted-foreground/30'}" style="width: 1px;">
+																		<td class="select-none border-r border-border/40 px-1.5 text-center font-mono text-[11px] leading-relaxed {line.type === 'add' ? 'text-green-600 dark:text-green-400' : line.type === 'remove' ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground/40'}" style="width: 1px;">
 																			{line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' '}
 																		</td>
 																		<td class="px-3 font-mono text-[11px] leading-relaxed whitespace-pre {line.type === 'add'
-																			? 'text-green-300'
+																			? 'text-green-800 dark:text-green-300'
 																			: line.type === 'remove'
-																				? 'text-red-300'
-																				: 'text-muted-foreground'}">
+																				? 'text-red-800 dark:text-red-300'
+																				: 'text-foreground'}">
 																			{line.type === 'add' ? line.content.slice(1) : line.type === 'remove' ? line.content.slice(1) : line.type === 'header' && (line.content.startsWith('+++') || line.content.startsWith('---')) ? line.content : line.content}
 																		</td>
 																	</tr>
