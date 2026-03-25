@@ -64,6 +64,7 @@
 	let error = $state('');
 
 	let expandedEvents = $state(new Set<string>());
+	let expandedFiles = $state(new Set<string>());
 	let sectionsOpen = $state({
 		events: true,
 		files: false,
@@ -185,6 +186,35 @@
 
 	function toggleSection(key: keyof typeof sectionsOpen) {
 		sectionsOpen = { ...sectionsOpen, [key]: !sectionsOpen[key] };
+	}
+
+	function toggleFile(id: string) {
+		const next = new Set(expandedFiles);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		expandedFiles = next;
+	}
+
+	interface DiffLine {
+		type: 'add' | 'remove' | 'header';
+		content: string;
+	}
+
+	function parseDiff(diffText: string): DiffLine[] {
+		const lines: DiffLine[] = [];
+		for (const raw of diffText.split('\n')) {
+			if (raw.startsWith('+++') || raw.startsWith('---')) {
+				lines.push({ type: 'header', content: raw });
+			} else if (raw.startsWith('+')) {
+				lines.push({ type: 'add', content: raw });
+			} else if (raw.startsWith('-')) {
+				lines.push({ type: 'remove', content: raw });
+			} else {
+				// context line or empty
+				lines.push({ type: 'header', content: raw });
+			}
+		}
+		return lines;
 	}
 
 	interface TranscriptTurn {
@@ -428,10 +458,14 @@
 						{:else}
 							<div class="divide-border divide-y">
 								{#each data.file_changes as fc (fc.id)}
-									<div class="px-4 py-2.5">
-										<div class="flex items-center gap-2 text-xs">
+									<div>
+										<button
+											class="hover:bg-muted/30 flex w-full items-center gap-2 px-4 py-2.5 text-left text-xs transition-colors"
+											onclick={() => toggleFile(fc.id)}
+										>
+											<span class="text-muted-foreground/50 text-xs shrink-0">{expandedFiles.has(fc.id) ? '▼' : '▶'}</span>
 											<span
-												class="inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium
+												class="inline-flex shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium
 													{fc.change_type === 'create'
 														? 'bg-green-500/15 text-green-600 dark:text-green-400'
 														: 'bg-amber-500/15 text-amber-600 dark:text-amber-400'}"
@@ -439,17 +473,44 @@
 												{fc.change_type}
 											</span>
 											<span class="font-mono font-medium">{fc.file_path.split('/').pop()}</span>
-											<span class="text-muted-foreground font-mono">{fc.file_path}</span>
-										</div>
-										{#if fc.diff_text}
-											<div class="mt-2 max-h-60 overflow-auto rounded border border-border">
-												{#each fc.diff_text.split('\n') as line}
-													<div class="px-3 py-0.5 font-mono text-[11px] leading-relaxed
-														{line.startsWith('---') ? 'bg-red-500/10 text-red-400' :
-														 line.startsWith('+++') ? 'bg-green-500/10 text-green-400' :
-														 'text-muted-foreground'}"
-													>{line}</div>
-												{/each}
+											<span class="text-muted-foreground truncate font-mono">{fc.file_path}</span>
+										</button>
+										{#if expandedFiles.has(fc.id)}
+											<div class="border-border border-t bg-zinc-950/50">
+												{#if fc.diff_text}
+													{@const diffLines = parseDiff(fc.diff_text)}
+													<div class="overflow-x-auto">
+														<table class="w-full border-collapse">
+															<tbody>
+																{#each diffLines as line, i}
+																	<tr class="{line.type === 'add'
+																		? 'bg-green-500/10'
+																		: line.type === 'remove'
+																			? 'bg-red-500/10'
+																			: ''}">
+																		<td class="select-none border-r border-border/30 px-2 text-right font-mono text-[10px] leading-relaxed {line.type === 'remove' ? 'text-red-400/50' : line.type === 'add' ? 'text-green-400/50' : 'text-muted-foreground/30'}" style="width: 1px; white-space: nowrap;">
+																			{i + 1}
+																		</td>
+																		<td class="select-none border-r border-border/30 px-1.5 text-center font-mono text-[11px] leading-relaxed {line.type === 'add' ? 'text-green-400' : line.type === 'remove' ? 'text-red-400' : 'text-muted-foreground/30'}" style="width: 1px;">
+																			{line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' '}
+																		</td>
+																		<td class="px-3 font-mono text-[11px] leading-relaxed whitespace-pre {line.type === 'add'
+																			? 'text-green-300'
+																			: line.type === 'remove'
+																				? 'text-red-300'
+																				: 'text-muted-foreground'}">
+																			{line.type === 'add' ? line.content.slice(1) : line.type === 'remove' ? line.content.slice(1) : line.type === 'header' && (line.content.startsWith('+++') || line.content.startsWith('---')) ? line.content : line.content}
+																		</td>
+																	</tr>
+																{/each}
+															</tbody>
+														</table>
+													</div>
+												{:else}
+													<div class="px-4 py-3 text-xs text-muted-foreground italic">
+														{fc.change_type === 'create' ? 'New file created (no diff available)' : 'No diff data available'}
+													</div>
+												{/if}
 											</div>
 										{/if}
 									</div>
