@@ -18,6 +18,7 @@
 	import xml from 'highlight.js/lib/languages/xml';
 	import markdown from 'highlight.js/lib/languages/markdown';
 	import 'highlight.js/styles/github-dark.css';
+	import * as Select from '$lib/components/ui/select/index.js';
 
 	hljs.registerLanguage('rust', rust);
 	hljs.registerLanguage('typescript', typescript);
@@ -283,16 +284,14 @@
 		}
 	});
 
-	function onCommitChange(e: Event) {
-		const target = e.target as HTMLSelectElement;
-		selectedCommitId = target.value;
+	function onCommitSelect(val: string) {
+		selectedCommitId = val;
 		selectedFilePath = '';
 		attribution = null;
 	}
 
-	function onFileChange(e: Event) {
-		const target = e.target as HTMLSelectElement;
-		selectedFilePath = target.value;
+	function onFileSelect(val: string) {
+		selectedFilePath = val;
 	}
 </script>
 
@@ -307,21 +306,25 @@
 	<div class="flex flex-wrap items-end gap-4">
 		<!-- Commit selector -->
 		<div class="flex flex-col gap-1">
-			<label for="commit-select" class="text-muted-foreground text-xs uppercase tracking-wide">Commit</label>
-			<select
-				id="commit-select"
-				class="border-border bg-background text-foreground rounded-md border px-3 py-1.5 font-mono text-sm"
-				value={selectedCommitId}
-				onchange={onCommitChange}
-				disabled={commitsLoading}
-			>
-				<option value="">Select a commit...</option>
-				{#each commits as c (c.id)}
-					<option value={c.id}>
-						{c.commit_sha.slice(0, 8)}{c.branch ? ` (${c.branch})` : ''} - {c.author}
-					</option>
-				{/each}
-			</select>
+			<Select.Root type="single" value={selectedCommitId} onValueChange={(v) => onCommitSelect(v)} disabled={commitsLoading}>
+				<Select.Trigger size="sm" class="font-mono">
+					<span data-slot="select-value">
+						{#if selectedCommitId}
+							{(() => { const c = commits.find(x => x.id === selectedCommitId); return c ? `${c.commit_sha.slice(0, 8)}${c.branch ? ` (${c.branch})` : ''} - ${c.author}` : 'Select a commit...'; })()}
+						{:else}
+							Select a commit...
+						{/if}
+					</span>
+				</Select.Trigger>
+				<Select.Content>
+					<Select.Item value="">Select a commit...</Select.Item>
+					{#each commits as c (c.id)}
+						<Select.Item value={c.id}>
+							{c.commit_sha.slice(0, 8)}{c.branch ? ` (${c.branch})` : ''} - {c.author}
+						</Select.Item>
+					{/each}
+				</Select.Content>
+			</Select.Root>
 			{#if commitsError}
 				<span class="text-destructive text-xs">{commitsError}</span>
 			{/if}
@@ -329,19 +332,17 @@
 
 		<!-- File selector -->
 		<div class="flex flex-col gap-1">
-			<label for="file-select" class="text-muted-foreground text-xs uppercase tracking-wide">File</label>
-			<select
-				id="file-select"
-				class="border-border bg-background text-foreground rounded-md border px-3 py-1.5 font-mono text-sm"
-				value={selectedFilePath}
-				onchange={onFileChange}
-				disabled={!selectedCommitId || filesLoading}
-			>
-				<option value="">Select a file...</option>
-				{#each filePaths as fp}
-					<option value={fp}>{fp}</option>
-				{/each}
-			</select>
+			<Select.Root type="single" value={selectedFilePath} onValueChange={(v) => onFileSelect(v)} disabled={!selectedCommitId || filesLoading}>
+				<Select.Trigger size="sm" class="font-mono">
+					<span data-slot="select-value">{selectedFilePath || 'Select a file...'}</span>
+				</Select.Trigger>
+				<Select.Content>
+					<Select.Item value="">Select a file...</Select.Item>
+					{#each filePaths as fp}
+						<Select.Item value={fp}>{fp}</Select.Item>
+					{/each}
+				</Select.Content>
+			</Select.Root>
 			{#if filesLoading}
 				<span class="text-muted-foreground text-xs">Loading files...</span>
 			{/if}

@@ -1,8 +1,18 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
-	import * as Table from '$lib/components/ui/table/index.js';
+	import StatCard from '$lib/components/StatCard.svelte';
+	import DataTable from '$lib/components/DataTable.svelte';
 	import Chart from '$lib/components/chart.svelte';
+	import GitCommitHorizontalIcon from '@lucide/svelte/icons/git-commit-horizontal';
+	import MonitorPlayIcon from '@lucide/svelte/icons/monitor-play';
+	import CoinsIcon from '@lucide/svelte/icons/coins';
+	import UsersIcon from '@lucide/svelte/icons/users';
+	import PercentIcon from '@lucide/svelte/icons/percent';
+	import DollarSignIcon from '@lucide/svelte/icons/dollar-sign';
+	import ClockIcon from '@lucide/svelte/icons/clock';
+	import WrenchIcon from '@lucide/svelte/icons/wrench';
+	import PiggyBankIcon from '@lucide/svelte/icons/piggy-bank';
 	import {
 		Chart as ChartJS,
 		CategoryScale,
@@ -212,6 +222,24 @@
 			]
 		};
 	}
+
+	const tokensSecondary = $derived.by(() => {
+		if (!data || data.total_sessions === 0) return undefined;
+		return `${fmtNum(Math.round(data.total_tokens / data.total_sessions))} avg/session`;
+	});
+
+	const costSecondary = $derived.by(() => {
+		if (!data || data.total_commits === 0) return undefined;
+		return `$${(data.estimated_cost_usd / data.total_commits).toFixed(2)} avg/commit`;
+	});
+
+	const commitColumns = [
+		{ key: 'commit_sha', label: 'Commit' },
+		{ key: 'author', label: 'Author' },
+		{ key: 'session_count', label: 'Sessions', sortable: true },
+		{ key: 'total_tokens', label: 'Tokens', sortable: true },
+		{ key: 'created_at', label: 'Date', sortable: true }
+	];
 </script>
 
 <svelte:head>
@@ -229,52 +257,16 @@
 	{:else if error}
 		<p class="text-destructive">{error}</p>
 	{:else if data}
-		<div class="border-border overflow-hidden rounded-lg border">
-			<div class="grid grid-cols-2 gap-px md:grid-cols-3 lg:grid-cols-6">
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Total Commits</div>
-					<div class="mt-1 text-lg font-semibold">{fmtNum(data.total_commits)}</div>
-				</div>
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Sessions</div>
-					<div class="mt-1 text-lg font-semibold">{fmtNum(data.total_sessions)}</div>
-				</div>
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Total Tokens</div>
-					<div class="mt-1 text-lg font-semibold">{fmtNum(data.total_tokens)}</div>
-				</div>
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Active Authors</div>
-					<div class="mt-1 text-lg font-semibold">{data.active_authors}</div>
-				</div>
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">AI %</div>
-					<div class="mt-1 text-lg font-semibold">
-						{data.ai_percentage != null ? `${data.ai_percentage.toFixed(1)}%` : 'N/A'}
-					</div>
-				</div>
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Estimated Cost</div>
-					<div class="mt-1 text-lg font-semibold">{fmtCost(data.estimated_cost_usd)}</div>
-				</div>
-			</div>
-		</div>
-
-		<div class="border-border overflow-hidden rounded-lg border">
-			<div class="grid grid-cols-2 gap-px md:grid-cols-3">
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Avg Session Duration</div>
-					<div class="mt-1 text-lg font-semibold">{fmtDuration(data.avg_session_duration_ms)}</div>
-				</div>
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Total Tool Calls</div>
-					<div class="mt-1 text-lg font-semibold">{fmtNum(data.total_tool_calls)}</div>
-				</div>
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Cache Savings</div>
-					<div class="mt-1 text-lg font-semibold">{fmtCost(data.cache_savings_usd)}</div>
-				</div>
-			</div>
+		<div class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3">
+			<StatCard label="Total Commits" value={fmtNum(data.total_commits)} icon={GitCommitHorizontalIcon} color="#3b82f6" />
+			<StatCard label="Sessions" value={fmtNum(data.total_sessions)} icon={MonitorPlayIcon} color="#10b981" />
+			<StatCard label="Total Tokens" value={fmtNum(data.total_tokens)} icon={CoinsIcon} color="#f59e0b" secondary={tokensSecondary} />
+			<StatCard label="Active Authors" value={String(data.active_authors)} icon={UsersIcon} color="#8b5cf6" />
+			<StatCard label="AI %" value={data.ai_percentage != null ? `${data.ai_percentage.toFixed(1)}%` : 'N/A'} icon={PercentIcon} color="#ec4899" />
+			<StatCard label="Estimated Cost" value={fmtCost(data.estimated_cost_usd)} icon={DollarSignIcon} color="#dc2626" secondary={costSecondary} />
+			<StatCard label="Avg Session Duration" value={fmtDuration(data.avg_session_duration_ms)} icon={ClockIcon} color="#06b6d4" />
+			<StatCard label="Total Tool Calls" value={fmtNum(data.total_tool_calls)} icon={WrenchIcon} color="#f59e0b" />
+			<StatCard label="Cache Savings" value={fmtCost(data.cache_savings_usd)} icon={PiggyBankIcon} color="#10b981" />
 		</div>
 
 		<div class="grid gap-6 lg:grid-cols-2">
@@ -367,32 +359,25 @@
 
 			<div class="border-border rounded-lg border p-3">
 				<h4 class="mb-2 text-sm font-semibold">Recent Commits</h4>
-				{#if data.recent_commits.length > 0}
-					<Table.Root class="text-xs">
-						<Table.Header>
-							<Table.Row>
-								<Table.Head>Commit</Table.Head>
-								<Table.Head>Author</Table.Head>
-								<Table.Head>Sessions</Table.Head>
-								<Table.Head>Tokens</Table.Head>
-								<Table.Head>Date</Table.Head>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{#each data.recent_commits as commit}
-								<Table.Row class="hover:bg-muted/40 transition-colors">
-									<Table.Cell class="font-mono">{commit.commit_sha.slice(0, 8)}</Table.Cell>
-									<Table.Cell>{commit.author}</Table.Cell>
-									<Table.Cell>{commit.session_count}</Table.Cell>
-									<Table.Cell class="font-mono">{fmtNum(commit.total_tokens)}</Table.Cell>
-									<Table.Cell>{fmtDate(commit.created_at)}</Table.Cell>
-								</Table.Row>
-							{/each}
-						</Table.Body>
-					</Table.Root>
-				{:else}
-					<p class="text-muted-foreground text-sm">No commits</p>
-				{/if}
+				<DataTable
+					columns={commitColumns}
+					rows={data.recent_commits}
+					searchKeys={['commit_sha', 'author']}
+					defaultSort="created_at"
+					rowIdKey="commit_sha"
+				>
+					{#snippet children({ row, col })}
+						{#if col.key === 'commit_sha'}
+							<span class="font-mono">{String(row.commit_sha).slice(0, 8)}</span>
+						{:else if col.key === 'total_tokens'}
+							<span class="font-mono">{fmtNum(row.total_tokens as number)}</span>
+						{:else if col.key === 'created_at'}
+							{fmtDate(row.created_at as string)}
+						{:else}
+							{row[col.key] ?? '-'}
+						{/if}
+					{/snippet}
+				</DataTable>
 			</div>
 		</div>
 	{/if}

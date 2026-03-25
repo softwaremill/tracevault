@@ -6,6 +6,7 @@
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
+	import * as Select from '$lib/components/ui/select/index.js';
 
 	interface LlmSettings {
 		provider: string | null;
@@ -133,15 +134,16 @@
 			<div class="p-4 space-y-4">
 				{#if editing}
 					<div class="grid gap-2">
-						<Label for="llm_provider">Provider</Label>
-						<select
-							id="llm_provider"
-							bind:value={editProvider}
-							class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-						>
-							<option value="anthropic">Anthropic</option>
-							<option value="openai">OpenAI</option>
-						</select>
+						<Label>Provider</Label>
+						<Select.Root type="single" value={editProvider} onValueChange={(v) => editProvider = v}>
+							<Select.Trigger class="w-full">
+								<span data-slot="select-value">{editProvider === 'anthropic' ? 'Anthropic' : 'OpenAI'}</span>
+							</Select.Trigger>
+							<Select.Content>
+								<Select.Item value="anthropic">Anthropic</Select.Item>
+								<Select.Item value="openai">OpenAI</Select.Item>
+							</Select.Content>
+						</Select.Root>
 					</div>
 					<div class="grid gap-2">
 						<Label for="llm_api_key">API Key</Label>

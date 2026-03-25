@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
-	import * as Table from '$lib/components/ui/table/index.js';
+	import StatCard from '$lib/components/StatCard.svelte';
+	import DataTable from '$lib/components/DataTable.svelte';
 	import Chart from '$lib/components/chart.svelte';
+	import BookOpenIcon from '@lucide/svelte/icons/book-open';
+	import BookMarkedIcon from '@lucide/svelte/icons/book-marked';
+	import PiggyBankIcon from '@lucide/svelte/icons/piggy-bank';
 	import {
 		Chart as ChartJS,
 		CategoryScale,
@@ -58,8 +62,6 @@
 	let data: TokensResponse | null = $state(null);
 	let loading = $state(true);
 	let error = $state('');
-	let sortCol = $state<'total' | 'input' | 'output' | 'sessions'>('total');
-	let sortDir = $state<'asc' | 'desc'>('desc');
 
 	const slug = $derived($page.params.slug);
 
@@ -86,21 +88,23 @@
 		return String(n);
 	}
 
-	function sortBy(col: 'total' | 'input' | 'output' | 'sessions') {
-		if (sortCol === col) {
-			sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-		} else {
-			sortCol = col;
-			sortDir = 'desc';
-		}
-	}
+	const repoColumns = [
+		{ key: 'repo', label: 'Repo' },
+		{ key: 'total', label: 'Total Tokens', sortable: true, class: 'font-mono' },
+		{ key: 'input', label: 'Input', sortable: true, class: 'font-mono' },
+		{ key: 'output', label: 'Output', sortable: true, class: 'font-mono' },
+		{ key: 'sessions', label: 'Sessions', sortable: true },
+		{ key: '_avg', label: 'Avg/Session', sortable: true, class: 'font-mono' }
+	];
 
-	function sortedRepos(repos: RepoTokenDetail[]): RepoTokenDetail[] {
-		return [...repos].sort((a, b) => {
-			const diff = a[sortCol] - b[sortCol];
-			return sortDir === 'asc' ? diff : -diff;
-		});
-	}
+	const repoRows = $derived.by(() => {
+		const d = data;
+		if (!d) return [] as Record<string, unknown>[];
+		return d.by_repo.map((r) => ({
+			...r,
+			_avg: r.sessions > 0 ? Math.round(r.total / r.sessions) : 0
+		}));
+	});
 
 	function timeChartData(d: TokensResponse) {
 		return {
@@ -155,21 +159,25 @@
 	{:else if error}
 		<p class="text-destructive">{error}</p>
 	{:else if data}
-		<div class="border-border overflow-hidden rounded-lg border">
-			<div class="grid grid-cols-2 gap-px md:grid-cols-3">
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Cache Read Tokens</div>
-					<div class="mt-1 text-lg font-semibold">{fmtNum(data.cache_read_tokens)}</div>
-				</div>
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Cache Write Tokens</div>
-					<div class="mt-1 text-lg font-semibold">{fmtNum(data.cache_write_tokens)}</div>
-				</div>
-				<div class="bg-background p-3">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Cache Savings</div>
-					<div class="mt-1 text-lg font-semibold">${data.cache_savings_usd.toFixed(2)}</div>
-				</div>
-			</div>
+		<div class="grid grid-cols-2 gap-4 md:grid-cols-3">
+			<StatCard
+				label="Cache Read Tokens"
+				value={fmtNum(data.cache_read_tokens)}
+				icon={BookOpenIcon}
+				color="#3b82f6"
+			/>
+			<StatCard
+				label="Cache Write Tokens"
+				value={fmtNum(data.cache_write_tokens)}
+				icon={BookMarkedIcon}
+				color="#8b5cf6"
+			/>
+			<StatCard
+				label="Cache Savings"
+				value={'$' + data.cache_savings_usd.toFixed(2)}
+				icon={PiggyBankIcon}
+				color="#10b981"
+			/>
 		</div>
 
 		<div class="border-border rounded-lg border p-3">
@@ -185,55 +193,21 @@
 			{/if}
 		</div>
 
-		<div class="border-border overflow-hidden rounded-lg border">
-			<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground p-3">By Repository</h2>
-			{#if data.by_repo.length > 0}
-				<Table.Root class="text-xs">
-					<Table.Header>
-						<Table.Row>
-							<Table.Head>Repo</Table.Head>
-							<Table.Head>
-								<button class="hover:underline" onclick={() => sortBy('total')}>
-									Total Tokens {sortCol === 'total' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-								</button>
-							</Table.Head>
-							<Table.Head>
-								<button class="hover:underline" onclick={() => sortBy('input')}>
-									Input {sortCol === 'input' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-								</button>
-							</Table.Head>
-							<Table.Head>
-								<button class="hover:underline" onclick={() => sortBy('output')}>
-									Output {sortCol === 'output' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-								</button>
-							</Table.Head>
-							<Table.Head>
-								<button class="hover:underline" onclick={() => sortBy('sessions')}>
-									Sessions {sortCol === 'sessions' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-								</button>
-							</Table.Head>
-							<Table.Head>Avg/Session</Table.Head>
-						</Table.Row>
-					</Table.Header>
-					<Table.Body>
-						{#each sortedRepos(data.by_repo) as repo}
-							<Table.Row class="hover:bg-muted/40 transition-colors">
-								<Table.Cell>{repo.repo}</Table.Cell>
-								<Table.Cell class="font-mono">{fmtNum(repo.total)}</Table.Cell>
-								<Table.Cell class="font-mono">{fmtNum(repo.input)}</Table.Cell>
-								<Table.Cell class="font-mono">{fmtNum(repo.output)}</Table.Cell>
-								<Table.Cell>{repo.sessions}</Table.Cell>
-								<Table.Cell class="font-mono">
-									{repo.sessions > 0 ? fmtNum(Math.round(repo.total / repo.sessions)) : '-'}
-								</Table.Cell>
-							</Table.Row>
-						{/each}
-					</Table.Body>
-				</Table.Root>
-			{:else}
-				<p class="text-muted-foreground text-sm p-3">No data</p>
-			{/if}
-		</div>
+		<DataTable
+			columns={repoColumns}
+			rows={repoRows}
+			searchKeys={['repo']}
+			defaultSort="total"
+			rowIdKey="repo"
+		>
+			{#snippet children({ row, col })}
+				{#if col.key === 'total' || col.key === 'input' || col.key === 'output' || col.key === '_avg'}
+					{fmtNum(row[col.key] as number)}
+				{:else}
+					{row[col.key] ?? '-'}
+				{/if}
+			{/snippet}
+		</DataTable>
 
 		<div class="border-border rounded-lg border p-3">
 			<h4 class="mb-2 text-sm font-semibold">By Author</h4>
