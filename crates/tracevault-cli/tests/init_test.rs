@@ -62,6 +62,7 @@ async fn init_installs_claude_hooks() {
     let hooks = settings.get("hooks").unwrap();
     assert!(hooks.get("PreToolUse").is_some());
     assert!(hooks.get("PostToolUse").is_some());
+    assert!(hooks.get("Notification").is_some());
 }
 
 #[tokio::test]
@@ -87,10 +88,11 @@ async fn init_merges_into_existing_settings() {
 }
 
 #[test]
-fn tracevault_hooks_has_pre_and_post() {
+fn tracevault_hooks_has_pre_post_and_notification() {
     let hooks = tracevault_cli::commands::init::tracevault_hooks();
     assert!(hooks.get("PreToolUse").is_some());
     assert!(hooks.get("PostToolUse").is_some());
+    assert!(hooks.get("Notification").is_some());
 }
 
 #[tokio::test]
@@ -108,7 +110,8 @@ async fn init_installs_git_pre_push_hook() {
     assert!(content.contains("#!/bin/sh"));
     assert!(content.contains("# tracevault:enforce"));
     assert!(content.contains("tracevault sync"));
-    assert!(content.contains("tracevault push"));
+    assert!(content.contains("tracevault check"));
+    assert!(!content.contains("tracevault push"));
 }
 
 #[tokio::test]
@@ -133,7 +136,8 @@ async fn init_preserves_existing_pre_push_hook() {
     assert!(content.contains("echo 'existing hook'"));
     // Tracevault appended
     assert!(content.contains("# tracevault:enforce"));
-    assert!(content.contains("tracevault push"));
+    assert!(content.contains("tracevault check"));
+    assert!(!content.contains("tracevault push"));
 }
 
 #[tokio::test]
@@ -152,6 +156,42 @@ async fn init_does_not_duplicate_hook_on_reinit() {
     assert_eq!(
         marker_count, 1,
         "Marker should appear exactly once, found {marker_count}"
+    );
+}
+
+#[tokio::test]
+async fn init_installs_post_commit_hook() {
+    let tmp = tmp_git_repo();
+
+    tracevault_cli::commands::init::init_in_directory(tmp.path(), None)
+        .await
+        .unwrap();
+
+    let hook_path = tmp.path().join(".git/hooks/post-commit");
+    assert!(hook_path.exists());
+
+    let content = fs::read_to_string(&hook_path).unwrap();
+    assert!(content.contains("#!/bin/sh"));
+    assert!(content.contains("# tracevault:post-commit"));
+    assert!(content.contains("tracevault commit-push 2>/dev/null &"));
+}
+
+#[tokio::test]
+async fn init_does_not_duplicate_post_commit_hook_on_reinit() {
+    let tmp = tmp_git_repo();
+
+    tracevault_cli::commands::init::init_in_directory(tmp.path(), None)
+        .await
+        .unwrap();
+    tracevault_cli::commands::init::init_in_directory(tmp.path(), None)
+        .await
+        .unwrap();
+
+    let content = fs::read_to_string(tmp.path().join(".git/hooks/post-commit")).unwrap();
+    let marker_count = content.matches("# tracevault:post-commit").count();
+    assert_eq!(
+        marker_count, 1,
+        "Post-commit marker should appear exactly once, found {marker_count}"
     );
 }
 

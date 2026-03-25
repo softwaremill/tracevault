@@ -68,12 +68,12 @@ pub async fn get_filters(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Get distinct authors from commits in this org's repos
+    // Get distinct authors from sessions_v2 via users
     let authors = sqlx::query_as::<_, (String,)>(
-        "SELECT DISTINCT c.author FROM commits c
-         JOIN repos r ON c.repo_id = r.id
-         WHERE r.org_id = $1
-         ORDER BY c.author",
+        "SELECT DISTINCT u.email FROM sessions_v2 s
+         JOIN users u ON s.user_id = u.id
+         WHERE s.org_id = $1
+         ORDER BY u.email",
     )
     .bind(org_id)
     .fetch_all(&state.pool)
@@ -168,11 +168,10 @@ pub async fn get_overview(
 ) -> Result<Json<OverviewResponse>, (StatusCode, String)> {
     let org_id = q.effective_org_id(&auth);
 
-    // KPI: total commits, sessions, tokens, authors, cost, duration, tool_calls, compactions, cache tokens
+    // KPI: total sessions, tokens, authors, cost, duration, tool_calls, cache tokens
     let kpi = sqlx::query_as::<
         _,
         (
-            i64,
             i64,
             i64,
             i64,
@@ -184,33 +183,28 @@ pub async fn get_overview(
             i64,
             i64,
             i64,
-            i64,
-            i64,
         ),
     >(
         "SELECT
-            COUNT(DISTINCT c.id),
             COUNT(s.id),
             COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0),
             COALESCE(CAST(SUM(s.input_tokens) AS BIGINT), 0),
             COALESCE(CAST(SUM(s.output_tokens) AS BIGINT), 0),
-            COUNT(DISTINCT c.author),
+            COUNT(DISTINCT s.user_id),
             COALESCE(SUM(s.estimated_cost_usd), 0.0),
             COALESCE(CAST(SUM(s.duration_ms) AS BIGINT), 0),
             CAST(AVG(s.duration_ms) AS BIGINT),
             COALESCE(CAST(SUM(s.total_tool_calls) AS BIGINT), 0),
-            COALESCE(CAST(SUM(s.compactions) AS BIGINT), 0),
-            COALESCE(CAST(SUM(s.compaction_tokens_saved) AS BIGINT), 0),
             COALESCE(CAST(SUM(s.cache_read_tokens) AS BIGINT), 0),
             COALESCE(CAST(SUM(s.cache_write_tokens) AS BIGINT), 0)
-         FROM commits c
-         JOIN repos r ON c.repo_id = r.id
-         LEFT JOIN sessions s ON s.commit_id = c.id
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
            AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)",
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -221,7 +215,30 @@ pub async fn get_overview(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // AI percentage (avg across commits that have attribution)
+    // Total commits count (separate query since commits are decoupled from sessions in v2)
+    let commit_count = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(DISTINCT c.id)
+         FROM commits_v2 c
+         JOIN commit_attributions ca ON ca.commit_id = c.id
+         JOIN sessions_v2 s ON ca.session_id = s.id
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON s.user_id = u.id
+         WHERE r.org_id = $1
+           AND ($2::TEXT IS NULL OR r.name = $2)
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)",
+    )
+    .bind(org_id)
+    .bind(&q.repo)
+    .bind(&q.author)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // AI percentage (avg across commits that have attribution) - stays on commits table
     let ai_pct = sqlx::query_as::<_, (Option<f64>,)>(
         "SELECT AVG((c.attribution->'summary'->>'ai_percentage')::float)
          FROM commits c
@@ -245,19 +262,19 @@ pub async fn get_overview(
 
     // Tokens over time (daily buckets)
     let tokens_time = sqlx::query_as::<_, (String, i64, i64)>(
-        "SELECT TO_CHAR(c.created_at::date, 'YYYY-MM-DD'),
+        "SELECT TO_CHAR(s.created_at::date, 'YYYY-MM-DD'),
                 COALESCE(CAST(SUM(s.input_tokens) AS BIGINT), 0),
                 COALESCE(CAST(SUM(s.output_tokens) AS BIGINT), 0)
-         FROM commits c
-         JOIN repos r ON c.repo_id = r.id
-         LEFT JOIN sessions s ON s.commit_id = c.id
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
            AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
-         GROUP BY c.created_at::date
-         ORDER BY c.created_at::date",
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)
+         GROUP BY s.created_at::date
+         ORDER BY s.created_at::date",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -271,13 +288,13 @@ pub async fn get_overview(
     // Top 5 repos by tokens
     let top_repos = sqlx::query_as::<_, (String, i64)>(
         "SELECT r.name, COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0)
-         FROM commits c
-         JOIN repos r ON c.repo_id = r.id
-         LEFT JOIN sessions s ON s.commit_id = c.id
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
-           AND ($2::TEXT IS NULL OR c.author = $2)
-           AND ($3::TIMESTAMPTZ IS NULL OR c.created_at >= $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
+           AND ($2::TEXT IS NULL OR u.email = $2)
+           AND ($3::TIMESTAMPTZ IS NULL OR s.created_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at <= $4)
          GROUP BY r.name
          ORDER BY 2 DESC
          LIMIT 5",
@@ -290,24 +307,19 @@ pub async fn get_overview(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Model distribution (uses model_usage JSONB with fallback to s.model)
+    // Model distribution
     let models = sqlx::query_as::<_, (String, i64)>(
-        "WITH model_data AS (
-           SELECT COALESCE(mu.model, s.model, 'unknown') as model
-           FROM sessions s
-           JOIN commits c ON s.commit_id = c.id
-           JOIN repos r ON c.repo_id = r.id
-           LEFT JOIN LATERAL (
-             SELECT elem->>'model' as model
-             FROM jsonb_array_elements(s.model_usage) as elem
-           ) mu ON s.model_usage IS NOT NULL
-           WHERE r.org_id = $1
-             AND ($2::TEXT IS NULL OR r.name = $2)
-             AND ($3::TEXT IS NULL OR c.author = $3)
-             AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-             AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
-         )
-         SELECT model, COUNT(*) FROM model_data GROUP BY model ORDER BY 2 DESC",
+        "SELECT COALESCE(s.model, 'unknown'), COUNT(*)
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON s.user_id = u.id
+         WHERE r.org_id = $1
+           AND ($2::TEXT IS NULL OR r.name = $2)
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)
+         GROUP BY s.model
+         ORDER BY 2 DESC",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -320,10 +332,14 @@ pub async fn get_overview(
 
     // Recent 10 commits
     let recent = sqlx::query_as::<_, (String, String, i64, i64, chrono::DateTime<chrono::Utc>)>(
-        "SELECT c.commit_sha, c.author, COUNT(s.id), COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0), c.created_at
-         FROM commits c
+        "SELECT c.commit_sha, c.author,
+                COUNT(DISTINCT ca.session_id),
+                COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0),
+                c.created_at
+         FROM commits_v2 c
          JOIN repos r ON c.repo_id = r.id
-         LEFT JOIN sessions s ON s.commit_id = c.id
+         LEFT JOIN commit_attributions ca ON ca.commit_id = c.id
+         LEFT JOIN sessions_v2 s ON ca.session_id = s.id
          WHERE r.org_id = $1
            AND ($2::TEXT IS NULL OR r.name = $2)
            AND ($3::TEXT IS NULL OR c.author = $3)
@@ -331,7 +347,7 @@ pub async fn get_overview(
            AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
          GROUP BY c.id
          ORDER BY c.created_at DESC
-         LIMIT 10"
+         LIMIT 10",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -345,14 +361,14 @@ pub async fn get_overview(
     // Sessions over time (daily buckets)
     let sessions_time = sqlx::query_as::<_, (String, i64)>(
         "SELECT TO_CHAR(COALESCE(s.started_at, s.created_at)::date, 'YYYY-MM-DD'), COUNT(*)
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
            AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)
          GROUP BY COALESCE(s.started_at, s.created_at)::date
          ORDER BY 1",
     )
@@ -368,15 +384,15 @@ pub async fn get_overview(
     // Hourly activity
     let hourly = sqlx::query_as::<_, (i32, i64)>(
         "SELECT EXTRACT(HOUR FROM s.started_at)::int, COUNT(*)
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
            AND s.started_at IS NOT NULL
            AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)
          GROUP BY 1
          ORDER BY 1",
     )
@@ -389,27 +405,30 @@ pub async fn get_overview(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    // kpi tuple indices:
+    // 0=sessions, 1=tokens, 2=input, 3=output, 4=authors, 5=cost,
+    // 6=duration, 7=avg_dur, 8=tool_calls, 9=cache_read, 10=cache_write
     let cache_savings = state
         .extensions
         .pricing
-        .estimate_cache_savings("sonnet", kpi.12);
+        .estimate_cache_savings("sonnet", kpi.9);
 
     Ok(Json(OverviewResponse {
-        total_commits: kpi.0,
-        total_sessions: kpi.1,
-        total_tokens: kpi.2,
-        total_input_tokens: kpi.3,
-        total_output_tokens: kpi.4,
-        active_authors: kpi.5,
-        estimated_cost_usd: kpi.6,
+        total_commits: commit_count.0,
+        total_sessions: kpi.0,
+        total_tokens: kpi.1,
+        total_input_tokens: kpi.2,
+        total_output_tokens: kpi.3,
+        active_authors: kpi.4,
+        estimated_cost_usd: kpi.5,
         ai_percentage: ai_pct.0,
-        total_duration_ms: kpi.7,
-        avg_session_duration_ms: kpi.8,
-        total_tool_calls: kpi.9,
-        total_compactions: kpi.10,
-        total_compaction_tokens_saved: kpi.11,
-        total_cache_read_tokens: kpi.12,
-        total_cache_write_tokens: kpi.13,
+        total_duration_ms: kpi.6,
+        avg_session_duration_ms: kpi.7,
+        total_tool_calls: kpi.8,
+        total_compactions: 0,
+        total_compaction_tokens_saved: 0,
+        total_cache_read_tokens: kpi.9,
+        total_cache_write_tokens: kpi.10,
         cache_savings_usd: cache_savings,
         tokens_over_time: tokens_time
             .into_iter()
@@ -490,19 +509,19 @@ pub async fn get_tokens(
     let org_id = q.effective_org_id(&auth);
 
     let time_series = sqlx::query_as::<_, (String, i64, i64)>(
-        "SELECT TO_CHAR(c.created_at::date, 'YYYY-MM-DD'),
+        "SELECT TO_CHAR(s.created_at::date, 'YYYY-MM-DD'),
                 COALESCE(CAST(SUM(s.input_tokens) AS BIGINT), 0),
                 COALESCE(CAST(SUM(s.output_tokens) AS BIGINT), 0)
-         FROM commits c
-         JOIN repos r ON c.repo_id = r.id
-         LEFT JOIN sessions s ON s.commit_id = c.id
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
            AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
-         GROUP BY c.created_at::date
-         ORDER BY c.created_at::date",
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)
+         GROUP BY s.created_at::date
+         ORDER BY s.created_at::date",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -519,13 +538,13 @@ pub async fn get_tokens(
                 COALESCE(CAST(SUM(s.input_tokens) AS BIGINT), 0),
                 COALESCE(CAST(SUM(s.output_tokens) AS BIGINT), 0),
                 COUNT(s.id)
-         FROM commits c
-         JOIN repos r ON c.repo_id = r.id
-         LEFT JOIN sessions s ON s.commit_id = c.id
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
-           AND ($2::TEXT IS NULL OR c.author = $2)
-           AND ($3::TIMESTAMPTZ IS NULL OR c.created_at >= $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
+           AND ($2::TEXT IS NULL OR u.email = $2)
+           AND ($3::TIMESTAMPTZ IS NULL OR s.created_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at <= $4)
          GROUP BY r.name
          ORDER BY 2 DESC",
     )
@@ -538,15 +557,15 @@ pub async fn get_tokens(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let by_author = sqlx::query_as::<_, (String, i64)>(
-        "SELECT c.author, COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0)
-         FROM commits c
-         JOIN repos r ON c.repo_id = r.id
-         LEFT JOIN sessions s ON s.commit_id = c.id
+        "SELECT u.email, COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0)
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
            AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TIMESTAMPTZ IS NULL OR c.created_at >= $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
-         GROUP BY c.author
+           AND ($3::TIMESTAMPTZ IS NULL OR s.created_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at <= $4)
+         GROUP BY u.email
          ORDER BY 2 DESC",
     )
     .bind(org_id)
@@ -561,14 +580,14 @@ pub async fn get_tokens(
     let cache_totals = sqlx::query_as::<_, (i64, i64)>(
         "SELECT COALESCE(CAST(SUM(s.cache_read_tokens) AS BIGINT), 0),
                 COALESCE(CAST(SUM(s.cache_write_tokens) AS BIGINT), 0)
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
            AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)",
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -665,31 +684,25 @@ pub async fn get_models(
 ) -> Result<Json<ModelsResponse>, (StatusCode, String)> {
     let org_id = q.effective_org_id(&auth);
 
-    // Common CTE for model_usage JSONB with fallback to s.model
+    // Common CTE using s.model directly (model_usage JSONB not available in v2)
     let model_cte = "WITH model_data AS (
-           SELECT c.id as commit_id, c.author, c.created_at, r.name as repo_name,
-                  COALESCE(mu.model, s.model, 'unknown') as model,
-                  COALESCE((mu.elem->>'input_tokens')::BIGINT, s.input_tokens, 0)
-                    + COALESCE((mu.elem->>'output_tokens')::BIGINT, s.output_tokens, 0) as tokens,
-                  COALESCE((mu.elem->>'input_tokens')::BIGINT, s.input_tokens, 0) as input_tokens,
-                  COALESCE((mu.elem->>'output_tokens')::BIGINT, s.output_tokens, 0) as output_tokens,
-                  COALESCE((mu.elem->>'requests')::BIGINT, 1) as requests,
+           SELECT u.email as author, s.created_at, r.name as repo_name,
+                  COALESCE(s.model, 'unknown') as model,
+                  COALESCE(s.input_tokens, 0) + COALESCE(s.output_tokens, 0) as tokens,
+                  s.input_tokens,
+                  s.output_tokens,
                   s.estimated_cost_usd,
-                  COALESCE((mu.elem->>'cache_read_tokens')::BIGINT, s.cache_read_tokens, 0) as cache_read_tokens,
-                  COALESCE((mu.elem->>'cache_creation_tokens')::BIGINT, s.cache_write_tokens, 0) as cache_write_tokens,
+                  COALESCE(s.cache_read_tokens, 0) as cache_read_tokens,
+                  COALESCE(s.cache_write_tokens, 0) as cache_write_tokens,
                   s.duration_ms
-           FROM sessions s
-           JOIN commits c ON s.commit_id = c.id
-           JOIN repos r ON c.repo_id = r.id
-           LEFT JOIN LATERAL (
-             SELECT elem->>'model' as model, elem
-             FROM jsonb_array_elements(s.model_usage) as elem
-           ) mu ON s.model_usage IS NOT NULL
+           FROM sessions_v2 s
+           JOIN repos r ON s.repo_id = r.id
+           LEFT JOIN users u ON s.user_id = u.id
            WHERE r.org_id = $1
              AND ($2::TEXT IS NULL OR r.name = $2)
-             AND ($3::TEXT IS NULL OR c.author = $3)
-             AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-             AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
+             AND ($3::TEXT IS NULL OR u.email = $3)
+             AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+             AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)
          )";
 
     let distribution = sqlx::query_as::<_, (String, i64, i64)>(
@@ -707,7 +720,7 @@ pub async fn get_models(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let author_model_matrix = sqlx::query_as::<_, (String, String, i64, i64)>(
-        &format!("{model_cte} SELECT author, model, COUNT(*), COALESCE(CAST(SUM(tokens) AS BIGINT), 0) FROM model_data GROUP BY author, model ORDER BY author, 3 DESC")
+        &format!("{model_cte} SELECT author, model, COUNT(*), COALESCE(CAST(SUM(tokens) AS BIGINT), 0) FROM model_data WHERE author IS NOT NULL GROUP BY author, model ORDER BY author, 3 DESC")
     )
     .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
     .fetch_all(&state.pool).await
@@ -804,32 +817,47 @@ pub async fn get_authors(
 ) -> Result<Json<AuthorsResponse>, (StatusCode, String)> {
     let org_id = q.effective_org_id(&auth);
 
-    let leaderboard = sqlx::query_as::<_, (String, i64, i64, i64, f64, Option<f64>, chrono::DateTime<chrono::Utc>, Option<i64>, i64, i64)>(
-        "SELECT c.author,
-                COUNT(DISTINCT c.id),
+    // Author leaderboard from sessions_v2 via users
+    let leaderboard = sqlx::query_as::<
+        _,
+        (
+            String,
+            i64,
+            i64,
+            f64,
+            Option<f64>,
+            chrono::DateTime<chrono::Utc>,
+            Option<i64>,
+            i64,
+        ),
+    >(
+        "SELECT u.email,
                 COUNT(s.id),
                 COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0),
                 COALESCE(SUM(s.estimated_cost_usd), 0.0),
-                AVG(CASE WHEN c.attribution IS NOT NULL AND c.attribution->'summary'->>'ai_percentage' IS NOT NULL
-                    THEN (c.attribution->'summary'->>'ai_percentage')::float END),
-                MAX(c.created_at),
+                NULL::float8,
+                MAX(s.created_at),
                 CAST(AVG(s.duration_ms) AS BIGINT),
-                COALESCE(CAST(SUM(s.total_tool_calls) AS BIGINT), 0),
-                COALESCE(CAST(SUM(s.compactions) AS BIGINT), 0)
-         FROM commits c
-         JOIN repos r ON c.repo_id = r.id
-         LEFT JOIN sessions s ON s.commit_id = c.id
+                COALESCE(CAST(SUM(s.total_tool_calls) AS BIGINT), 0)
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
            AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TIMESTAMPTZ IS NULL OR c.created_at >= $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
-         GROUP BY c.author
-         ORDER BY 4 DESC"
+           AND ($3::TIMESTAMPTZ IS NULL OR s.created_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at <= $4)
+         GROUP BY u.email
+         ORDER BY 3 DESC",
     )
-    .bind(org_id).bind(&q.repo).bind(q.from).bind(q.to)
-    .fetch_all(&state.pool).await
+    .bind(org_id)
+    .bind(&q.repo)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    // Author timeline stays on commits table (counting commits per author per day)
     let timeline = sqlx::query_as::<_, (String, String, i64)>(
         "SELECT TO_CHAR(c.created_at::date, 'YYYY-MM-DD'), c.author, COUNT(DISTINCT c.id)
          FROM commits c
@@ -851,27 +879,19 @@ pub async fn get_authors(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    // Model preferences from sessions_v2 (no model_usage JSONB in v2)
     let model_preferences = sqlx::query_as::<_, (String, String, i64)>(
-        "WITH model_data AS (
-           SELECT c.author,
-                  COALESCE(mu.model, s.model, 'unknown') as model
-           FROM sessions s
-           JOIN commits c ON s.commit_id = c.id
-           JOIN repos r ON c.repo_id = r.id
-           LEFT JOIN LATERAL (
-             SELECT elem->>'model' as model
-             FROM jsonb_array_elements(s.model_usage) as elem
-           ) mu ON s.model_usage IS NOT NULL
-           WHERE r.org_id = $1
-             AND ($2::TEXT IS NULL OR r.name = $2)
-             AND ($3::TEXT IS NULL OR c.author = $3)
-             AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-             AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
-         )
-         SELECT author, model, COUNT(*)
-         FROM model_data
-         GROUP BY author, model
-         ORDER BY author, 3 DESC",
+        "SELECT u.email, COALESCE(s.model, 'unknown'), COUNT(*)
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         JOIN users u ON s.user_id = u.id
+         WHERE r.org_id = $1
+           AND ($2::TEXT IS NULL OR r.name = $2)
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)
+         GROUP BY u.email, s.model
+         ORDER BY u.email, 3 DESC",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -885,20 +905,18 @@ pub async fn get_authors(
     Ok(Json(AuthorsResponse {
         leaderboard: leaderboard
             .into_iter()
-            .map(
-                |(a, c, s, t, cost, ai, la, dur, tc, comp)| AuthorLeaderboard {
-                    author: a,
-                    commits: c,
-                    sessions: s,
-                    tokens: t,
-                    cost,
-                    ai_pct: ai,
-                    last_active: la,
-                    avg_duration_ms: dur,
-                    total_tool_calls: tc,
-                    total_compactions: comp,
-                },
-            )
+            .map(|(a, s, t, cost, ai, la, dur, tc)| AuthorLeaderboard {
+                author: a,
+                commits: 0, // commits are decoupled from sessions in v2
+                sessions: s,
+                tokens: t,
+                cost,
+                ai_pct: ai,
+                last_active: la,
+                avg_duration_ms: dur,
+                total_tool_calls: tc,
+                total_compactions: 0, // not tracked in v2
+            })
             .collect(),
         timeline: timeline
             .into_iter()
@@ -957,6 +975,7 @@ pub struct AttributionTotals {
     pub ai_pct: f64,
 }
 
+// Attribution stays on the commits table (attribution JSONB is only on old commits)
 pub async fn get_attribution(
     State(state): State<AppState>,
     auth: OrgAuth,
@@ -1002,7 +1021,7 @@ pub async fn get_attribution(
                AND ($2::TEXT IS NULL OR c.author = $2)
                AND ($3::TIMESTAMPTZ IS NULL OR c.created_at >= $3)
                AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
-             GROUP BY r.name
+             Group BY r.name
              ORDER BY 2 DESC"
         )
     )
@@ -1119,12 +1138,9 @@ pub struct SessionItem {
     pub ended_at: Option<chrono::DateTime<chrono::Utc>>,
     pub user_messages: Option<i32>,
     pub assistant_messages: Option<i32>,
-    pub tool_calls: Option<serde_json::Value>,
     pub total_tool_calls: Option<i32>,
     pub total_tokens: Option<i64>,
     pub estimated_cost_usd: Option<f64>,
-    pub compactions: Option<i32>,
-    pub commit_sha: String,
     pub author: String,
     pub repo_name: String,
 }
@@ -1150,28 +1166,25 @@ pub async fn get_sessions(
             Option<chrono::DateTime<chrono::Utc>>,
             Option<i32>,
             Option<i32>,
-            Option<serde_json::Value>,
             Option<i32>,
             Option<i64>,
             Option<f64>,
-            Option<i32>,
-            String,
             String,
             String,
         ),
     >(
         "SELECT s.id, s.session_id, s.model, s.duration_ms, s.started_at, s.ended_at,
-                s.user_messages, s.assistant_messages, s.tool_calls, s.total_tool_calls,
-                s.total_tokens, s.estimated_cost_usd, s.compactions,
-                c.commit_sha, c.author, r.name
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
+                s.user_messages, s.assistant_messages, s.total_tool_calls,
+                s.total_tokens, s.estimated_cost_usd,
+                u.email, r.name
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
            AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)
          ORDER BY s.created_at DESC
          LIMIT $6 OFFSET $7",
     )
@@ -1191,14 +1204,14 @@ pub async fn get_sessions(
         "SELECT COUNT(s.id),
                 CAST(AVG(s.duration_ms) AS BIGINT),
                 AVG(COALESCE(s.user_messages, 0) + COALESCE(s.assistant_messages, 0))::float8
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
            AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)",
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -1209,35 +1222,8 @@ pub async fn get_sessions(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Tool frequency aggregation from tool_calls JSONB
-    let tool_freq = sqlx::query_as::<_, (String, i64)>(
-        "SELECT key, CAST(SUM(value::int) AS BIGINT)
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id,
-         jsonb_each_text(s.tool_calls)
-         WHERE r.org_id = $1
-           AND s.tool_calls IS NOT NULL
-           AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
-         GROUP BY key
-         ORDER BY 2 DESC",
-    )
-    .bind(org_id)
-    .bind(&q.repo)
-    .bind(&q.author)
-    .bind(q.from)
-    .bind(q.to)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let tool_frequency: serde_json::Value =
-        serde_json::json!(tool_freq
-            .into_iter()
-            .collect::<std::collections::HashMap<String, i64>>());
+    // Tool frequency: tool_calls JSONB not available in v2, return empty
+    let tool_frequency = serde_json::json!({});
 
     Ok(Json(SessionsResponse {
         sessions: sessions
@@ -1251,14 +1237,11 @@ pub async fn get_sessions(
                 ended_at: s.5,
                 user_messages: s.6,
                 assistant_messages: s.7,
-                tool_calls: s.8,
-                total_tool_calls: s.9,
-                total_tokens: s.10,
-                estimated_cost_usd: s.11,
-                compactions: s.12,
-                commit_sha: s.13,
-                author: s.14,
-                repo_name: s.15,
+                total_tool_calls: s.8,
+                total_tokens: s.9,
+                estimated_cost_usd: s.10,
+                author: s.11,
+                repo_name: s.12,
             })
             .collect(),
         tool_frequency,
@@ -1319,14 +1302,14 @@ pub async fn get_cost(
         "SELECT COALESCE(SUM(s.estimated_cost_usd), 0.0),
                 COALESCE(AVG(s.estimated_cost_usd), 0.0),
                 COALESCE(CAST(SUM(s.cache_read_tokens) AS BIGINT), 0)
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
            AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)",
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)",
     )
     .bind(org_id)
     .bind(&q.repo)
@@ -1345,17 +1328,17 @@ pub async fn get_cost(
 
     // Cost over time (daily)
     let cost_time = sqlx::query_as::<_, (String, f64)>(
-        "SELECT TO_CHAR(c.created_at::date, 'YYYY-MM-DD'),
+        "SELECT TO_CHAR(s.created_at::date, 'YYYY-MM-DD'),
                 COALESCE(SUM(s.estimated_cost_usd), 0.0)
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
            AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TEXT IS NULL OR c.author = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
-         GROUP BY c.created_at::date
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)
+         GROUP BY s.created_at::date
          ORDER BY 1",
     )
     .bind(org_id)
@@ -1367,32 +1350,21 @@ pub async fn get_cost(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Cost by model (from model_usage JSONB with fallback)
+    // Cost by model (using s.model directly, no model_usage JSONB in v2)
     let cost_model = sqlx::query_as::<_, (String, f64, i64, i64)>(
-        "WITH model_data AS (
-           SELECT COALESCE(mu.model, s.model, 'unknown') as model,
-                  s.estimated_cost_usd,
-                  COALESCE((mu.elem->>'input_tokens')::BIGINT, s.input_tokens, 0)
-                    + COALESCE((mu.elem->>'output_tokens')::BIGINT, s.output_tokens, 0) as tokens
-           FROM sessions s
-           JOIN commits c ON s.commit_id = c.id
-           JOIN repos r ON c.repo_id = r.id
-           LEFT JOIN LATERAL (
-             SELECT elem->>'model' as model, elem
-             FROM jsonb_array_elements(s.model_usage) as elem
-           ) mu ON s.model_usage IS NOT NULL
-           WHERE r.org_id = $1
-             AND ($2::TEXT IS NULL OR r.name = $2)
-             AND ($3::TEXT IS NULL OR c.author = $3)
-             AND ($4::TIMESTAMPTZ IS NULL OR c.created_at >= $4)
-             AND ($5::TIMESTAMPTZ IS NULL OR c.created_at <= $5)
-         )
-         SELECT model,
-                COALESCE(SUM(estimated_cost_usd), 0.0),
-                COALESCE(CAST(SUM(tokens) AS BIGINT), 0),
+        "SELECT COALESCE(s.model, 'unknown'),
+                COALESCE(SUM(s.estimated_cost_usd), 0.0),
+                COALESCE(CAST(SUM(COALESCE(s.input_tokens, 0) + COALESCE(s.output_tokens, 0)) AS BIGINT), 0),
                 COUNT(*)
-         FROM model_data
-         GROUP BY model
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON s.user_id = u.id
+         WHERE r.org_id = $1
+           AND ($2::TEXT IS NULL OR r.name = $2)
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)
+         GROUP BY s.model
          ORDER BY 2 DESC",
     )
     .bind(org_id)
@@ -1407,13 +1379,13 @@ pub async fn get_cost(
     // Cost by repo
     let cost_repo = sqlx::query_as::<_, (String, f64)>(
         "SELECT r.name, COALESCE(SUM(s.estimated_cost_usd), 0.0)
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
-           AND ($2::TEXT IS NULL OR c.author = $2)
-           AND ($3::TIMESTAMPTZ IS NULL OR c.created_at >= $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
+           AND ($2::TEXT IS NULL OR u.email = $2)
+           AND ($3::TIMESTAMPTZ IS NULL OR s.created_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at <= $4)
          GROUP BY r.name
          ORDER BY 2 DESC",
     )
@@ -1427,15 +1399,15 @@ pub async fn get_cost(
 
     // Cost by author
     let cost_author = sqlx::query_as::<_, (String, f64)>(
-        "SELECT c.author, COALESCE(SUM(s.estimated_cost_usd), 0.0)
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
+        "SELECT u.email, COALESCE(SUM(s.estimated_cost_usd), 0.0)
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
            AND ($2::TEXT IS NULL OR r.name = $2)
-           AND ($3::TIMESTAMPTZ IS NULL OR c.created_at >= $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR c.created_at <= $4)
-         GROUP BY c.author
+           AND ($3::TIMESTAMPTZ IS NULL OR s.created_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at <= $4)
+         GROUP BY u.email
          ORDER BY 2 DESC",
     )
     .bind(org_id)

@@ -29,6 +29,8 @@ impl SigningService {
     }
 
     /// SHA-256 hash of canonical JSON bytes, returned as hex string.
+    /// Used by session/commit sealing (v2 streaming architecture — deferred).
+    #[allow(dead_code)]
     pub fn record_hash(&self, canonical_json: &[u8]) -> String {
         let mut hasher = Sha256::new();
         hasher.update(canonical_json);
@@ -46,6 +48,8 @@ impl SigningService {
     }
 
     /// Sign a record hash, returning base64-encoded signature.
+    /// Used by session/commit sealing (v2 streaming architecture — deferred).
+    #[allow(dead_code)]
     pub fn sign(&self, record_hash: &str) -> String {
         let sig = self.signing_key.sign(record_hash.as_bytes());
         BASE64.encode(sig.to_bytes())

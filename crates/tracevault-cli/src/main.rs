@@ -22,6 +22,11 @@ enum Cli {
         #[arg(long)]
         event: String,
     },
+    /// Stream hook events to server in real-time
+    Stream {
+        #[arg(long)]
+        event: String,
+    },
     /// Check session policies before pushing
     Check,
     /// Push collected traces to the TraceVault server
@@ -38,6 +43,10 @@ enum Cli {
     },
     /// Log out from the TraceVault server
     Logout,
+    /// Push commit metadata to server (called from post-commit hook)
+    CommitPush,
+    /// Force-sync all pending events to server
+    Flush,
     /// Verify commits are registered and sealed on the TraceVault server
     Verify {
         /// Comma-separated list of commit SHAs
@@ -69,6 +78,12 @@ async fn main() {
             let cwd = env::current_dir().expect("Cannot determine current directory");
             if let Err(e) = commands::hook::handle_hook_from_stdin(&cwd) {
                 eprintln!("Hook error: {e}");
+            }
+        }
+        Cli::Stream { event } => {
+            let cwd = env::current_dir().expect("Cannot determine current directory");
+            if let Err(e) = commands::stream::run_stream(&cwd, &event).await {
+                eprintln!("Stream error: {e}");
             }
         }
         Cli::Check => {
@@ -105,6 +120,18 @@ async fn main() {
         Cli::Logout => {
             if let Err(e) = commands::logout::logout().await {
                 eprintln!("Logout error: {e}");
+            }
+        }
+        Cli::CommitPush => {
+            let cwd = env::current_dir().expect("Cannot determine current directory");
+            if let Err(e) = commands::commit_push::run_commit_push(&cwd).await {
+                eprintln!("Commit push error: {e}");
+            }
+        }
+        Cli::Flush => {
+            let cwd = env::current_dir().expect("Cannot determine current directory");
+            if let Err(e) = commands::flush::run_flush(&cwd).await {
+                eprintln!("Flush error: {e}");
             }
         }
         Cli::Verify { commits, range } => {

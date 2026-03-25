@@ -291,6 +291,50 @@ impl ApiClient {
         Ok(resp.json().await?)
     }
 
+    pub async fn push_commit(
+        &self,
+        org_slug: &str,
+        repo_id: &str,
+        req: &tracevault_core::streaming::CommitPushRequest,
+    ) -> Result<tracevault_core::streaming::CommitPushResponse, Box<dyn Error>> {
+        let mut builder = self.client.post(format!(
+            "{}/api/v1/orgs/{}/repos/{}/commits",
+            self.base_url, org_slug, repo_id
+        ));
+        if let Some(key) = &self.api_key {
+            builder = builder.header("Authorization", format!("Bearer {key}"));
+        }
+        let resp = builder.json(req).send().await?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Commit push failed ({status}): {body}").into());
+        }
+        Ok(resp.json().await?)
+    }
+
+    pub async fn stream_event(
+        &self,
+        org_slug: &str,
+        repo_id: &str,
+        req: &tracevault_core::streaming::StreamEventRequest,
+    ) -> Result<tracevault_core::streaming::StreamEventResponse, Box<dyn Error>> {
+        let mut builder = self.client.post(format!(
+            "{}/api/v1/orgs/{}/repos/{}/stream",
+            self.base_url, org_slug, repo_id
+        ));
+        if let Some(key) = &self.api_key {
+            builder = builder.header("Authorization", format!("Bearer {key}"));
+        }
+        let resp = builder.json(req).send().await?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Stream failed ({status}): {body}").into());
+        }
+        Ok(resp.json().await?)
+    }
+
     pub async fn check_policies(
         &self,
         org_slug: &str,

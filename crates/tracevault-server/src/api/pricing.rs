@@ -83,9 +83,8 @@ pub async fn list_models(
 ) -> Result<Json<Vec<String>>, (StatusCode, String)> {
     let models = sqlx::query_scalar::<_, String>(
         "SELECT DISTINCT model FROM (
-            SELECT DISTINCT model FROM sessions s
-            JOIN commits c ON s.commit_id = c.id
-            JOIN repos r ON c.repo_id = r.id
+            SELECT DISTINCT model FROM sessions_v2 s
+            JOIN repos r ON s.repo_id = r.id
             WHERE r.org_id = $1 AND s.model IS NOT NULL
             UNION
             SELECT DISTINCT model FROM model_pricing
@@ -302,9 +301,8 @@ pub async fn recalculate(
         "SELECT s.id, s.estimated_cost_usd,
                 COALESCE(s.input_tokens, 0), COALESCE(s.output_tokens, 0),
                 COALESCE(s.cache_read_tokens, 0), COALESCE(s.cache_write_tokens, 0)
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
          WHERE r.org_id = $1
            AND s.created_at >= $2
            AND ($3::timestamptz IS NULL OR s.created_at < $3)
@@ -345,10 +343,8 @@ pub async fn recalculate(
             *cache_write,
         );
 
-        // Preserve original cost on first recalculation
         sqlx::query(
-            "UPDATE sessions SET original_cost_usd = COALESCE(original_cost_usd, estimated_cost_usd),
-                                  estimated_cost_usd = $1
+            "UPDATE sessions_v2 SET estimated_cost_usd = $1
              WHERE id = $2",
         )
         .bind(new_cost)

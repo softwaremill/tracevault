@@ -82,6 +82,14 @@
 		{ href: `/orgs/${slug}/compliance/settings`, label: 'Settings' }
 	]);
 
+	const tracesSubItems = $derived([
+		{ href: `/orgs/${slug}/traces/sessions`, label: 'Sessions' },
+		{ href: `/orgs/${slug}/traces/commits`, label: 'Commits' },
+		{ href: `/orgs/${slug}/traces/timeline`, label: 'Timeline' },
+		{ href: `/orgs/${slug}/traces/attribution`, label: 'Attribution' },
+		{ href: `/orgs/${slug}/traces/branches`, label: 'Branches' }
+	]);
+
 	const settingsSubItems = $derived([
 		{ href: `/orgs/${slug}/settings`, label: 'Organizations' },
 		{ href: `/orgs/${slug}/settings/pricing`, label: 'Pricing' },
@@ -204,6 +212,20 @@
 					<item.icon class="h-5 w-5 shrink-0" />
 					<span>{item.label}</span>
 				</a>
+
+				{#if item.href === `/orgs/${slug}/traces` && active}
+					<div class="ml-8 space-y-0.5 mt-0.5">
+						{#each tracesSubItems as sub}
+							<a
+								href={sub.href}
+								class="block rounded-md px-3 py-1.5 text-xs font-medium transition-colors
+									{isExactActive(sub.href) ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'}"
+							>
+								{sub.label}
+							</a>
+						{/each}
+					</div>
+				{/if}
 
 				{#if item.href === `/orgs/${slug}/analytics` && active}
 					<div class="ml-8 space-y-0.5 mt-0.5">

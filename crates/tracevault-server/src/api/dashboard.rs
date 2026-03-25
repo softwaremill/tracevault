@@ -113,14 +113,14 @@ async fn query_kpi_totals(
             COALESCE(SUM(s.estimated_cost_usd), 0)::float8,
             COUNT(s.id),
             COALESCE(SUM(s.total_tokens), 0)::int8,
-            COUNT(DISTINCT c.author),
+            COUNT(DISTINCT u.email),
             COALESCE(AVG(s.duration_ms), 0)::int8,
             COALESCE(AVG(s.total_tool_calls), 0)::float8,
-            COALESCE(AVG(s.compactions), 0)::float8,
+            0::float8,
             COALESCE(SUM(s.cache_read_tokens), 0)::int8
-        FROM sessions s
-        JOIN commits c ON c.id = s.commit_id
-        JOIN repos r ON r.id = c.repo_id
+        FROM sessions_v2 s
+        JOIN repos r ON r.id = s.repo_id
+        JOIN users u ON u.id = s.user_id
         WHERE r.org_id = $1
           AND s.started_at >= $2
           AND s.started_at < $3",
@@ -164,10 +164,10 @@ async fn query_sparklines(
             COALESCE(SUM(s.estimated_cost_usd), 0)::float8,
             COUNT(s.id),
             COALESCE(SUM(s.total_tokens), 0)::int8,
-            COUNT(DISTINCT c.author)
-        FROM sessions s
-        JOIN commits c ON c.id = s.commit_id
-        JOIN repos r ON r.id = c.repo_id
+            COUNT(DISTINCT u.email)
+        FROM sessions_v2 s
+        JOIN repos r ON r.id = s.repo_id
+        JOIN users u ON u.id = s.user_id
         WHERE r.org_id = $1
           AND s.started_at >= $2
           AND s.started_at < $3
@@ -209,9 +209,8 @@ async fn query_compliance(
         "SELECT
             COUNT(*) FILTER (WHERE s.sealed_at IS NOT NULL),
             COUNT(*) FILTER (WHERE s.sealed_at IS NOT NULL AND s.signature IS NULL)
-        FROM sessions s
-        JOIN commits c ON c.id = s.commit_id
-        JOIN repos r ON r.id = c.repo_id
+        FROM sessions_v2 s
+        JOIN repos r ON r.id = s.repo_id
         WHERE r.org_id = $1
           AND s.started_at >= $2
           AND s.started_at < $3",

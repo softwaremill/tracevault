@@ -419,12 +419,9 @@ struct SessionRow {
     cache_read_tokens: Option<i64>,
     cache_write_tokens: Option<i64>,
     estimated_cost_usd: Option<f64>,
-    api_calls: Option<i32>,
     user_messages: Option<i32>,
     assistant_messages: Option<i32>,
     total_tool_calls: Option<i32>,
-    compactions: Option<i32>,
-    transcript: Option<serde_json::Value>,
 }
 
 pub async fn get_session_detail(
@@ -438,12 +435,11 @@ pub async fn get_session_detail(
         "SELECT s.session_id, s.model, s.started_at, s.ended_at, s.duration_ms,
                 s.total_tokens, s.input_tokens, s.output_tokens,
                 s.cache_read_tokens, s.cache_write_tokens,
-                s.estimated_cost_usd, s.api_calls,
+                s.estimated_cost_usd,
                 s.user_messages, s.assistant_messages,
-                s.total_tool_calls, s.compactions, s.transcript
-         FROM sessions s
-         JOIN commits c ON s.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
+                s.total_tool_calls
+         FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
          WHERE s.id = $1 AND r.org_id = $2",
     )
     .bind(session_uuid)
@@ -460,10 +456,24 @@ pub async fn get_session_detail(
     )
     .await;
 
-    let empty = serde_json::Value::Array(vec![]);
-    let transcript_ref = row.transcript.as_ref().unwrap_or(&empty);
+    // Reassemble transcript from transcript_chunks
+    let chunks: Vec<(serde_json::Value,)> = sqlx::query_as(
+        "SELECT data FROM transcript_chunks
+         WHERE session_id = $1
+         ORDER BY chunk_index ASC",
+    )
+    .bind(session_uuid)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let transcript_array: Vec<serde_json::Value> = chunks.into_iter().map(|(d,)| d).collect();
+    let transcript_val = serde_json::Value::Array(transcript_array);
     let (per_call, transcript_records, token_distribution, cost_breakdown, cache_savings) =
-        parse_transcript(transcript_ref, &pricing);
+        parse_transcript(&transcript_val, &pricing);
+
+    // Count API calls from per_call data since api_calls column doesn't exist on sessions_v2
+    let api_calls = per_call.len() as i32;
 
     Ok(Json(SessionDetailResponse {
         session_id: row.session_id,
@@ -477,11 +487,11 @@ pub async fn get_session_detail(
         cache_read_tokens: row.cache_read_tokens.unwrap_or(0),
         cache_write_tokens: row.cache_write_tokens.unwrap_or(0),
         estimated_cost_usd: row.estimated_cost_usd.unwrap_or(0.0),
-        api_calls: row.api_calls.unwrap_or(0),
+        api_calls,
         user_messages: row.user_messages.unwrap_or(0),
         assistant_messages: row.assistant_messages.unwrap_or(0),
         total_tool_calls: row.total_tool_calls.unwrap_or(0),
-        compactions: row.compactions.unwrap_or(0),
+        compactions: 0,
         cache_savings,
         per_call,
         cost_breakdown,

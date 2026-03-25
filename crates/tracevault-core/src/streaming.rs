@@ -1,0 +1,111 @@
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamEventType {
+    ToolUse,
+    Transcript,
+    SessionStart,
+    SessionEnd,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamEventRequest {
+    pub protocol_version: u32,
+    pub event_type: StreamEventType,
+    pub session_id: String,
+    pub timestamp: DateTime<Utc>,
+    pub hook_event_name: Option<String>,
+    pub tool_name: Option<String>,
+    pub tool_input: Option<serde_json::Value>,
+    pub tool_response: Option<serde_json::Value>,
+    pub event_index: Option<i32>,
+    pub transcript_lines: Option<Vec<serde_json::Value>>,
+    pub transcript_offset: Option<i64>,
+    pub model: Option<String>,
+    pub cwd: Option<String>,
+    pub final_stats: Option<SessionFinalStats>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionFinalStats {
+    pub duration_ms: Option<i64>,
+    pub total_tokens: Option<i64>,
+    pub input_tokens: Option<i64>,
+    pub output_tokens: Option<i64>,
+    pub cache_read_tokens: Option<i64>,
+    pub cache_write_tokens: Option<i64>,
+    pub user_messages: Option<i32>,
+    pub assistant_messages: Option<i32>,
+    pub total_tool_calls: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamEventResponse {
+    pub session_db_id: uuid::Uuid,
+    pub event_db_id: Option<uuid::Uuid>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommitPushRequest {
+    pub commit_sha: String,
+    pub branch: Option<String>,
+    pub author: String,
+    pub diff_data: Option<serde_json::Value>,
+    pub committed_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommitPushResponse {
+    pub commit_db_id: uuid::Uuid,
+    pub attributions_count: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExtractedFileChange {
+    pub file_path: String,
+    pub change_type: String,
+    pub diff_text: Option<String>,
+    pub content_hash: Option<String>,
+}
+
+pub fn is_file_modifying_tool(tool_name: &str) -> bool {
+    matches!(tool_name, "Write" | "Edit" | "Bash")
+}
+
+pub fn extract_file_change(
+    tool_name: &str,
+    tool_input: &serde_json::Value,
+) -> Option<ExtractedFileChange> {
+    match tool_name {
+        "Write" => {
+            let file_path = tool_input.get("file_path")?.as_str()?.to_string();
+            let content = tool_input.get("content")?.as_str()?;
+            let mut hasher = Sha256::new();
+            hasher.update(content.as_bytes());
+            let hash = format!("{:x}", hasher.finalize());
+            Some(ExtractedFileChange {
+                file_path,
+                change_type: "create".to_string(),
+                diff_text: None,
+                content_hash: Some(hash),
+            })
+        }
+        "Edit" => {
+            let file_path = tool_input.get("file_path")?.as_str()?.to_string();
+            let old_string = tool_input.get("old_string")?.as_str()?;
+            let new_string = tool_input.get("new_string")?.as_str()?;
+            let diff = format!("--- {old_string}\n+++ {new_string}");
+            Some(ExtractedFileChange {
+                file_path,
+                change_type: "edit".to_string(),
+                diff_text: Some(diff),
+                content_hash: None,
+            })
+        }
+        _ => None,
+    }
+}
