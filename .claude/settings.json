@@ -1,29 +1,55 @@
 {
   "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "command": "tracevault stream --event notification",
+            "statusMessage": "TraceVault: streaming notification",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
     "PostToolUse": [
       {
         "hooks": [
           {
-            "command": "tracevault hook --event post-tool-use",
-            "statusMessage": "TraceVault: recording change",
-            "timeout": 5,
+            "command": "tracevault stream --event post-tool-use",
+            "statusMessage": "TraceVault: streaming post-tool event",
+            "timeout": 10,
             "type": "command"
           }
         ],
-        "matcher": "Write|Edit|Bash"
+        "matcher": ""
       }
     ],
     "PreToolUse": [
       {
         "hooks": [
           {
-            "command": "tracevault hook --event pre-tool-use",
-            "statusMessage": "TraceVault: capturing pre-edit state",
-            "timeout": 5,
+            "command": "tracevault stream --event pre-tool-use",
+            "statusMessage": "TraceVault: streaming pre-tool event",
+            "timeout": 10,
             "type": "command"
           }
         ],
-        "matcher": "Write|Edit"
+        "matcher": "Write|Edit|Bash"
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "tracevault stream --event stop",
+            "statusMessage": "TraceVault: finalizing session",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": ""
       }
     ]
   }
