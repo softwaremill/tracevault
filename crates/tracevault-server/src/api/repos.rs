@@ -51,7 +51,7 @@ pub async fn register_repo(
 }
 
 /// Decrypt the deploy key for a repo if it exists and encryption is configured.
-async fn get_deploy_key(
+pub async fn get_deploy_key(
     pool: &sqlx::PgPool,
     repo_id: Uuid,
     encryption: &dyn crate::extensions::EncryptionProvider,

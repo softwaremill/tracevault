@@ -174,19 +174,77 @@
 		}
 	}
 
+	let syncing = $state(false);
+	let syncMessage = $state('');
+	let needsSync = $state(false);
+	let needsSetup = $state(false);
+
 	// Fetch attribution data
 	async function fetchAttribution(commitId: string, filePath: string) {
 		attributionLoading = true;
 		attributionError = '';
 		attribution = null;
+		needsSync = false;
+		needsSetup = false;
 		try {
 			attribution = await api.get<AttributionResponse>(
 				`/api/v1/orgs/${slug}/traces/attribution/${commitId}/${encodeURIComponent(filePath)}`
 			);
 		} catch (err) {
-			attributionError = err instanceof Error ? err.message : 'Failed to load attribution';
+			const msg = err instanceof Error ? err.message : 'Failed to load attribution';
+			if (msg.includes('not cloned') || msg.includes('clone_path')) {
+				needsSync = true;
+				attributionError = '';
+			} else if (msg.includes('no github_url') || msg.includes('github_url')) {
+				needsSetup = true;
+				attributionError = '';
+			} else {
+				attributionError = msg;
+			}
 		} finally {
 			attributionLoading = false;
+		}
+	}
+
+	async function handleSync() {
+		// Find the repo_id for the selected commit
+		const commit = commits.find((c) => c.id === selectedCommitId);
+		if (!commit) return;
+
+		syncing = true;
+		syncMessage = '';
+		try {
+			// Get the commit detail to find repo_id
+			const detail = await api.get<CommitDetail & { commit: Commit & { repo_id?: string } }>(
+				`/api/v1/orgs/${slug}/traces/commits/${selectedCommitId}`
+			);
+			// We need to find the repo - use the repos list
+			const repos = await api.get<{ id: string; name: string }[]>(`/api/v1/orgs/${slug}/repos`);
+			if (repos.length === 0) {
+				syncMessage = 'No repos found.';
+				return;
+			}
+			// Try syncing all repos (usually just one)
+			for (const repo of repos) {
+				try {
+					const result = await api.post<{ status: string }>(`/api/v1/orgs/${slug}/repos/${repo.id}/sync`);
+					if (result.status === 'cloning') {
+						syncMessage = `Cloning ${repo.name}... This may take a moment. Refresh in a few seconds.`;
+					} else {
+						syncMessage = `Synced ${repo.name}.`;
+					}
+				} catch (err) {
+					syncMessage = err instanceof Error ? err.message : 'Sync failed';
+				}
+			}
+			// Retry attribution after sync
+			if (selectedCommitId && selectedFilePath) {
+				await fetchAttribution(selectedCommitId, selectedFilePath);
+			}
+		} catch (err) {
+			syncMessage = err instanceof Error ? err.message : 'Failed to sync';
+		} finally {
+			syncing = false;
 		}
 	}
 
@@ -296,8 +354,46 @@
 			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
 			Loading attribution...
 		</div>
+	{:else if needsSetup}
+		<div class="border-border rounded-lg border p-6 text-center">
+			<p class="text-sm font-medium">Repository not configured for code browsing</p>
+			<p class="text-muted-foreground mt-1 text-xs">Set up a GitHub URL and deploy key in repo settings to enable attribution.</p>
+			<a
+				href="/orgs/{slug}/repos"
+				class="mt-3 inline-flex rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+			>
+				Go to Repo Settings
+			</a>
+		</div>
+	{:else if needsSync}
+		<div class="border-border rounded-lg border p-6 text-center">
+			<p class="text-sm font-medium">Repository needs to be synced</p>
+			<p class="text-muted-foreground mt-1 text-xs">The repository hasn't been cloned yet. Sync it to enable code attribution.</p>
+			{#if syncMessage}
+				<p class="mt-2 text-xs text-muted-foreground">{syncMessage}</p>
+			{/if}
+			<button
+				onclick={handleSync}
+				disabled={syncing}
+				class="mt-3 inline-flex rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+			>
+				{syncing ? 'Syncing...' : 'Sync Repository'}
+			</button>
+		</div>
 	{:else if attributionError}
-		<p class="text-destructive">{attributionError}</p>
+		<div class="border-border rounded-lg border p-6 text-center">
+			<p class="text-destructive text-sm">{attributionError}</p>
+			<button
+				onclick={handleSync}
+				disabled={syncing}
+				class="mt-3 inline-flex rounded-md bg-muted px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted/80 disabled:opacity-50"
+			>
+				{syncing ? 'Syncing...' : 'Try Syncing Repository'}
+			</button>
+			{#if syncMessage}
+				<p class="mt-2 text-xs text-muted-foreground">{syncMessage}</p>
+			{/if}
+		</div>
 	{:else if attribution && attribution.lines.length > 0}
 		<!-- Code blame view -->
 		<div class="code-blame hljs overflow-x-auto rounded-lg font-mono text-sm">
