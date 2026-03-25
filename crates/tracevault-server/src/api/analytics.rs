@@ -1237,8 +1237,36 @@ pub async fn get_sessions(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Tool frequency: tool_calls JSONB not available in v2, return empty
-    let tool_frequency = serde_json::json!({});
+    // Tool frequency from events table
+    let tool_freq_rows = sqlx::query_as::<_, (String, i64)>(
+        "SELECT e.tool_name, COUNT(*) as cnt
+         FROM events e
+         JOIN sessions_v2 s ON e.session_id = s.id
+         JOIN repos r ON s.repo_id = r.id
+         JOIN users u ON s.user_id = u.id
+         WHERE r.org_id = $1
+           AND e.tool_name IS NOT NULL
+           AND ($2::TEXT IS NULL OR r.name = $2)
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)
+         GROUP BY e.tool_name
+         ORDER BY cnt DESC",
+    )
+    .bind(org_id)
+    .bind(&q.repo)
+    .bind(&q.author)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let tool_frequency: serde_json::Value = tool_freq_rows
+        .into_iter()
+        .map(|(name, count)| (name, serde_json::Value::from(count)))
+        .collect::<serde_json::Map<String, serde_json::Value>>()
+        .into();
 
     Ok(Json(SessionsResponse {
         sessions: sessions
