@@ -1173,8 +1173,16 @@ pub async fn get_sessions(
             String,
         ),
     >(
-        "SELECT s.id, s.session_id, s.model, s.duration_ms, s.started_at, s.ended_at,
-                s.user_messages, s.assistant_messages, s.total_tool_calls,
+        "SELECT s.id, s.session_id, s.model,
+                COALESCE(NULLIF(s.duration_ms, 0), EXTRACT(EPOCH FROM (COALESCE(s.ended_at, NOW()) - s.started_at))::BIGINT * 1000),
+                s.started_at, s.ended_at,
+                CASE WHEN COALESCE(s.user_messages, 0) = 0
+                     THEN (SELECT COUNT(*) FROM transcript_chunks tc WHERE tc.session_id = s.id AND tc.data->>'type' = 'human')::INT
+                     ELSE s.user_messages END,
+                CASE WHEN COALESCE(s.assistant_messages, 0) = 0
+                     THEN (SELECT COUNT(*) FROM transcript_chunks tc WHERE tc.session_id = s.id AND tc.data->>'type' = 'assistant')::INT
+                     ELSE s.assistant_messages END,
+                s.total_tool_calls,
                 s.total_tokens, s.estimated_cost_usd,
                 u.email, r.name
          FROM sessions_v2 s
@@ -1202,8 +1210,15 @@ pub async fn get_sessions(
     // Aggregates
     let agg = sqlx::query_as::<_, (i64, Option<i64>, Option<f64>)>(
         "SELECT COUNT(s.id),
-                CAST(AVG(s.duration_ms) AS BIGINT),
-                AVG(COALESCE(s.user_messages, 0) + COALESCE(s.assistant_messages, 0))::float8
+                CAST(AVG(COALESCE(NULLIF(s.duration_ms, 0), EXTRACT(EPOCH FROM (COALESCE(s.ended_at, NOW()) - s.started_at))::BIGINT * 1000)) AS BIGINT),
+                AVG(
+                    CASE WHEN COALESCE(s.user_messages, 0) = 0
+                         THEN (SELECT COUNT(*) FROM transcript_chunks tc WHERE tc.session_id = s.id AND tc.data->>'type' = 'human')::INT
+                         ELSE COALESCE(s.user_messages, 0) END
+                    + CASE WHEN COALESCE(s.assistant_messages, 0) = 0
+                           THEN (SELECT COUNT(*) FROM transcript_chunks tc WHERE tc.session_id = s.id AND tc.data->>'type' = 'assistant')::INT
+                           ELSE COALESCE(s.assistant_messages, 0) END
+                )::float8
          FROM sessions_v2 s
          JOIN repos r ON s.repo_id = r.id
          LEFT JOIN users u ON s.user_id = u.id
