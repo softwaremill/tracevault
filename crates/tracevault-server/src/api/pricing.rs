@@ -266,7 +266,6 @@ pub async fn recalculate(
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
 
-    // Load pricing entry
     let pricing = sqlx::query_as::<
         _,
         (
@@ -299,26 +298,6 @@ pub async fn recalculate(
         effective_until,
     ) = pricing;
 
-    // Find sessions in date range with matching model (ILIKE for canonical name matching)
-    let sessions = sqlx::query_as::<_, (Uuid, Option<f64>, i64, i64, i64, i64)>(
-        "SELECT s.id, s.estimated_cost_usd,
-                COALESCE(s.input_tokens, 0), COALESCE(s.output_tokens, 0),
-                COALESCE(s.cache_read_tokens, 0), COALESCE(s.cache_write_tokens, 0)
-         FROM sessions_v2 s
-         JOIN repos r ON s.repo_id = r.id
-         WHERE r.org_id = $1
-           AND s.created_at >= $2
-           AND ($3::timestamptz IS NULL OR s.created_at < $3)
-           AND LOWER(COALESCE(s.model, '')) LIKE '%' || $4 || '%'",
-    )
-    .bind(auth.org_id)
-    .bind(effective_from)
-    .bind(effective_until)
-    .bind(&canonical_model)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
     let pricing_data = crate::pricing::ModelPricing {
         input_per_m,
         output_per_m,
@@ -326,67 +305,21 @@ pub async fn recalculate(
         cache_read_per_m,
     };
 
-    let mut total_old: f64 = 0.0;
-    let mut total_new: f64 = 0.0;
-    let mut affected: i64 = 0;
-
-    let mut tx = state
-        .pool
-        .begin()
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    for (session_id, old_cost, input_tokens, output_tokens, cache_read, cache_write) in &sessions {
-        let old = old_cost.unwrap_or(0.0);
-        let new_cost = crate::pricing::estimate_cost_with_pricing(
-            &pricing_data,
-            *input_tokens,
-            *output_tokens,
-            *cache_read,
-            *cache_write,
-        );
-
-        sqlx::query(
-            "UPDATE sessions_v2 SET estimated_cost_usd = $1
-             WHERE id = $2",
-        )
-        .bind(new_cost)
-        .bind(session_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-        // Audit log entry
-        sqlx::query(
-            "INSERT INTO audit_log (org_id, actor_id, action, resource_type, resource_id, details)
-             VALUES ($1, $2, $3, $4, $5, $6)",
-        )
-        .bind(auth.org_id)
-        .bind(auth.user_id)
-        .bind("pricing_recalculate")
-        .bind("session")
-        .bind(*session_id)
-        .bind(serde_json::json!({
-            "pricing_id": pricing_id,
-            "old_cost": old,
-            "new_cost": new_cost,
-        }))
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-        total_old += old;
-        total_new += new_cost;
-        affected += 1;
-    }
-
-    tx.commit()
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let result = crate::pricing::recalculate_sessions_for_pricing(
+        &state.pool,
+        &canonical_model,
+        &pricing_data,
+        effective_from,
+        effective_until,
+        Some(auth.user_id),
+        Some(auth.org_id),
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(RecalculateResponse {
-        affected_sessions: affected,
-        total_old_cost: total_old,
-        total_new_cost: total_new,
+        affected_sessions: result.affected_sessions,
+        total_old_cost: result.total_old_cost,
+        total_new_cost: result.total_new_cost,
     }))
 }
