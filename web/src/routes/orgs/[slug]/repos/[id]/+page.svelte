@@ -11,13 +11,12 @@
 
 	interface CommitListItem {
 		id: string;
-		repo_id: string;
 		commit_sha: string;
 		branch: string | null;
 		author: string;
-		session_count: number;
-		total_tokens: number | null;
-		created_at: string;
+		files_changed: number | null;
+		ai_sessions_count: number | null;
+		committed_at: string | null;
 	}
 
 	interface Policy {
@@ -116,8 +115,8 @@
 
 	async function loadCommits() {
 		try {
-			const repoFilter = repoName ? `?repo=${encodeURIComponent(repoName)}` : '';
-			const allCommits = await api.get<CommitListItem[]>(`/api/v1/orgs/${slug}/traces${repoFilter}`);
+			const repoFilter = repoId ? `?repo_id=${repoId}` : '';
+			const allCommits = await api.get<CommitListItem[]>(`/api/v1/orgs/${slug}/traces/commits${repoFilter}`);
 			commits = allCommits;
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load commits';
@@ -485,8 +484,8 @@
 							<Table.Head class="text-xs">Commit</Table.Head>
 							<Table.Head class="text-xs">Author</Table.Head>
 							<Table.Head class="text-xs">Branch</Table.Head>
-							<Table.Head class="text-xs">Sessions</Table.Head>
-							<Table.Head class="text-xs">Tokens</Table.Head>
+							<Table.Head class="text-xs">AI Sessions</Table.Head>
+							<Table.Head class="text-xs">Files</Table.Head>
 							<Table.Head class="text-xs">Date</Table.Head>
 						</Table.Row>
 					</Table.Header>
@@ -494,7 +493,7 @@
 						{#each commits as commit}
 							<Table.Row class="hover:bg-muted/40 transition-colors">
 								<Table.Cell class="text-xs">
-									<a href="/orgs/{slug}/traces/{commit.commit_sha}" class="font-mono text-sm underline">
+									<a href="/orgs/{slug}/traces/commits/{commit.id}" class="font-mono text-sm underline">
 										{commit.commit_sha.slice(0, 8)}
 									</a>
 								</Table.Cell>
@@ -506,9 +505,9 @@
 										<span class="text-muted-foreground">-</span>
 									{/if}
 								</Table.Cell>
-								<Table.Cell class="text-xs">{commit.session_count}</Table.Cell>
-								<Table.Cell class="text-xs font-mono">{fmtTokens(commit.total_tokens)}</Table.Cell>
-								<Table.Cell class="text-xs">{formatDate(commit.created_at)}</Table.Cell>
+								<Table.Cell class="text-xs">{commit.ai_sessions_count ?? 0}</Table.Cell>
+								<Table.Cell class="text-xs font-mono">{commit.files_changed ?? 0}</Table.Cell>
+								<Table.Cell class="text-xs">{commit.committed_at ? formatDate(commit.committed_at) : '-'}</Table.Cell>
 							</Table.Row>
 						{/each}
 					</Table.Body>
