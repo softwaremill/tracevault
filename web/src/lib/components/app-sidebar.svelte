@@ -43,6 +43,7 @@
 
 	const slug = $derived(orgCurrent?.org_name ?? $page.params.slug ?? '');
 	let showOrgMenu = $state(false);
+	let orgMenuRef: HTMLDivElement | undefined = $state();
 
 	let expanded = $state(false);
 
@@ -117,6 +118,12 @@
 	}
 </script>
 
+<svelte:window onmousedown={(e) => {
+	if (showOrgMenu && orgMenuRef && !orgMenuRef.contains(e.target as Node)) {
+		showOrgMenu = false;
+	}
+}} />
+
 <aside
 	class="flex flex-col border-r bg-sidebar text-sidebar-foreground transition-all duration-200 ease-in-out {expanded ? 'w-60' : 'w-14'}"
 	style="min-height: 100vh;"
@@ -143,7 +150,7 @@
 	{#if orgAll.length > 0}
 		<div class="border-b px-2 py-2">
 			{#if expanded}
-				<div class="relative">
+				<div class="relative" bind:this={orgMenuRef}>
 					<button
 						onclick={() => (showOrgMenu = !showOrgMenu)}
 						class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-medium hover:bg-sidebar-accent"
