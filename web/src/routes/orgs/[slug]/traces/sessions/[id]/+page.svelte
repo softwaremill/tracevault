@@ -321,7 +321,9 @@
 
 			if (!role || content === undefined) continue;
 
-			const blocks = extractBlocks(content, toolUseMap);
+			const blocks = extractBlocks(content, toolUseMap).filter(
+				(b) => b.type !== 'text' || b.text.trim().replace(/\s+/g, '').length > 0
+			);
 			if (blocks.length > 0) {
 				turns.push({ role, blocks });
 			}
