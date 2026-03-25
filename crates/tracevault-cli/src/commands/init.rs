@@ -314,6 +314,15 @@ pub fn tracevault_hooks() -> serde_json::Value {
                 "timeout": 10,
                 "statusMessage": "TraceVault: streaming notification"
             }]
+        }],
+        "Stop": [{
+            "matcher": "",
+            "hooks": [{
+                "type": "command",
+                "command": "tracevault stream --event stop",
+                "timeout": 10,
+                "statusMessage": "TraceVault: finalizing session"
+            }]
         }]
     })
 }

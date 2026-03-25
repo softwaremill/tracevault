@@ -108,10 +108,10 @@ pub async fn run_stream(
     let (transcript_lines, new_offset) = read_new_transcript_lines(transcript_path, &offset_path)?;
 
     // 5. Build StreamEventRequest
-    let stream_event_type = if event_type == "notification" {
-        StreamEventType::SessionStart
-    } else {
-        StreamEventType::ToolUse
+    let stream_event_type = match event_type {
+        "notification" => StreamEventType::SessionStart,
+        "stop" => StreamEventType::SessionEnd,
+        _ => StreamEventType::ToolUse,
     };
 
     let req = StreamEventRequest {
