@@ -392,5 +392,7 @@ pub async fn sync_status(
     _auth: OrgAuth,
 ) -> Result<Json<SyncStatusResponse>, (StatusCode, String)> {
     let last = pricing_sync::last_sync_time(&state.pool).await;
-    Ok(Json(SyncStatusResponse { last_synced_at: last }))
+    Ok(Json(SyncStatusResponse {
+        last_synced_at: last,
+    }))
 }

@@ -97,7 +97,10 @@ async fn main() {
                 match pricing_sync::sync_pricing(&pool, &client).await {
                     Ok(result) => {
                         if !result.models_updated.is_empty() {
-                            tracing::info!("Daily pricing sync: updated {}", result.models_updated.join(", "));
+                            tracing::info!(
+                                "Daily pricing sync: updated {}",
+                                result.models_updated.join(", ")
+                            );
                         }
                     }
                     Err(e) => tracing::warn!("Daily pricing sync failed: {e}"),
