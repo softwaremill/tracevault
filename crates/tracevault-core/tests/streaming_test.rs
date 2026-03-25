@@ -77,6 +77,7 @@ fn test_commit_push_request_serialization() {
         commit_sha: "abc123".to_string(),
         branch: Some("main".to_string()),
         author: "dev@example.com".to_string(),
+        message: Some("feat: add new feature".to_string()),
         diff_data: Some(json!({"files": []})),
         committed_at: Some(chrono::Utc::now()),
     };

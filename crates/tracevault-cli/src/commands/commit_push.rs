@@ -29,6 +29,7 @@ pub async fn run_commit_push(project_root: &Path) -> Result<(), Box<dyn std::err
     let commit_sha = run_git(&["rev-parse", "HEAD"]).ok_or("failed to get HEAD sha")?;
     let branch = run_git(&["rev-parse", "--abbrev-ref", "HEAD"]);
     let author = run_git(&["log", "-1", "--format=%ae"]).unwrap_or_default();
+    let message = run_git(&["log", "-1", "--format=%B"]);
 
     // Get diff (ok if fails, e.g. initial commit)
     let diff_output = run_git(&["diff", "HEAD~1..HEAD", "--unified=3"]);
@@ -39,6 +40,7 @@ pub async fn run_commit_push(project_root: &Path) -> Result<(), Box<dyn std::err
         commit_sha,
         branch,
         author,
+        message,
         diff_data,
         committed_at: Some(chrono::Utc::now()),
     };
