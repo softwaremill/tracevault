@@ -62,19 +62,6 @@ See exactly what AI wrote, line by line. The code browser overlays AI attributio
 
 **Story generation** turns raw traces into human-readable narratives: why the AI chose a particular pattern, what alternatives were considered, and what the developer's intent was. Auto-generated Architecture Decision Records give new team members full context without asking anyone.
 
-## TraceVault & Visdom
-
-TraceVault is complementary to [Visdom](https://virtuslab.com) (VirtusLab's Autonomous Software Factory platform). Where Visdom focuses on making agents work **fast and correctly** — providing context fabric, machine-speed CI, and auto-evaluation — TraceVault answers a different question: **how do you prove agents worked correctly, and why they made the decisions they did?**
-
-|  | Visdom | TraceVault |
-|--|--------|------------|
-| **Focus** | Speed and quality | Accountability and audit |
-| **Buyer** | CTO / Platform Lead | CCO / Internal Audit / CTO |
-| **Value** | Agent writes better code faster | Proof of how and why code was created |
-| **Measures** | Build time, iterations, throughput | AI code %, trace completeness, compliance |
-
-Together they cover the full lifecycle: Visdom optimizes the agent's execution, TraceVault governs it.
-
 ## Architecture
 
 Three Rust crates in a Cargo workspace:
