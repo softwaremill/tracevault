@@ -66,6 +66,9 @@ async fn main() {
     let repo_manager = repo_manager::RepoManager::new(&cfg.repos_dir);
     let extensions = build_extensions(&cfg);
 
+    // Auto-sync repos that are in 'ready' state on startup
+    sync_repos_on_startup(&pool, &repo_manager, &extensions).await;
+
     let bind_addr = cfg.bind_addr();
 
     let app = Router::new()
@@ -344,6 +347,56 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();
     tracing::info!("TraceVault server listening on {}", bind_addr);
     axum::serve(listener, app).await.unwrap();
+}
+
+async fn sync_repos_on_startup(
+    pool: &sqlx::PgPool,
+    repo_manager: &repo_manager::RepoManager,
+    extensions: &extensions::ExtensionRegistry,
+) {
+    let rows = sqlx::query_as::<_, (uuid::Uuid, Option<String>)>(
+        "SELECT id, deploy_key_encrypted FROM repos WHERE clone_status = 'ready' AND github_url IS NOT NULL",
+    )
+    .fetch_all(pool)
+    .await;
+
+    let repos = match rows {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("Failed to query repos for auto-sync: {e}");
+            return;
+        }
+    };
+
+    if repos.is_empty() {
+        return;
+    }
+
+    tracing::info!("Auto-syncing {} repo(s) on startup...", repos.len());
+
+    for (repo_id, has_key) in &repos {
+        let deploy_key: Option<String> = if has_key.is_some() {
+            api::repos::get_deploy_key(pool, *repo_id, extensions.encryption.as_ref())
+                .await
+                .unwrap_or_default()
+        } else {
+            None
+        };
+
+        match repo_manager.fetch_repo(*repo_id, deploy_key.as_deref()) {
+            Ok(()) => {
+                sqlx::query("UPDATE repos SET last_fetched_at = now() WHERE id = $1")
+                    .bind(repo_id)
+                    .execute(pool)
+                    .await
+                    .ok();
+                tracing::info!("Synced repo {repo_id}");
+            }
+            Err(e) => {
+                tracing::warn!("Failed to sync repo {repo_id}: {e}");
+            }
+        }
+    }
 }
 
 fn build_extensions(cfg: &config::ServerConfig) -> extensions::ExtensionRegistry {

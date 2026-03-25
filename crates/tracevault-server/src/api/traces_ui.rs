@@ -688,21 +688,49 @@ pub async fn get_attribution(
     let blame_text = String::from_utf8_lossy(&blame_output.stdout);
     let blame_map = parse_porcelain_blame(&blame_text);
 
-    // Load attributions for this commit + file
-    let attributions = sqlx::query_as::<_, (Option<Uuid>, i32, i32, f32)>(
-        "SELECT ca.session_id, ca.line_start, ca.line_end, ca.confidence
+    // Collect all unique commit SHAs from blame (these are the commits that actually
+    // last touched each line). We look up attributions for ALL of them, not just the
+    // viewed commit, so lines from older AI sessions also show attribution.
+    let blame_shas: Vec<String> = blame_map
+        .values()
+        .map(|b| b.commit_sha.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    // Resolve blame SHAs to commit IDs in our DB
+    let sha_to_commit_id: std::collections::HashMap<String, Uuid> = if !blame_shas.is_empty() {
+        sqlx::query_as::<_, (String, Uuid)>(
+            "SELECT commit_sha, id FROM commits_v2 WHERE repo_id = $1 AND commit_sha = ANY($2)",
+        )
+        .bind(repo_id)
+        .bind(&blame_shas)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .into_iter()
+        .collect()
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    let all_commit_ids: Vec<Uuid> = sha_to_commit_id.values().copied().collect();
+
+    // Load attributions for ALL commits that touched this file
+    let attributions = sqlx::query_as::<_, (Uuid, Option<Uuid>, i32, i32, f32)>(
+        "SELECT ca.commit_id, ca.session_id, ca.line_start, ca.line_end, ca.confidence
          FROM commit_attributions ca
          JOIN sessions_v2 s ON ca.session_id = s.id
-         WHERE ca.commit_id = $1 AND ca.file_path = $2",
+         WHERE ca.commit_id = ANY($1) AND ca.file_path = $2",
     )
-    .bind(commit_id)
+    .bind(&all_commit_ids)
     .bind(&file_path)
     .fetch_all(&state.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Load session short IDs
-    let session_ids: Vec<Uuid> = attributions.iter().filter_map(|a| a.0).collect();
+    let session_ids: Vec<Uuid> = attributions.iter().filter_map(|a| a.1).collect();
     let session_short_ids: std::collections::HashMap<Uuid, String> = if !session_ids.is_empty() {
         sqlx::query_as::<_, (Uuid, String)>(
             "SELECT id, LEFT(session_id, 8) FROM sessions_v2 WHERE id = ANY($1)",
@@ -721,18 +749,53 @@ pub async fn get_attribution(
     let mut lines = Vec::new();
     for (i, line_content) in content_lines.iter().enumerate() {
         let line_num = i + 1;
-        let git_author = blame_map.get(&line_num).cloned();
+        let blame_info = blame_map.get(&line_num);
+        let git_author = blame_info.map(|b| b.author.clone());
 
-        // Check if this line falls in any attribution range
+        // Find the commit ID for this line's blame SHA
+        let line_commit_id = blame_info
+            .and_then(|b| sha_to_commit_id.get(&b.commit_sha))
+            .copied();
+
+        // Check attributions for this line.
+        // Strategy:
+        // 1. First try: exact line range match from any commit's attribution
+        // 2. Fallback: if git blame points to a commit that has ANY attribution for
+        //    this file, use the best one. This handles lines that shifted due to later
+        //    edits (stored line ranges become stale after insertions/deletions).
         let mut best_session: Option<Uuid> = None;
         let mut best_confidence: Option<f32> = None;
-        for (sid, start, end, conf) in &attributions {
-            if line_num as i32 >= *start
-                && line_num as i32 <= *end
-                && (best_confidence.is_none() || *conf > best_confidence.unwrap())
-            {
-                best_session = *sid;
-                best_confidence = Some(*conf);
+
+        // Pass 1: exact line range match
+        for (cid, sid, start, end, conf) in &attributions {
+            if line_num as i32 >= *start && line_num as i32 <= *end {
+                let is_blame_commit = line_commit_id == Some(*cid);
+                let is_better = match best_confidence {
+                    None => true,
+                    Some(bc) => is_blame_commit || *conf > bc,
+                };
+                if is_better {
+                    best_session = *sid;
+                    best_confidence = Some(*conf);
+                }
+            }
+        }
+
+        // Pass 2: if no exact match, check if blame commit has any attribution for this file
+        if best_session.is_none() {
+            if let Some(blame_cid) = line_commit_id {
+                for (cid, sid, _start, _end, conf) in &attributions {
+                    if *cid == blame_cid {
+                        let is_better = match best_confidence {
+                            None => true,
+                            Some(bc) => *conf > bc,
+                        };
+                        if is_better {
+                            best_session = *sid;
+                            best_confidence = Some(*conf);
+                        }
+                    }
+                }
             }
         }
 
@@ -753,24 +816,37 @@ pub async fn get_attribution(
     }))
 }
 
-fn parse_porcelain_blame(text: &str) -> std::collections::HashMap<usize, String> {
+struct BlameInfo {
+    author: String,
+    commit_sha: String,
+}
+
+fn parse_porcelain_blame(text: &str) -> std::collections::HashMap<usize, BlameInfo> {
     let mut map = std::collections::HashMap::new();
     let mut current_line: usize = 0;
     let mut current_author = String::new();
+    let mut current_sha = String::new();
 
     for line in text.lines() {
         // Header line: {sha} {orig_line} {final_line} [num_lines]
         if line.len() >= 40 && line.chars().take(40).all(|c| c.is_ascii_hexdigit()) {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 3 {
+                current_sha = parts[0].to_string();
                 current_line = parts[2].parse().unwrap_or(0);
             }
         } else if let Some(author) = line.strip_prefix("author ") {
             current_author = author.to_string();
         } else if line.starts_with('\t') {
-            // Content line — record the author for this line number
+            // Content line — record the author and commit sha for this line number
             if current_line > 0 {
-                map.insert(current_line, current_author.clone());
+                map.insert(
+                    current_line,
+                    BlameInfo {
+                        author: current_author.clone(),
+                        commit_sha: current_sha.clone(),
+                    },
+                );
             }
         }
     }
