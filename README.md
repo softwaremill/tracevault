@@ -94,8 +94,8 @@ Binaries land in `target/release/`:
 ### 2. Start the server with Docker Compose
 
 ```sh
-# Generate a signing key first (required)
-export TRACEVAULT_SIGNING_KEY=$(openssl rand -base64 32)
+# Generate an encryption key (required — encrypts per-org signing keys in the DB)
+export TRACEVAULT_ENCRYPTION_KEY=$(openssl rand -base64 32)
 
 docker compose up -d
 ```
@@ -108,50 +108,29 @@ To run just the database (useful during development):
 docker compose up -d db
 ```
 
-### 3. Generate a signing key
+### 3. Run the backend server locally (development)
 
-TraceVault uses Ed25519 signatures to create a tamper-evident audit trail. Every trace is signed and hash-chained. **You must provide a persistent signing key** — without one, the server generates an ephemeral key on each startup and all previous signatures become unverifiable.
-
-Generate a 32-byte key and base64-encode it:
+If you want to run the Rust server directly (instead of via Docker), start PostgreSQL first, then:
 
 ```sh
-# Using openssl:
-openssl rand -base64 32
-
-# Or using Python:
-python3 -c "import secrets, base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"
-```
-
-Set it as an environment variable:
-
-```sh
-export TRACEVAULT_SIGNING_KEY=<output-from-above>
-```
-
-For Docker Compose, the key is required via the `TRACEVAULT_SIGNING_KEY` env var. For production, store it in your secrets manager (Vault, AWS Secrets Manager, etc.) and inject it at deploy time.
-
-**Backup the key.** If lost, all existing signatures become unverifiable and the chain integrity check will fail. The key cannot be recovered from the database.
-
-To export the corresponding public key (for external verification):
-
-```
-GET /api/v1/orgs/{id}/compliance/public-key
-```
-
-### 4. Run the server locally (development)
-
-With PostgreSQL running on localhost:
-
-```sh
+# Database credentials (defaults match docker-compose)
 export DATABASE_URL=postgres://tracevault:tracevault@localhost:5432/tracevault
+
+# Server bind address
 export HOST=0.0.0.0
 export PORT=3000
-export TRACEVAULT_SIGNING_KEY=<base64-encoded-32-byte-key>
+
+# Encryption key for per-org signing keys (see "Keys & Secrets" below)
+export TRACEVAULT_ENCRYPTION_KEY=<base64-encoded-32-byte-key>
 
 cargo run -p tracevault-server
 ```
 
-### 5. Run the web dashboard
+Database migrations run automatically on startup.
+
+### 4. Run the web dashboard
+
+The frontend is a separate SvelteKit app that proxies API calls to the backend:
 
 ```sh
 cd web
@@ -159,9 +138,13 @@ pnpm install
 pnpm dev
 ```
 
-The dashboard runs on `http://localhost:5173` by default and proxies API calls to the server.
+The dashboard runs on `http://localhost:5173` and proxies API calls to `http://localhost:3000` by default. To point at a different backend, set `PUBLIC_API_URL`:
 
-### 6. Initialize TraceVault in a repository
+```sh
+PUBLIC_API_URL=http://your-server:3000 pnpm dev
+```
+
+### 5. Initialize TraceVault in a repository
 
 ```sh
 cd /path/to/your/repo
@@ -209,7 +192,7 @@ The command also installs the Claude Code hook configuration in `.claude/setting
 }
 ```
 
-### 7. Authenticate and push traces
+### 6. Authenticate and push traces
 
 ```sh
 # Log in to a TraceVault server (opens browser for device auth):
@@ -226,6 +209,82 @@ tracevault stats
 
 # Verify commits are sealed on the server:
 tracevault verify --range HEAD~5..HEAD
+```
+
+## Using with Claude Code
+
+TraceVault is designed to work with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (Anthropic's CLI for Claude). Here's how to get started:
+
+### 1. Install Claude Code
+
+```sh
+npm install -g @anthropic-ai/claude-code
+```
+
+### 2. Log in to Claude Code
+
+```sh
+claude login
+```
+
+This opens a browser for authentication with your Anthropic account.
+
+### 3. Initialize TraceVault in your repo
+
+```sh
+cd /path/to/your/repo
+tracevault login --server-url https://your-tracevault-server.example.com
+tracevault init
+```
+
+That's it. From this point on, every Claude Code session in this repo is automatically traced — tool calls, file edits, token usage, and model info are captured and streamed to the TraceVault server. When you `git push`, the pre-push hook evaluates policies and uploads traces.
+
+## Keys & Secrets
+
+### Encryption key (`TRACEVAULT_ENCRYPTION_KEY`)
+
+**Required.** AES-256 encryption key used to encrypt sensitive data at rest — including per-org Ed25519 signing keys, deploy keys, and API keys stored in the database.
+
+Generate a 32-byte key and base64-encode it:
+
+```sh
+# Using openssl:
+openssl rand -base64 32
+
+# Or using Python:
+python3 -c "import secrets, base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"
+```
+
+Set it as an environment variable:
+
+```sh
+export TRACEVAULT_ENCRYPTION_KEY=<output-from-above>
+```
+
+**Backup this key.** If lost, all encrypted data in the database (org signing keys, deploy keys, API keys) becomes unrecoverable. For production, store it in your secrets manager (Vault, AWS Secrets Manager, etc.) and inject it at deploy time.
+
+### Per-org signing keys
+
+Each organization gets its own Ed25519 signing key for the tamper-evident audit trail. These are **generated automatically** when an org is created (via the UI or API) and encrypted at rest using `TRACEVAULT_ENCRYPTION_KEY`. You can also provide your own key during org creation.
+
+To export an org's public key (for external verification):
+
+```
+GET /api/v1/orgs/{id}/compliance/public-key
+```
+
+### Database credentials
+
+Default credentials (matching `docker-compose.yml`):
+
+```sh
+export DATABASE_URL=postgres://tracevault:tracevault@localhost:5432/tracevault
+```
+
+For production, use strong credentials and TLS:
+
+```sh
+export DATABASE_URL=postgres://user:password@host:5432/tracevault?sslmode=require
 ```
 
 ## CLI Commands
@@ -331,14 +390,19 @@ agent = "claude-code"
 | `HOST` | `0.0.0.0` | Bind address |
 | `PORT` | `3000` | Bind port |
 | `CORS_ORIGIN` | _(permissive)_ | Allowed CORS origin for web dashboard |
-| `TRACEVAULT_SIGNING_KEY` | _(ephemeral)_ | **Recommended.** Base64-encoded 32-byte Ed25519 seed for trace signing. Generate with `openssl rand -base64 32`. If not set, a new ephemeral key is generated on each restart and all previous signatures become unverifiable. |
+| `TRACEVAULT_ENCRYPTION_KEY` | — | **Required.** AES-256 encryption key (base64-encoded 32 bytes) for encrypting per-org signing keys, deploy keys, and API keys at rest. Generate with `openssl rand -base64 32`. |
 | `TRACEVAULT_REPOS_DIR` | `./data/repos` | Directory for cloned git repos (used by code browser) |
-| `TRACEVAULT_ENCRYPTION_KEY` | — | AES-256 encryption key (base64-encoded 32 bytes) for encryption at rest |
-| `TRACEVAULT_LLM_PROVIDER` | — | LLM provider for story generation (e.g., `openai`, `anthropic`) |
+| `TRACEVAULT_LLM_PROVIDER` | — | LLM provider for story generation (`anthropic` or `openai`) |
 | `TRACEVAULT_LLM_API_KEY` | — | API key for the LLM provider |
-| `TRACEVAULT_LLM_MODEL` | — | LLM model name |
+| `TRACEVAULT_LLM_MODEL` | — | LLM model name (defaults: Claude Sonnet 4 for Anthropic, GPT-4o for OpenAI) |
 | `TRACEVAULT_LLM_BASE_URL` | — | Custom LLM endpoint URL |
 | `RUST_LOG` | — | Log level (e.g. `info`, `debug`) |
+
+### Web dashboard environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PUBLIC_API_URL` | `http://localhost:3000` | Backend server URL the SvelteKit proxy forwards API calls to. In Docker Compose this is set to `http://server:3000` automatically. |
 
 ## License
 
