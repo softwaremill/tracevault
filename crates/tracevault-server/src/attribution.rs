@@ -49,15 +49,25 @@ fn parse_diff_hunks(diff_data: &serde_json::Value) -> Vec<DiffHunk> {
             let new_count = hunk.get("new_count").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
 
             let added_lines: Vec<String> = hunk
-                .get("lines")
+                .get("added_lines")
                 .and_then(|l| l.as_array())
                 .map(|lines| {
                     lines
                         .iter()
                         .filter_map(|l| l.as_str())
-                        .filter(|l| l.starts_with('+'))
-                        .map(|l| l[1..].to_string()) // strip the '+' prefix
+                        .map(|l| l.to_string())
                         .collect()
+                })
+                .or_else(|| {
+                    // Fallback: "lines" field with "+"-prefixed entries
+                    hunk.get("lines").and_then(|l| l.as_array()).map(|lines| {
+                        lines
+                            .iter()
+                            .filter_map(|l| l.as_str())
+                            .filter(|l| l.starts_with('+'))
+                            .map(|l| l[1..].to_string())
+                            .collect()
+                    })
                 })
                 .unwrap_or_default();
 
@@ -116,7 +126,7 @@ fn compute_confidence(hunk: &DiffHunk, fc: &FileChangeMatch) -> f32 {
 
     // File-level match only: same file, right time window
     // Slightly higher for modifications vs reads
-    if fc.change_type == "write" || fc.change_type == "edit" {
+    if fc.change_type == "create" || fc.change_type == "write" || fc.change_type == "edit" {
         return 0.4;
     }
 

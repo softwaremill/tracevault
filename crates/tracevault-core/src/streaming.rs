@@ -87,10 +87,15 @@ pub fn extract_file_change(
             let mut hasher = Sha256::new();
             hasher.update(content.as_bytes());
             let hash = format!("{:x}", hasher.finalize());
+            let diff = content
+                .lines()
+                .map(|l| format!("+{l}"))
+                .collect::<Vec<_>>()
+                .join("\n");
             Some(ExtractedFileChange {
                 file_path,
                 change_type: "create".to_string(),
-                diff_text: None,
+                diff_text: Some(diff),
                 content_hash: Some(hash),
             })
         }

@@ -319,10 +319,11 @@ pub async fn get_session(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let file_changes = sqlx::query_as::<_, FileChangeRow>(
-        "SELECT id, file_path, change_type, diff_text, content_hash, timestamp
+        "SELECT DISTINCT ON (file_path, change_type, COALESCE(diff_text, ''))
+                id, file_path, change_type, diff_text, content_hash, timestamp
          FROM file_changes
          WHERE session_id = $1
-         ORDER BY timestamp ASC",
+         ORDER BY file_path, change_type, COALESCE(diff_text, ''), timestamp DESC",
     )
     .bind(session_id)
     .fetch_all(&state.pool)
@@ -431,11 +432,14 @@ pub async fn get_commit(
     // Fetch attributions grouped by file
     let attributions = sqlx::query_as::<_, (String, Uuid, String, f32, Option<i32>, Option<i32>)>(
         "SELECT ca.file_path, ca.session_id, s.session_id AS session_short_id,
-                ca.confidence, ca.line_start, ca.line_end
+                MAX(ca.confidence) AS confidence,
+                MIN(ca.line_start) AS line_start,
+                MAX(ca.line_end) AS line_end
          FROM commit_attributions ca
          JOIN sessions_v2 s ON ca.session_id = s.id
          WHERE ca.commit_id = $1
-         ORDER BY ca.file_path, ca.line_start NULLS LAST",
+         GROUP BY ca.file_path, ca.session_id, s.session_id
+         ORDER BY ca.file_path, MIN(ca.line_start) NULLS LAST",
     )
     .bind(commit_id)
     .fetch_all(&state.pool)
