@@ -642,7 +642,7 @@
 								<div class="space-y-2 p-4">
 									{#each extracted.turns as turn}
 										{#each turn.blocks as block}
-											{#if block.type === 'text'}
+											{#if block.type === 'text' && block.text.trim()}
 												<div
 													class="max-w-[85%] rounded-lg px-3 py-2 text-xs
 														{turn.role === 'user'
@@ -652,7 +652,7 @@
 																: 'bg-muted/50 mr-auto'}"
 												>
 													<div class="text-muted-foreground mb-1 text-[10px] font-medium uppercase">{turn.role}</div>
-													<div class="whitespace-pre-wrap break-words">{block.text}</div>
+													<div class="whitespace-pre-wrap break-words">{block.text.trim()}</div>
 												</div>
 											{:else if block.type === 'tool_use'}
 												{@const style = toolBlockStyles[block.name] ?? defaultToolBlockStyle}
