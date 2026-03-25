@@ -375,11 +375,10 @@ async fn sync_repos_on_startup(
     tracing::info!("Auto-syncing {} repo(s) on startup...", repos.len());
 
     for (repo_id, has_key) in &repos {
-        let deploy_key = if has_key.is_some() {
-            match api::repos::get_deploy_key(pool, *repo_id, extensions.encryption.as_ref()).await {
-                Ok(k) => k,
-                Err(_) => None,
-            }
+        let deploy_key: Option<String> = if has_key.is_some() {
+            api::repos::get_deploy_key(pool, *repo_id, extensions.encryption.as_ref())
+                .await
+                .unwrap_or_default()
         } else {
             None
         };
