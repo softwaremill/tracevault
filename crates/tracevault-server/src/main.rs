@@ -22,6 +22,7 @@ mod llm;
 mod org_signing;
 pub mod permissions;
 pub mod pricing;
+pub mod pricing_sync;
 mod repo_manager;
 mod signing;
 mod story;
@@ -32,6 +33,7 @@ pub struct AppState {
     pub repo_manager: repo_manager::RepoManager,
     pub extensions: extensions::ExtensionRegistry,
     pub encryption_key: Option<String>,
+    pub http_client: reqwest::Client,
 }
 
 #[tokio::main]
@@ -65,9 +67,47 @@ async fn main() {
 
     let repo_manager = repo_manager::RepoManager::new(&cfg.repos_dir);
     let extensions = build_extensions(&cfg);
+    let http_client = reqwest::Client::new();
 
     // Auto-sync repos that are in 'ready' state on startup
     sync_repos_on_startup(&pool, &repo_manager, &extensions).await;
+
+    // Sync pricing from LiteLLM on startup (non-blocking on failure)
+    match pricing_sync::sync_pricing(&pool, &http_client).await {
+        Ok(result) => {
+            if result.models_updated.is_empty() {
+                tracing::info!("Pricing sync: all prices up to date");
+            } else {
+                tracing::info!("Pricing sync: updated {}", result.models_updated.join(", "));
+            }
+        }
+        Err(e) => tracing::warn!("Pricing sync failed on startup (non-fatal): {e}"),
+    }
+
+    // Background daily pricing sync
+    {
+        let pool = pool.clone();
+        let client = http_client.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(86400));
+            interval.tick().await; // skip immediate tick (startup sync already ran)
+            loop {
+                interval.tick().await;
+                tracing::info!("Running daily pricing sync...");
+                match pricing_sync::sync_pricing(&pool, &client).await {
+                    Ok(result) => {
+                        if !result.models_updated.is_empty() {
+                            tracing::info!(
+                                "Daily pricing sync: updated {}",
+                                result.models_updated.join(", ")
+                            );
+                        }
+                    }
+                    Err(e) => tracing::warn!("Daily pricing sync failed: {e}"),
+                }
+            }
+        });
+    }
 
     let bind_addr = cfg.bind_addr();
 
@@ -270,6 +310,14 @@ async fn main() {
             get(api::pricing::list_models),
         )
         .route(
+            "/api/v1/orgs/{slug}/pricing/sync",
+            post(api::pricing::trigger_sync),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/pricing/sync/status",
+            get(api::pricing::sync_status),
+        )
+        .route(
             "/api/v1/orgs/{slug}/pricing/{id}",
             put(api::pricing::update_pricing),
         )
@@ -338,10 +386,11 @@ async fn main() {
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(AppState {
-            pool,
+            pool: pool.clone(),
             repo_manager,
             extensions,
             encryption_key: cfg.encryption_key.clone(),
+            http_client: http_client.clone(),
         });
 
     let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();

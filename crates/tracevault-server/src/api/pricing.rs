@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::permissions::Permission;
-use crate::{audit, extractors::OrgAuth, AppState};
+use crate::{audit, extractors::OrgAuth, pricing_sync, AppState};
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -23,6 +23,7 @@ pub struct PricingEntry {
     pub effective_from: DateTime<Utc>,
     pub effective_until: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    pub source: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,7 +65,7 @@ pub async fn list_pricing(
 ) -> Result<Json<Vec<PricingEntry>>, (StatusCode, String)> {
     let entries = sqlx::query_as::<_, PricingEntry>(
         "SELECT id, model, input_per_mtok, output_per_mtok, cache_read_per_mtok, cache_write_per_mtok,
-                effective_from, effective_until, created_at
+                effective_from, effective_until, created_at, source
          FROM model_pricing
          ORDER BY model, effective_from DESC",
     )
@@ -76,20 +77,16 @@ pub async fn list_pricing(
 }
 
 /// GET /api/v1/orgs/{slug}/pricing/models
-/// Distinct model names from sessions (org-scoped) + model_pricing table.
+/// Distinct model names from sessions (org-scoped).
 pub async fn list_models(
     State(state): State<AppState>,
     auth: OrgAuth,
 ) -> Result<Json<Vec<String>>, (StatusCode, String)> {
     let models = sqlx::query_scalar::<_, String>(
-        "SELECT DISTINCT model FROM (
-            SELECT DISTINCT model FROM sessions_v2 s
-            JOIN repos r ON s.repo_id = r.id
-            WHERE r.org_id = $1 AND s.model IS NOT NULL
-            UNION
-            SELECT DISTINCT model FROM model_pricing
-        ) AS combined
-        ORDER BY model",
+        "SELECT DISTINCT model FROM sessions_v2 s
+         JOIN repos r ON s.repo_id = r.id
+         WHERE r.org_id = $1 AND s.model IS NOT NULL
+         ORDER BY model",
     )
     .bind(auth.org_id)
     .fetch_all(&state.pool)
@@ -161,6 +158,7 @@ pub async fn create_pricing(
             effective_from: req.effective_from,
             effective_until: req.effective_until,
             created_at,
+            source: "manual".to_string(),
         }),
     ))
 }
@@ -182,7 +180,7 @@ pub async fn update_pricing(
 
     let existing = sqlx::query_as::<_, PricingEntry>(
         "SELECT id, model, input_per_mtok, output_per_mtok, cache_read_per_mtok, cache_write_per_mtok,
-                effective_from, effective_until, created_at
+                effective_from, effective_until, created_at, source
          FROM model_pricing WHERE id = $1",
     )
     .bind(pricing_id)
@@ -245,6 +243,7 @@ pub async fn update_pricing(
         effective_from: new_from,
         effective_until: new_until,
         created_at: existing.created_at,
+        source: existing.source,
     }))
 }
 
@@ -263,7 +262,6 @@ pub async fn recalculate(
         return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
     }
 
-    // Load pricing entry
     let pricing = sqlx::query_as::<
         _,
         (
@@ -296,26 +294,6 @@ pub async fn recalculate(
         effective_until,
     ) = pricing;
 
-    // Find sessions in date range with matching model (ILIKE for canonical name matching)
-    let sessions = sqlx::query_as::<_, (Uuid, Option<f64>, i64, i64, i64, i64)>(
-        "SELECT s.id, s.estimated_cost_usd,
-                COALESCE(s.input_tokens, 0), COALESCE(s.output_tokens, 0),
-                COALESCE(s.cache_read_tokens, 0), COALESCE(s.cache_write_tokens, 0)
-         FROM sessions_v2 s
-         JOIN repos r ON s.repo_id = r.id
-         WHERE r.org_id = $1
-           AND s.created_at >= $2
-           AND ($3::timestamptz IS NULL OR s.created_at < $3)
-           AND LOWER(COALESCE(s.model, '')) LIKE '%' || $4 || '%'",
-    )
-    .bind(auth.org_id)
-    .bind(effective_from)
-    .bind(effective_until)
-    .bind(&canonical_model)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
     let pricing_data = crate::pricing::ModelPricing {
         input_per_m,
         output_per_m,
@@ -323,67 +301,94 @@ pub async fn recalculate(
         cache_read_per_m,
     };
 
-    let mut total_old: f64 = 0.0;
-    let mut total_new: f64 = 0.0;
-    let mut affected: i64 = 0;
-
-    let mut tx = state
-        .pool
-        .begin()
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    for (session_id, old_cost, input_tokens, output_tokens, cache_read, cache_write) in &sessions {
-        let old = old_cost.unwrap_or(0.0);
-        let new_cost = crate::pricing::estimate_cost_with_pricing(
-            &pricing_data,
-            *input_tokens,
-            *output_tokens,
-            *cache_read,
-            *cache_write,
-        );
-
-        sqlx::query(
-            "UPDATE sessions_v2 SET estimated_cost_usd = $1
-             WHERE id = $2",
-        )
-        .bind(new_cost)
-        .bind(session_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-        // Audit log entry
-        sqlx::query(
-            "INSERT INTO audit_log (org_id, actor_id, action, resource_type, resource_id, details)
-             VALUES ($1, $2, $3, $4, $5, $6)",
-        )
-        .bind(auth.org_id)
-        .bind(auth.user_id)
-        .bind("pricing_recalculate")
-        .bind("session")
-        .bind(*session_id)
-        .bind(serde_json::json!({
-            "pricing_id": pricing_id,
-            "old_cost": old,
-            "new_cost": new_cost,
-        }))
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-        total_old += old;
-        total_new += new_cost;
-        affected += 1;
-    }
-
-    tx.commit()
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let result = crate::pricing::recalculate_sessions_for_pricing(
+        &state.pool,
+        &canonical_model,
+        &pricing_data,
+        effective_from,
+        effective_until,
+        Some(auth.user_id),
+        Some(auth.org_id),
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(RecalculateResponse {
-        affected_sessions: affected,
-        total_old_cost: total_old,
-        total_new_cost: total_new,
+        affected_sessions: result.affected_sessions,
+        total_old_cost: result.total_old_cost,
+        total_new_cost: result.total_new_cost,
+    }))
+}
+
+// ── Sync endpoints ────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct SyncResponse {
+    pub models_updated: Vec<String>,
+    pub last_synced_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SyncStatusResponse {
+    pub last_synced_at: Option<DateTime<Utc>>,
+}
+
+/// POST /api/v1/orgs/{slug}/pricing/sync
+pub async fn trigger_sync(
+    State(state): State<AppState>,
+    auth: OrgAuth,
+) -> Result<Json<SyncResponse>, (StatusCode, String)> {
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, Permission::OrgSettingsManage)
+    {
+        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
+    }
+
+    // Rate limit: skip if last sync was <5 minutes ago
+    if let Some(last) = pricing_sync::last_sync_time(&state.pool).await {
+        let elapsed = Utc::now() - last;
+        if elapsed.num_seconds() < 300 {
+            return Ok(Json(SyncResponse {
+                models_updated: vec![],
+                last_synced_at: Some(last),
+            }));
+        }
+    }
+
+    let result = pricing_sync::sync_pricing(&state.pool, &state.http_client)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    audit::log(
+        &state.pool,
+        audit::user_action(
+            auth.org_id,
+            auth.user_id,
+            "pricing_sync",
+            "model_pricing",
+            None,
+            Some(serde_json::json!({
+                "models_updated": result.models_updated,
+            })),
+        ),
+    )
+    .await;
+
+    Ok(Json(SyncResponse {
+        models_updated: result.models_updated,
+        last_synced_at: Some(result.last_synced_at),
+    }))
+}
+
+/// GET /api/v1/orgs/{slug}/pricing/sync/status
+pub async fn sync_status(
+    State(state): State<AppState>,
+    _auth: OrgAuth,
+) -> Result<Json<SyncStatusResponse>, (StatusCode, String)> {
+    let last = pricing_sync::last_sync_time(&state.pool).await;
+    Ok(Json(SyncStatusResponse {
+        last_synced_at: last,
     }))
 }
