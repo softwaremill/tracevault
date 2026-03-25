@@ -321,9 +321,18 @@
 
 			if (!role || content === undefined) continue;
 
-			const blocks = extractBlocks(content, toolUseMap).filter(
-				(b) => b.type !== 'text' || /\S/.test(b.text)
-			);
+			const rawBlocks = extractBlocks(content, toolUseMap);
+			const blocks: ContentBlock[] = [];
+			for (const b of rawBlocks) {
+				if (b.type === 'tool_use') {
+					blocks.push(b);
+				} else if (b.type === 'text') {
+					const cleaned = b.text.trim().replace(/[\r\n]{3,}/g, '\n\n');
+					if (cleaned && /[^\s\u200b\ufeff]/.test(cleaned)) {
+						blocks.push({ type: 'text', text: cleaned });
+					}
+				}
+			}
 			if (blocks.length > 0) {
 				turns.push({ role, blocks });
 			}
@@ -641,13 +650,11 @@
 									{/each}
 								</div>
 							{:else}
-								<div class="space-y-1.5 p-4" style="outline: 2px solid blue;">
+								<div class="space-y-1.5 p-4">
 									{#each extracted.turns as turn}
-									<div style="outline: 2px solid magenta; margin-bottom: 2px;">
 										{#each turn.blocks as block}
-											{#if block.type === 'text' && block.text.trim()}
+											{#if block.type === 'text'}
 												<div
-													style="outline: 1px solid red;"
 													class="max-w-[85%] rounded-lg px-3 py-2 text-xs
 														{turn.role === 'user'
 															? 'bg-primary/10 mr-auto'
@@ -656,13 +663,13 @@
 																: 'bg-muted/50 mr-auto'}"
 												>
 													<div class="text-muted-foreground mb-1 text-[10px] font-medium uppercase">{turn.role}</div>
-													<div class="whitespace-pre-wrap break-words">{block.text.trim().replace(/\n{3,}/g, '\n\n')}</div>
+													<div class="whitespace-pre-wrap break-words">{block.text}</div>
 												</div>
 											{:else if block.type === 'tool_use'}
 												{@const style = toolBlockStyles[block.name] ?? defaultToolBlockStyle}
 												{@const expanded = expandedTools.has(block.id)}
 												{@const summary = toolSummary(block.name, block.input)}
-												<div style="outline: 1px solid green;" class="rounded-lg border overflow-hidden {style.border}">
+												<div class="rounded-lg border overflow-hidden {style.border}">
 													<button
 														class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/30"
 														onclick={() => toggleTool(block.id)}
@@ -709,7 +716,6 @@
 												</div>
 											{/if}
 										{/each}
-									</div>
 									{/each}
 								</div>
 							{/if}
