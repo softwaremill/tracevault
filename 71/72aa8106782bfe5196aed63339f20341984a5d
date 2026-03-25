@@ -1,0 +1,63 @@
+web/src/routes/orgs/[slug]/traces/sessions/[id]/+page.svelte
+  810962334de655b8 52,590,622-628
+web/src/routes/orgs/[slug]/repos/[id]/settings/+page.svelte
+  810962334de655b8 14,36,62,77,187-204
+crates/tracevault-server/src/api/traces_ui.rs
+  810962334de655b8 66,120,141,151,264-269,354-360,394-398,407,432-436
+crates/tracevault-server/src/api/repos.rs
+  810962334de655b8 228,236-237,251,259,292-301,323-324,335,359,385
+web/src/routes/orgs/[slug]/traces/commits/[id]/+page.svelte
+  810962334de655b8 25,114-118
+web/src/routes/orgs/[slug]/traces/commits/+page.svelte
+  810962334de655b8 14,79,108-116
+crates/tracevault-server/migrations/005_production_branch.sql
+  810962334de655b8 1
+web/src/routes/orgs/[slug]/traces/sessions/+page.svelte
+  810962334de655b8 22,146,171-179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "7172aa8106782bfe5196aed63339f20341984a5d",
+  "prompts": {
+    "5f40f3c4af6f099f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3a4792d2-19b7-4c12-98da-7485e017ed46",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 467,
+      "overriden_lines": 0
+    },
+    "810962334de655b8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4a51a4a-1df1-419d-9257-f35e80095ead",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 116,
+      "total_deletions": 15,
+      "accepted_lines": 111,
+      "overriden_lines": 0
+    },
+    "87dda0f0c747b0e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "90a218ea-126f-421e-82c8-ec8c6e6ca2f4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 148,
+      "overriden_lines": 0
+    }
+  }
+}
