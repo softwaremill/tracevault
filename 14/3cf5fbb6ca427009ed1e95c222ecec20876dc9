@@ -1,0 +1,23 @@
+web/src/lib/components/app-sidebar.svelte
+  dfafff44456ee3c5 46,121-126,153
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "143cf5fbb6ca427009ed1e95c222ecec20876dc9",
+  "prompts": {
+    "dfafff44456ee3c5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b175f84f-8155-4bac-bf7f-ba7979c6698d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 8,
+      "total_deletions": 1,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    }
+  }
+}
