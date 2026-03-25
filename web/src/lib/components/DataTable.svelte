@@ -47,8 +47,11 @@
 	}: Props = $props();
 
 	let search = $state('');
+	// svelte-ignore state_referenced_locally
 	let sortCol = $state(defaultSort);
+	// svelte-ignore state_referenced_locally
 	let sortDir = $state<'asc' | 'desc'>(defaultSortDir);
+	// svelte-ignore state_referenced_locally
 	let pageSize = $state(defaultPageSize);
 	let currentPage = $state(0);
 
