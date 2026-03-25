@@ -1,0 +1,37 @@
+web/src/routes/orgs/[slug]/traces/commits/[id]/+page.svelte
+  c3a2dd174d54d714 24,115-117
+crates/tracevault-core/src/streaming.rs
+  c3a2dd174d54d714 57
+crates/tracevault-server/src/api/traces_ui.rs
+  c3a2dd174d54d714 136,148,378,415
+crates/tracevault-server/src/api/commit_push.rs
+  c3a2dd174d54d714 20-21,25,33
+crates/tracevault-cli/src/commands/commit_push.rs
+  c3a2dd174d54d714 32,43
+web/src/routes/orgs/[slug]/repos/[id]/+page.svelte
+  c3a2dd174d54d714 17,23-31,497,507-510,512-516,520-522,535-541
+crates/tracevault-server/migrations/005_commit_message.sql
+  c3a2dd174d54d714 1
+web/src/routes/orgs/[slug]/traces/commits/+page.svelte
+  c3a2dd174d54d714 11,20-29,88,98-101,106,111-113,132-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "8c8e27badd31964da73a21c8459e6ba36fd586ea",
+  "prompts": {
+    "c3a2dd174d54d714": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "08fb471f-de5f-49ae-a2e6-ecd02299e4e6",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 143,
+      "total_deletions": 7,
+      "accepted_lines": 143,
+      "overriden_lines": 0
+    }
+  }
+}
