@@ -133,6 +133,7 @@ pub struct CommitListItem {
     pub commit_sha: String,
     pub branch: Option<String>,
     pub author: String,
+    pub message: Option<String>,
     pub files_changed: Option<i64>,
     pub ai_sessions_count: Option<i64>,
     pub committed_at: Option<DateTime<Utc>>,
@@ -144,6 +145,7 @@ pub struct CommitDetail {
     pub commit_sha: String,
     pub branch: Option<String>,
     pub author: String,
+    pub message: Option<String>,
     pub committed_at: Option<DateTime<Utc>>,
 }
 
@@ -373,7 +375,7 @@ pub async fn list_commits(
     let offset = params.offset.unwrap_or(0);
 
     let rows = sqlx::query_as::<_, CommitListItem>(
-        "SELECT c.id, c.commit_sha, c.branch, c.author,
+        "SELECT c.id, c.commit_sha, c.branch, c.author, c.message,
                 COUNT(DISTINCT ca.file_path) AS files_changed,
                 COUNT(DISTINCT ca.session_id) AS ai_sessions_count,
                 c.committed_at
@@ -410,7 +412,7 @@ pub async fn get_commit(
     Path((_slug, commit_id)): Path<(String, Uuid)>,
 ) -> Result<Json<CommitDetailResponse>, (StatusCode, String)> {
     let commit = sqlx::query_as::<_, CommitDetail>(
-        "SELECT c.id, c.commit_sha, c.branch, c.author, c.committed_at
+        "SELECT c.id, c.commit_sha, c.branch, c.author, c.message, c.committed_at
          FROM commits_v2 c
          JOIN repos r ON c.repo_id = r.id
          WHERE c.id = $1 AND r.org_id = $2",

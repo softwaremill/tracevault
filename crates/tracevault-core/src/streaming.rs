@@ -54,6 +54,7 @@ pub struct CommitPushRequest {
     pub commit_sha: String,
     pub branch: Option<String>,
     pub author: String,
+    pub message: Option<String>,
     pub diff_data: Option<serde_json::Value>,
     pub committed_at: Option<DateTime<Utc>>,
 }

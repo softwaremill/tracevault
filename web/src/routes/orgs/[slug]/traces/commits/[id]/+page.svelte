@@ -21,6 +21,7 @@
 			commit_sha: string;
 			branch: string | null;
 			author: string;
+			message: string | null;
 			committed_at: string;
 		};
 		diff_data: Record<string, unknown> | null;
@@ -111,6 +112,9 @@
 					>
 				{/if}
 			</h1>
+			{#if data.commit.message}
+				<pre class="text-muted-foreground mt-2 whitespace-pre-wrap text-sm font-mono">{data.commit.message.trim()}</pre>
+			{/if}
 			<div class="text-muted-foreground mt-1 flex gap-4 text-sm">
 				<span>{data.commit.author}</span>
 				<span>{formatDate(data.commit.committed_at)}</span>

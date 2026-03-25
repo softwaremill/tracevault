@@ -14,9 +14,21 @@
 		commit_sha: string;
 		branch: string | null;
 		author: string;
+		message: string | null;
 		files_changed: number | null;
 		ai_sessions_count: number | null;
 		committed_at: string | null;
+	}
+
+	let expandedCommitId: string | null = $state(null);
+
+	function firstLine(msg: string | null): string {
+		if (!msg) return '-';
+		return msg.split('\n')[0];
+	}
+
+	function toggleCommitExpand(id: string) {
+		expandedCommitId = expandedCommitId === id ? null : id;
 	}
 
 	interface Policy {
@@ -482,6 +494,7 @@
 					<Table.Header>
 						<Table.Row>
 							<Table.Head class="text-xs">Commit</Table.Head>
+							<Table.Head class="text-xs">Message</Table.Head>
 							<Table.Head class="text-xs">Author</Table.Head>
 							<Table.Head class="text-xs">Branch</Table.Head>
 							<Table.Head class="text-xs">AI Sessions</Table.Head>
@@ -491,12 +504,22 @@
 					</Table.Header>
 					<Table.Body>
 						{#each commits as commit}
-							<Table.Row class="hover:bg-muted/40 transition-colors">
+							<Table.Row
+								class="hover:bg-muted/40 cursor-pointer transition-colors"
+								onclick={() => toggleCommitExpand(commit.id)}
+							>
 								<Table.Cell class="text-xs">
-									<a href="/orgs/{slug}/traces/commits/{commit.id}" class="font-mono text-sm underline">
+									<a
+										href="/orgs/{slug}/traces/commits/{commit.id}"
+										class="font-mono text-sm underline"
+										onclick={(e) => e.stopPropagation()}
+									>
 										{commit.commit_sha.slice(0, 8)}
 									</a>
 								</Table.Cell>
+								<Table.Cell class="text-xs max-w-xs truncate text-muted-foreground"
+									>{firstLine(commit.message)}</Table.Cell
+								>
 								<Table.Cell class="text-xs">{commit.author}</Table.Cell>
 								<Table.Cell class="text-xs">
 									{#if commit.branch}
@@ -509,6 +532,13 @@
 								<Table.Cell class="text-xs font-mono">{commit.files_changed ?? 0}</Table.Cell>
 								<Table.Cell class="text-xs">{commit.committed_at ? formatDate(commit.committed_at) : '-'}</Table.Cell>
 							</Table.Row>
+							{#if expandedCommitId === commit.id && commit.message}
+								<Table.Row class="bg-muted/20">
+									<Table.Cell colspan={7} class="py-3 px-4">
+										<pre class="whitespace-pre-wrap text-xs text-muted-foreground font-mono">{commit.message.trim()}</pre>
+									</Table.Cell>
+								</Table.Row>
+							{/if}
 						{/each}
 					</Table.Body>
 				</Table.Root>
