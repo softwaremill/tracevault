@@ -67,7 +67,6 @@
 	let expandedFiles = $state(new Set<string>());
 	let expandedTools = $state(new Set<string>());
 	let expandedResults = $state(new Set<string>());
-	let expandedToolsInitialized = false;
 	let sectionsOpen = $state({
 		events: true,
 		files: false,
@@ -186,6 +185,17 @@
 		fetchDetail();
 	});
 
+	// Set initial expanded tools when data loads
+	let lastDataId: string | null = null;
+	$effect(() => {
+		const sessionId = data?.session?.id ?? null;
+		if (sessionId && sessionId !== lastDataId && data?.transcript_chunks) {
+			lastDataId = sessionId;
+			const { initialExpanded } = extractTurns(data.transcript_chunks);
+			expandedTools = initialExpanded;
+		}
+	});
+
 	function fmtNum(n: number | null): string {
 		if (n == null) return '-';
 		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -247,16 +257,14 @@
 		expandedTools = next;
 	}
 
-	function initExpandedTools(toolUseMap: Map<string, ContentBlock & { type: 'tool_use' }>) {
-		if (expandedToolsInitialized) return;
-		expandedToolsInitialized = true;
+	function getInitialExpandedTools(toolUseMap: Map<string, ContentBlock & { type: 'tool_use' }>): Set<string> {
 		const initial = new Set<string>();
 		for (const [id, block] of toolUseMap) {
 			if (FILE_MODIFYING_TOOLS.has(block.name)) {
 				initial.add(id);
 			}
 		}
-		expandedTools = initial;
+		return initial;
 	}
 
 	interface DiffLine {
@@ -290,7 +298,7 @@
 		blocks: ContentBlock[];
 	}
 
-	function extractTurns(chunks: TranscriptChunk[]): TranscriptTurn[] {
+	function extractTurns(chunks: TranscriptChunk[]): { turns: TranscriptTurn[]; initialExpanded: Set<string> } {
 		const turns: TranscriptTurn[] = [];
 		const toolUseMap = new Map<string, ContentBlock & { type: 'tool_use' }>();
 
@@ -319,8 +327,7 @@
 			}
 		}
 
-		initExpandedTools(toolUseMap);
-		return turns;
+		return { turns, initialExpanded: getInitialExpandedTools(toolUseMap) };
 	}
 
 	function extractBlocks(
@@ -624,8 +631,8 @@
 						{#if data.transcript_chunks.length === 0}
 							<p class="text-muted-foreground px-4 py-4 text-sm">No transcript data.</p>
 						{:else}
-							{@const turns = extractTurns(data.transcript_chunks)}
-							{#if turns.length === 0}
+							{@const extracted = extractTurns(data.transcript_chunks)}
+							{#if extracted.turns.length === 0}
 								<div class="divide-border divide-y">
 									{#each data.transcript_chunks as chunk (chunk.chunk_index)}
 										<pre class="max-h-60 overflow-auto px-4 py-3 font-mono text-[11px] leading-relaxed">{formatJson(chunk.data)}</pre>
@@ -633,7 +640,7 @@
 								</div>
 							{:else}
 								<div class="space-y-2 p-4">
-									{#each turns as turn}
+									{#each extracted.turns as turn}
 										{#each turn.blocks as block}
 											{#if block.type === 'text'}
 												<div
