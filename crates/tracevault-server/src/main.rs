@@ -22,6 +22,7 @@ mod llm;
 mod org_signing;
 pub mod permissions;
 pub mod pricing;
+pub mod pricing_sync;
 mod repo_manager;
 mod signing;
 mod story;
