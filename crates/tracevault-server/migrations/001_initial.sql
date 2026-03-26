@@ -104,64 +104,165 @@ CREATE TABLE api_keys (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Commits (from 005 + 009 immutability columns)
+-- Sessions: org+repo scoped, streaming architecture
+CREATE TABLE sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+    repo_id UUID NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id),
+    session_id TEXT NOT NULL,
+    model TEXT,
+    tool TEXT DEFAULT 'claude-code',
+    status TEXT NOT NULL DEFAULT 'active',
+    total_tokens BIGINT DEFAULT 0,
+    input_tokens BIGINT DEFAULT 0,
+    output_tokens BIGINT DEFAULT 0,
+    cache_read_tokens BIGINT DEFAULT 0,
+    cache_write_tokens BIGINT DEFAULT 0,
+    estimated_cost_usd DOUBLE PRECISION DEFAULT 0.0,
+    duration_ms BIGINT,
+    started_at TIMESTAMPTZ,
+    ended_at TIMESTAMPTZ,
+    user_messages INTEGER DEFAULT 0,
+    assistant_messages INTEGER DEFAULT 0,
+    total_tool_calls INTEGER DEFAULT 0,
+    cwd TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(repo_id, session_id)
+);
+
+CREATE INDEX idx_sessions_org ON sessions(org_id);
+CREATE INDEX idx_sessions_repo ON sessions(repo_id);
+CREATE INDEX idx_sessions_user ON sessions(user_id);
+CREATE INDEX idx_sessions_status ON sessions(status);
+CREATE INDEX idx_sessions_created ON sessions(created_at);
+
+-- Session seals: immutability proof for sessions
+CREATE TABLE session_seals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    record_hash TEXT NOT NULL,
+    signature TEXT,
+    sealed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(session_id)
+);
+
+-- Events: one row per hook call
+CREATE TABLE events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    event_index INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    tool_name TEXT,
+    tool_input JSONB,
+    tool_response JSONB,
+    tool_use_id TEXT,
+    timestamp TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(session_id, event_index)
+);
+
+CREATE INDEX idx_events_session ON events(session_id);
+CREATE INDEX idx_events_timestamp ON events(timestamp);
+CREATE INDEX idx_events_tool ON events(tool_name);
+
+-- File changes: extracted from Write/Edit/Bash events
+CREATE TABLE file_changes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    file_path TEXT NOT NULL,
+    change_type TEXT NOT NULL,
+    line_start INTEGER,
+    line_end INTEGER,
+    diff_text TEXT,
+    content_hash TEXT,
+    timestamp TIMESTAMPTZ NOT NULL,
+    UNIQUE(event_id, file_path)
+);
+
+CREATE INDEX idx_file_changes_session ON file_changes(session_id);
+CREATE INDEX idx_file_changes_file ON file_changes(file_path);
+CREATE INDEX idx_file_changes_timestamp ON file_changes(timestamp);
+
+-- Transcript chunks: conversation turns streamed incrementally
+CREATE TABLE transcript_chunks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL,
+    data JSONB NOT NULL,
+    token_usage JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(session_id, chunk_index)
+);
+
+CREATE INDEX idx_transcript_chunks_session ON transcript_chunks(session_id);
+
+-- Commits: repo-scoped, independent of sessions
 CREATE TABLE commits (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     repo_id UUID NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
     commit_sha TEXT NOT NULL,
     branch TEXT,
     author TEXT NOT NULL,
+    message TEXT,
     diff_data JSONB,
     attribution JSONB,
-    signature TEXT,
-    chain_hash TEXT,
-    prev_chain_hash TEXT,
-    record_hash TEXT,
-    sealed_at TIMESTAMPTZ,
+    committed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE(repo_id, commit_sha)
 );
 
-CREATE INDEX idx_commits_repo_id ON commits(repo_id);
-CREATE INDEX idx_commits_commit_sha ON commits(commit_sha);
-CREATE INDEX idx_commits_created_at ON commits(created_at);
+CREATE INDEX idx_commits_repo ON commits(repo_id);
+CREATE INDEX idx_commits_sha ON commits(commit_sha);
+CREATE INDEX idx_commits_branch ON commits(branch);
 
--- Sessions (from 005 + 006 + 007 + 009 immutability columns)
-CREATE TABLE sessions (
+-- Commit seals: immutability proof for commits
+CREATE TABLE commit_seals (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     commit_id UUID NOT NULL REFERENCES commits(id) ON DELETE CASCADE,
-    session_id TEXT NOT NULL,
-    model TEXT,
-    tool TEXT,
-    total_tokens BIGINT,
-    input_tokens BIGINT,
-    output_tokens BIGINT,
-    estimated_cost_usd DOUBLE PRECISION,
-    api_calls INTEGER,
-    session_data JSONB,
-    transcript JSONB,
-    model_usage JSONB,
-    duration_ms BIGINT,
-    started_at TIMESTAMPTZ,
-    ended_at TIMESTAMPTZ,
-    user_messages INTEGER,
-    assistant_messages INTEGER,
-    tool_calls JSONB,
-    total_tool_calls INTEGER,
-    cache_read_tokens BIGINT,
-    cache_write_tokens BIGINT,
-    compactions INTEGER,
-    compaction_tokens_saved BIGINT,
+    record_hash TEXT NOT NULL,
+    chain_hash TEXT,
+    prev_chain_hash TEXT,
     signature TEXT,
-    record_hash TEXT,
-    sealed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE(commit_id, session_id)
+    sealed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(commit_id)
 );
 
-CREATE INDEX idx_sessions_commit_id ON sessions(commit_id);
+-- Commit attributions: many-to-many link between commits and session events
+CREATE TABLE commit_attributions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    commit_id UUID NOT NULL REFERENCES commits(id) ON DELETE CASCADE,
+    session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    event_id UUID REFERENCES events(id) ON DELETE SET NULL,
+    file_path TEXT NOT NULL,
+    line_start INTEGER,
+    line_end INTEGER,
+    confidence REAL NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
--- Policies (from 001 + 008)
+CREATE INDEX idx_commit_attr_commit ON commit_attributions(commit_id);
+CREATE INDEX idx_commit_attr_session ON commit_attributions(session_id);
+CREATE INDEX idx_commit_attr_file ON commit_attributions(file_path);
+
+-- Branch tracking: when commits reach target branches/tags
+CREATE TABLE branch_tracking (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    commit_id UUID NOT NULL REFERENCES commits(id) ON DELETE CASCADE,
+    branch TEXT NOT NULL,
+    tag TEXT,
+    tracked_at TIMESTAMPTZ NOT NULL,
+    tracking_type TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(commit_id, branch)
+);
+
+CREATE INDEX idx_branch_tracking_commit ON branch_tracking(commit_id);
+CREATE INDEX idx_branch_tracking_branch ON branch_tracking(branch);
+
+-- Policies
 CREATE TABLE policies (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id UUID NOT NULL REFERENCES orgs(id),
@@ -179,7 +280,7 @@ CREATE TABLE policies (
 CREATE INDEX idx_policies_org_id ON policies(org_id);
 CREATE INDEX idx_policies_repo_id ON policies(repo_id);
 
--- Amendments (from 009)
+-- Amendments
 CREATE TABLE amendments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     original_commit_id UUID NOT NULL REFERENCES commits(id),
@@ -193,7 +294,7 @@ CREATE TABLE amendments (
 
 CREATE INDEX idx_amendments_commit ON amendments(original_commit_id);
 
--- Audit log (from 009)
+-- Audit log
 CREATE TABLE audit_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id UUID NOT NULL REFERENCES orgs(id),
@@ -213,7 +314,7 @@ CREATE INDEX idx_audit_log_actor ON audit_log(actor_id);
 CREATE INDEX idx_audit_log_resource ON audit_log(resource_type, resource_id);
 CREATE INDEX idx_audit_log_created ON audit_log(created_at);
 
--- Chain verifications (from 009)
+-- Chain verifications
 CREATE TABLE chain_verifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id UUID NOT NULL REFERENCES orgs(id),
@@ -228,7 +329,7 @@ CREATE TABLE chain_verifications (
 
 CREATE INDEX idx_chain_verifications_org ON chain_verifications(org_id);
 
--- Code stories (from 010 + 013)
+-- Code stories
 CREATE TABLE code_stories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     repo_id UUID NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
@@ -263,3 +364,28 @@ CREATE TABLE invitation_requests (
 
 CREATE INDEX idx_invitation_requests_org ON invitation_requests(org_id, status);
 CREATE INDEX idx_invitation_requests_email ON invitation_requests(email);
+
+-- Model pricing
+CREATE TABLE model_pricing (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    model TEXT NOT NULL,
+    input_per_mtok DOUBLE PRECISION NOT NULL,
+    output_per_mtok DOUBLE PRECISION NOT NULL,
+    cache_read_per_mtok DOUBLE PRECISION NOT NULL,
+    cache_write_per_mtok DOUBLE PRECISION NOT NULL,
+    source TEXT NOT NULL DEFAULT 'manual',
+    effective_from TIMESTAMPTZ NOT NULL,
+    effective_until TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_model_pricing_lookup ON model_pricing(model, effective_from);
+
+-- Pricing sync log
+CREATE TABLE pricing_sync_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    synced_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    models_updated TEXT[] NOT NULL DEFAULT '{}',
+    source TEXT NOT NULL DEFAULT 'litellm',
+    error TEXT
+);
