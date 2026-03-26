@@ -1,0 +1,37 @@
+crates/tracevault-server/src/branch_tracking.rs
+  21c374685fad61bc 7-8,19
+crates/tracevault-server/src/pricing.rs
+  21c374685fad61bc 199,242
+crates/tracevault-server/src/api/session_detail.rs
+  21c374685fad61bc 441,475
+crates/tracevault-server/src/api/pricing.rs
+  21c374685fad61bc 86
+crates/tracevault-server/src/attribution.rs
+  21c374685fad61bc 169
+crates/tracevault-server/src/story.rs
+  21c374685fad61bc 116,119,134
+crates/tracevault-server/src/pricing_sync.rs
+  21c374685fad61bc 154
+crates/tracevault-server/src/api/dashboard.rs
+  21c374685fad61bc 121,168,212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "c529c04325ca3df7efa78866bcb3c22dd43891e1",
+  "prompts": {
+    "21c374685fad61bc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "42de0160-569e-4874-9d25-f0c46790288e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 53,
+      "total_deletions": 53,
+      "accepted_lines": 49,
+      "overriden_lines": 0
+    }
+  }
+}
