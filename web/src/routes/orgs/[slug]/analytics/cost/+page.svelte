@@ -5,6 +5,7 @@
 	import EnterpriseUpgrade from '$lib/components/enterprise-upgrade.svelte';
 	import Chart from '$lib/components/chart.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
+	import HelpTip from '$lib/components/HelpTip.svelte';
 	import DollarSign from '@lucide/svelte/icons/dollar-sign';
 	import PiggyBank from '@lucide/svelte/icons/piggy-bank';
 	import Calculator from '@lucide/svelte/icons/calculator';
@@ -169,13 +170,13 @@
 		<p class="text-destructive">{error}</p>
 	{:else if data}
 		<div class="grid grid-cols-1 gap-4 md:grid-cols-3">
-			<StatCard label="Total Cost" value={fmtCost(data.total_cost)} icon={DollarSign} color="#dc2626" />
-			<StatCard label="Cache Savings" value={fmtCost(data.cache_savings_usd)} icon={PiggyBank} color="#10b981" />
-			<StatCard label="Avg Cost/Session" value={fmtCost(data.avg_cost_per_session)} icon={Calculator} color="#3b82f6" />
+			<StatCard label="Total Cost" value={fmtCost(data.total_cost)} icon={DollarSign} color="#dc2626" tooltip="Total estimated cost based on token usage and model pricing rates." />
+			<StatCard label="Cache Savings" value={fmtCost(data.cache_savings_usd)} icon={PiggyBank} color="#10b981" tooltip="Net savings from prompt caching — tokens served from cache at reduced rates." />
+			<StatCard label="Avg Cost/Session" value={fmtCost(data.avg_cost_per_session)} icon={Calculator} color="#3b82f6" tooltip="Average estimated cost per session." />
 		</div>
 
 		<div class="border-border rounded-lg border p-3">
-			<h4 class="mb-2 text-sm font-semibold">Cost Over Time</h4>
+			<h4 class="mb-2 text-sm font-semibold">Cost Over Time<HelpTip text="Daily cost trend over the selected period." /></h4>
 			{#if data.cost_over_time.length > 0}
 				<Chart
 					type="line"
@@ -189,7 +190,7 @@
 
 		<div class="grid gap-6 lg:grid-cols-2">
 			<div class="border-border rounded-lg border p-3">
-				<h4 class="mb-2 text-sm font-semibold">Cost by Model</h4>
+				<h4 class="mb-2 text-sm font-semibold">Cost by Model<HelpTip text="Cost distribution across different AI models." /></h4>
 				{#if data.cost_by_model.length > 0}
 					<div class="flex justify-center">
 						<div class="max-w-[300px]">
@@ -206,7 +207,7 @@
 			</div>
 
 			<div class="border-border rounded-lg border p-3">
-				<h4 class="mb-2 text-sm font-semibold">Cost by Repository</h4>
+				<h4 class="mb-2 text-sm font-semibold">Cost by Repository<HelpTip text="Cost breakdown by repository." /></h4>
 				{#if data.cost_by_repo.length > 0}
 					<Chart
 						type="bar"
@@ -220,7 +221,7 @@
 		</div>
 
 		<div class="border-border rounded-lg border p-3">
-			<h4 class="mb-2 text-sm font-semibold">Cost by Author</h4>
+			<h4 class="mb-2 text-sm font-semibold">Cost by Author<HelpTip text="Cost breakdown by developer." /></h4>
 			{#if data.cost_by_author.length > 0}
 				<Chart
 					type="bar"

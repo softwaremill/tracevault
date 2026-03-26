@@ -1,6 +1,4 @@
 <script lang="ts">
-	import TranscriptRecord from './TranscriptRecord.svelte';
-
 	interface TranscriptRecordData {
 		record_type: string;
 		timestamp: string | null;
@@ -46,18 +44,16 @@
 
 	function toggleFilter(type: string) {
 		const next = new Set(activeFilters);
-		if (next.has(type)) {
-			next.delete(type);
-		} else {
-			next.add(type);
-		}
+		if (next.has(type)) next.delete(type);
+		else next.add(type);
 		activeFilters = next;
 	}
 
 	let filteredRecords = $derived(
-		activeFilters.size === 0
+		(activeFilters.size === 0
 			? records
 			: records.filter((r) => activeFilters.has(r.record_type))
+		).filter((r) => r.text && r.text.trim().length > 0)
 	);
 </script>
 
@@ -72,7 +68,9 @@
 			{@const isActive = activeFilters.size === 0 || activeFilters.has(type)}
 			<button
 				class="rounded-full border px-2.5 py-1 text-[11px] transition-opacity"
-				style="background: {color}15; color: {color}; border-color: {color}30; opacity: {isActive ? 1 : 0.4}"
+				style="background: {color}15; color: {color}; border-color: {color}30; opacity: {isActive
+					? 1
+					: 0.4}"
 				onclick={() => toggleFilter(type)}
 			>
 				{type} ({count})
@@ -80,9 +78,19 @@
 		{/each}
 	</div>
 
-	<div class="border-border overflow-hidden rounded-lg border">
+	<div class="space-y-2 rounded-lg border border-border p-4">
 		{#each filteredRecords as record}
-			<TranscriptRecord {record} />
+			<div
+				class="max-w-[85%] rounded-lg px-3 py-2 text-xs
+					{record.record_type === 'user'
+					? 'bg-primary/10 mr-auto'
+					: record.record_type === 'assistant'
+						? 'bg-muted ml-auto'
+						: 'bg-muted/50 mr-auto'}"
+			>
+				<div class="text-muted-foreground mb-1 text-[10px] font-medium uppercase">{record.record_type}</div>
+				<div class="whitespace-pre-wrap break-words">{record.text?.trim()}</div>
+			</div>
 		{/each}
 
 		{#if filteredRecords.length === 0}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Chart from '$lib/components/chart.svelte';
+	import HelpTip from '$lib/components/HelpTip.svelte';
 
 	interface PerCallUsage {
 		index: number;
@@ -133,7 +134,7 @@
 		scales: {
 			y: {
 				ticks: {
-					callback: (value: string | number) => `$${Number(value).toFixed(3)}`
+					callback: (value: string | number) => `$${Math.round(Number(value))}`
 				}
 			}
 		},
@@ -154,21 +155,21 @@
 
 <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
 	<div class="border-border rounded-lg border p-3">
-		<h4 class="mb-2 text-sm font-semibold">Tokens per API Call</h4>
+		<h4 class="mb-2 text-sm font-semibold">Tokens per API Call<HelpTip text="Token breakdown for each API call in the session. Shows how token usage varies across the conversation." /></h4>
 		<div style="height: 200px">
 			<Chart type="bar" data={stackedBarData()} options={stackedOptions} />
 		</div>
 	</div>
 
 	<div class="border-border rounded-lg border p-3">
-		<h4 class="mb-2 text-sm font-semibold">Cumulative Cost</h4>
+		<h4 class="mb-2 text-sm font-semibold">Cumulative Cost<HelpTip text="Running total cost across all API calls. Steep sections indicate expensive calls." /></h4>
 		<div style="height: 200px">
 			<Chart type="line" data={cumulativeCostData()} options={costOptions} />
 		</div>
 	</div>
 
 	<div class="border-border rounded-lg border p-3">
-		<h4 class="mb-2 text-sm font-semibold">Token Distribution</h4>
+		<h4 class="mb-2 text-sm font-semibold">Token Distribution<HelpTip text="Overall proportion of token types. Large cache read slice indicates good cache efficiency." /></h4>
 		<div style="height: 200px">
 			<Chart type="doughnut" data={doughnutData()} options={doughnutOptions} />
 		</div>

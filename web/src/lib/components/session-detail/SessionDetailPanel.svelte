@@ -16,7 +16,8 @@
 	let data: any = $state(null);
 	let loading = $state(true);
 	let error = $state('');
-	let showDetail = $state(false);
+	let showCharts = $state(true);
+	let showTranscript = $state(false);
 
 	async function fetchDetail() {
 		loading = true;
@@ -56,21 +57,37 @@
 			costBreakdown={data.cost_breakdown}
 		/>
 
-		{#if !showDetail}
-			<div class="mt-4 text-center">
+		<div class="mt-4 space-y-3">
+			<div class="border-border overflow-hidden rounded-lg border">
 				<button
-					class="bg-muted hover:bg-muted/80 border-border rounded-md border px-5 py-2 text-sm transition-colors"
-					style="color: #4f6ef7"
-					onclick={() => (showDetail = true)}
+					class="hover:bg-muted/40 flex w-full items-center gap-3 px-4 py-3 text-left transition-colors"
+					onclick={() => (showCharts = !showCharts)}
 				>
-					Show detailed charts & transcript ▼
+					<span class="text-muted-foreground/50 text-xs">{showCharts ? '▼' : '▶'}</span>
+					<span class="text-sm font-semibold">Charts</span>
 				</button>
+				{#if showCharts}
+					<div class="border-border border-t px-4 py-4">
+						<SessionCharts perCall={data.per_call} tokenDistribution={data.token_distribution} />
+					</div>
+				{/if}
 			</div>
-		{:else}
-			<div class="mt-4 space-y-6">
-				<SessionCharts perCall={data.per_call} tokenDistribution={data.token_distribution} />
-				<SessionTranscript records={data.transcript_records} />
+
+			<div class="border-border overflow-hidden rounded-lg border">
+				<button
+					class="hover:bg-muted/40 flex w-full items-center gap-3 px-4 py-3 text-left transition-colors"
+					onclick={() => (showTranscript = !showTranscript)}
+				>
+					<span class="text-muted-foreground/50 text-xs">{showTranscript ? '▼' : '▶'}</span>
+					<span class="text-sm font-semibold">Transcript</span>
+					<span class="text-muted-foreground ml-auto text-xs">{data.transcript_records.length} records</span>
+				</button>
+				{#if showTranscript}
+					<div class="border-border border-t px-4 py-4">
+						<SessionTranscript records={data.transcript_records} />
+					</div>
+				{/if}
 			</div>
-		{/if}
+		</div>
 	{/if}
 </div>

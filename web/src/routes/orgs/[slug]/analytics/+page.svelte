@@ -2,6 +2,7 @@
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
 	import StatCard from '$lib/components/StatCard.svelte';
+	import HelpTip from '$lib/components/HelpTip.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
 	import Chart from '$lib/components/chart.svelte';
 	import GitCommitHorizontalIcon from '@lucide/svelte/icons/git-commit-horizontal';
@@ -258,21 +259,22 @@
 		<p class="text-destructive">{error}</p>
 	{:else if data}
 		<div class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3">
-			<StatCard label="Total Commits" value={fmtNum(data.total_commits)} icon={GitCommitHorizontalIcon} color="#3b82f6" />
-			<StatCard label="Sessions" value={fmtNum(data.total_sessions)} icon={MonitorPlayIcon} color="#10b981" />
-			<StatCard label="Total Tokens" value={fmtNum(data.total_tokens)} icon={CoinsIcon} color="#f59e0b" secondary={tokensSecondary} />
-			<StatCard label="Active Authors" value={String(data.active_authors)} icon={UsersIcon} color="#8b5cf6" />
-			<StatCard label="AI %" value={data.ai_percentage != null ? `${data.ai_percentage.toFixed(1)}%` : 'N/A'} icon={PercentIcon} color="#ec4899" />
-			<StatCard label="Estimated Cost" value={fmtCost(data.estimated_cost_usd)} icon={DollarSignIcon} color="#dc2626" secondary={costSecondary} />
-			<StatCard label="Avg Session Duration" value={fmtDuration(data.avg_session_duration_ms)} icon={ClockIcon} color="#06b6d4" />
-			<StatCard label="Total Tool Calls" value={fmtNum(data.total_tool_calls)} icon={WrenchIcon} color="#f59e0b" />
-			<StatCard label="Cache Savings" value={fmtCost(data.cache_savings_usd)} icon={PiggyBankIcon} color="#10b981" />
+			<StatCard label="Total Commits" value={fmtNum(data.total_commits)} icon={GitCommitHorizontalIcon} color="#3b82f6" tooltip="Total git commits linked to AI sessions in the selected period." />
+			<StatCard label="Sessions" value={fmtNum(data.total_sessions)} icon={MonitorPlayIcon} color="#10b981" tooltip="Total AI coding sessions in the selected period." />
+			<StatCard label="Total Tokens" value={fmtNum(data.total_tokens)} icon={CoinsIcon} color="#f59e0b" secondary={tokensSecondary} tooltip="Total tokens processed, including input, output, and cached tokens." />
+			<StatCard label="Active Authors" value={String(data.active_authors)} icon={UsersIcon} color="#8b5cf6" tooltip="Number of unique developers with AI sessions." />
+			<StatCard label="AI %" value={data.ai_percentage != null ? `${data.ai_percentage.toFixed(1)}%` : 'N/A'} icon={PercentIcon} color="#ec4899" tooltip="Percentage of code lines attributed to AI across all commits." />
+			<StatCard label="Estimated Cost" value={fmtCost(data.estimated_cost_usd)} icon={DollarSignIcon} color="#dc2626" secondary={costSecondary} tooltip="Estimated total cost based on token usage and model pricing." />
+			<StatCard label="Avg Session Duration" value={fmtDuration(data.avg_session_duration_ms)} icon={ClockIcon} color="#06b6d4" tooltip="Average wall-clock time of completed sessions." />
+			<StatCard label="Total Tool Calls" value={fmtNum(data.total_tool_calls)} icon={WrenchIcon} color="#f59e0b" tooltip="Total tool invocations across all sessions (edits, reads, bash, etc.)." />
+			<StatCard label="Cache Savings" value={fmtCost(data.cache_savings_usd)} icon={PiggyBankIcon} color="#10b981" tooltip="Money saved by reusing cached tokens at reduced rates." />
 		</div>
 
 		<div class="grid gap-6 lg:grid-cols-2">
 			<div class="border-border rounded-lg border p-3">
 				<h4 class="mb-2 text-sm font-semibold">
 					<a href="/orgs/{slug}/analytics/tokens" class="hover:underline">Tokens Over Time</a>
+					<HelpTip text="Input and output token usage per day over the selected period." />
 				</h4>
 				{#if data.tokens_over_time.length > 0}
 					<Chart
@@ -288,6 +290,7 @@
 			<div class="border-border rounded-lg border p-3">
 				<h4 class="mb-2 text-sm font-semibold">
 					<a href="/orgs/{slug}/analytics/tokens" class="hover:underline">Top Repos by Tokens</a>
+					<HelpTip text="Repositories ranked by total token consumption." />
 				</h4>
 				{#if data.top_repos.length > 0}
 					<Chart
@@ -305,6 +308,7 @@
 			<div class="border-border rounded-lg border p-3">
 				<h4 class="mb-2 text-sm font-semibold">
 					<a href="/orgs/{slug}/analytics/sessions" class="hover:underline">Hourly Activity</a>
+					<HelpTip text="Distribution of sessions by hour of day (UTC), showing peak coding times." />
 				</h4>
 				{#if data.hourly_activity.length > 0}
 					<Chart
@@ -324,6 +328,7 @@
 			<div class="border-border rounded-lg border p-3">
 				<h4 class="mb-2 text-sm font-semibold">
 					<a href="/orgs/{slug}/analytics/sessions" class="hover:underline">Sessions Over Time</a>
+					<HelpTip text="Number of sessions started per day." />
 				</h4>
 				{#if data.sessions_over_time.length > 0}
 					<Chart
@@ -341,6 +346,7 @@
 			<div class="border-border rounded-lg border p-3">
 				<h4 class="mb-2 text-sm font-semibold">
 					<a href="/orgs/{slug}/analytics/models" class="hover:underline">Model Distribution</a>
+					<HelpTip text="Breakdown of sessions by AI model used." />
 				</h4>
 				<div class="flex justify-center">
 					{#if data.model_distribution.length > 0}

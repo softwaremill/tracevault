@@ -3,6 +3,7 @@
 	import { api } from '$lib/api';
 	import DataTable from '$lib/components/DataTable.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
+	import HelpTip from '$lib/components/HelpTip.svelte';
 	import SessionDetailPanel from '$lib/components/session-detail/SessionDetailPanel.svelte';
 	import MonitorPlayIcon from '@lucide/svelte/icons/monitor-play';
 	import ClockIcon from '@lucide/svelte/icons/clock';
@@ -174,21 +175,22 @@
 	{:else if data}
 		<!-- Stat cards -->
 		<div class="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
-			<StatCard label="Total Sessions" value={fmtNum(data.total_sessions)} icon={MonitorPlayIcon} color="#3b82f6" />
-			<StatCard label="Avg Duration" value={fmtDuration(data.avg_duration_ms)} icon={ClockIcon} color="#10b981" />
+			<StatCard label="Total Sessions" value={fmtNum(data.total_sessions)} icon={MonitorPlayIcon} color="#3b82f6" tooltip="Total AI coding sessions in the selected period." />
+			<StatCard label="Avg Duration" value={fmtDuration(data.avg_duration_ms)} icon={ClockIcon} color="#10b981" tooltip="Average wall-clock duration of completed sessions." />
 			<StatCard
 				label="Avg Messages/Session"
 				value={data.avg_messages_per_session != null ? data.avg_messages_per_session.toFixed(1) : '-'}
 				icon={MessageSquareIcon}
 				color="#f59e0b"
+				tooltip="Average number of user + assistant messages per session."
 			/>
-			<StatCard label="Total Cost" value={fmtCost(totalCost)} icon={DollarSignIcon} color="#dc2626" />
-			<StatCard label="Top Model" value={topModel} icon={CpuIcon} color="#8b5cf6" />
+			<StatCard label="Total Cost" value={fmtCost(totalCost)} icon={DollarSignIcon} color="#dc2626" tooltip="Total estimated cost across all sessions." />
+			<StatCard label="Top Model" value={topModel} icon={CpuIcon} color="#8b5cf6" tooltip="Most frequently used AI model." />
 		</div>
 
 		<!-- Tool Frequency chart -->
 		<div class="border-border rounded-lg border p-3">
-			<h4 class="mb-2 text-sm font-semibold">Tool Frequency</h4>
+			<h4 class="mb-2 text-sm font-semibold">Tool Frequency<HelpTip text="Distribution of tool usage across all sessions. Shows which tools are used most frequently." /></h4>
 			{#if Object.keys(data.tool_frequency).length > 0}
 				{@const entries = toolFrequencyEntries(data)}
 				{@const total = toolFrequencyTotal(data)}

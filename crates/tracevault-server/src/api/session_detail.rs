@@ -134,7 +134,7 @@ fn parse_record(record: &serde_json::Value, pricing: &ModelPricing) -> Option<Tr
             }
 
             let usage = msg.get("usage").map(|u| {
-                let input = u.get("input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+                let total_input = u.get("input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
                 let output = u.get("output_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
                 let cache_read = u
                     .get("cache_read_input_tokens")
@@ -144,15 +144,18 @@ fn parse_record(record: &serde_json::Value, pricing: &ModelPricing) -> Option<Tr
                     .get("cache_creation_input_tokens")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0);
+                // input_tokens from the API includes cache_read and cache_write tokens,
+                // so subtract them to get fresh (non-cached) input tokens only
+                let fresh_input = (total_input - cache_read - cache_write).max(0);
                 let cost = pricing::estimate_cost_with_pricing(
                     pricing,
-                    input,
+                    fresh_input,
                     output,
                     cache_read,
                     cache_write,
                 );
                 RecordUsage {
-                    input_tokens: input,
+                    input_tokens: fresh_input,
                     output_tokens: output,
                     cache_read_tokens: cache_read,
                     cache_write_tokens: cache_write,
