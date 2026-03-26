@@ -1,0 +1,25 @@
+crates/tracevault-server/src/api/stream.rs
+  734286ae00d2bbaa 116-118,121,140
+crates/tracevault-server/src/api/session_detail.rs
+  734286ae00d2bbaa 137,147-149,152,158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "9e4694d2e460bc4590f28e397aea679605ec3352",
+  "prompts": {
+    "734286ae00d2bbaa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8c163980-121e-403c-8f8d-d71bc09f2daf",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 11,
+      "total_deletions": 5,
+      "accepted_lines": 11,
+      "overriden_lines": 0
+    }
+  }
+}
