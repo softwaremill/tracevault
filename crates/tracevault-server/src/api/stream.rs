@@ -113,9 +113,12 @@ pub async fn handle_stream(
                 || batch_cache_write > 0;
             if has_tokens {
                 let model_name = detected_model.as_deref().unwrap_or("unknown");
+                // input_tokens from the API includes cache_read and cache_write,
+                // subtract to get fresh (non-cached) input only
+                let fresh_input = (batch_input - batch_cache_read - batch_cache_write).max(0);
                 let batch_cost = crate::pricing::estimate_cost(
                     model_name,
-                    batch_input,
+                    fresh_input,
                     batch_output,
                     batch_cache_read,
                     batch_cache_write,
@@ -134,7 +137,7 @@ pub async fn handle_stream(
                      WHERE id = $1",
                 )
                 .bind(session_db_id)
-                .bind(batch_input)
+                .bind(fresh_input)
                 .bind(batch_output)
                 .bind(batch_cache_read)
                 .bind(batch_cache_write)
