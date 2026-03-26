@@ -23,7 +23,6 @@ pub struct PushTraceRequest {
     pub estimated_cost_usd: Option<f64>,
     pub api_calls: Option<i32>,
     pub session_data: Option<serde_json::Value>,
-    pub attribution: Option<serde_json::Value>,
     pub transcript: Option<serde_json::Value>,
     pub diff_data: Option<serde_json::Value>,
     pub model_usage: Option<serde_json::Value>,

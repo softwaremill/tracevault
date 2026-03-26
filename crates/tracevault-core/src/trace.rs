@@ -2,7 +2,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::attribution::{Attribution, AttributionSummary};
 use crate::token_usage::TokenUsage;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,7 +16,6 @@ pub struct TraceRecord {
     pub tool: String,
     pub tool_version: Option<String>,
     pub session: Session,
-    pub attribution: Attribution,
     pub agent_trace: Option<serde_json::Value>,
     pub signature: Option<String>,
 }
@@ -60,7 +58,6 @@ impl TraceRecord {
         author: String,
         tool: String,
         session: Session,
-        attribution: Attribution,
     ) -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -73,23 +70,8 @@ impl TraceRecord {
             tool,
             tool_version: None,
             session,
-            attribution,
             agent_trace: None,
             signature: None,
-        }
-    }
-}
-
-impl Default for Attribution {
-    fn default() -> Self {
-        Self {
-            files: vec![],
-            summary: AttributionSummary {
-                total_lines_added: 0,
-                total_lines_deleted: 0,
-                ai_percentage: 0.0,
-                human_percentage: 100.0,
-            },
         }
     }
 }

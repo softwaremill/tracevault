@@ -1,9 +1,6 @@
-pub mod attribution;
-pub mod attribution_engine;
 pub mod code_nav;
 pub mod diff;
 pub mod extensions;
-pub mod gitai;
 pub mod hooks;
 pub mod permissions;
 pub mod policy;
