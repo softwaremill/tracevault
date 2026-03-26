@@ -182,7 +182,7 @@ pub async fn get_stats(
     let repo_filter = params.repo_id;
 
     let active_sessions: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sessions_v2 s
+        "SELECT COUNT(*) FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          WHERE r.org_id = $1
            AND s.status = 'active'
@@ -196,7 +196,7 @@ pub async fn get_stats(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let total_sessions: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sessions_v2 s
+        "SELECT COUNT(*) FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          WHERE r.org_id = $1
            AND ($2::UUID IS NULL OR s.repo_id = $2)",
@@ -208,7 +208,7 @@ pub async fn get_stats(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let total_commits: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM commits_v2 c
+        "SELECT COUNT(*) FROM commits c
          JOIN repos r ON c.repo_id = r.id
          WHERE r.org_id = $1
            AND ($2::UUID IS NULL OR c.repo_id = $2)",
@@ -221,7 +221,7 @@ pub async fn get_stats(
 
     let total_events: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM events e
-         JOIN sessions_v2 s ON e.session_id = s.id
+         JOIN sessions s ON e.session_id = s.id
          JOIN repos r ON s.repo_id = r.id
          WHERE r.org_id = $1
            AND ($2::UUID IS NULL OR s.repo_id = $2)",
@@ -260,7 +260,7 @@ pub async fn list_sessions(
                 s.user_id, u.email AS user_email, s.status, s.model, s.tool,
                 s.total_tool_calls, s.total_tokens, s.estimated_cost_usd,
                 s.cwd, s.started_at, s.updated_at
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -297,7 +297,7 @@ pub async fn get_session(
         "SELECT s.id, s.session_id, r.name AS repo_name, u.email AS user_email,
                 s.status, s.model, s.tool, s.total_tool_calls, s.total_tokens,
                 s.estimated_cost_usd, s.cwd, s.started_at, s.ended_at, s.updated_at
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          JOIN users u ON s.user_id = u.id
          WHERE s.id = $1 AND r.org_id = $2",
@@ -346,7 +346,7 @@ pub async fn get_session(
     let linked_commits = sqlx::query_as::<_, LinkedCommitRow>(
         "SELECT ca.commit_id, c.commit_sha, c.branch, MAX(ca.confidence) AS confidence
          FROM commit_attributions ca
-         JOIN commits_v2 c ON ca.commit_id = c.id
+         JOIN commits c ON ca.commit_id = c.id
          WHERE ca.session_id = $1
          GROUP BY ca.commit_id, c.commit_sha, c.branch, c.committed_at
          ORDER BY c.committed_at DESC NULLS LAST",
@@ -379,7 +379,7 @@ pub async fn list_commits(
                 COUNT(DISTINCT ca.file_path) AS files_changed,
                 COUNT(DISTINCT ca.session_id) AS ai_sessions_count,
                 c.committed_at
-         FROM commits_v2 c
+         FROM commits c
          JOIN repos r ON c.repo_id = r.id
          LEFT JOIN commit_attributions ca ON ca.commit_id = c.id
          WHERE r.org_id = $1
@@ -413,7 +413,7 @@ pub async fn get_commit(
 ) -> Result<Json<CommitDetailResponse>, (StatusCode, String)> {
     let commit = sqlx::query_as::<_, CommitDetail>(
         "SELECT c.id, c.commit_sha, c.branch, c.author, c.message, c.committed_at
-         FROM commits_v2 c
+         FROM commits c
          JOIN repos r ON c.repo_id = r.id
          WHERE c.id = $1 AND r.org_id = $2",
     )
@@ -425,7 +425,7 @@ pub async fn get_commit(
     .ok_or((StatusCode::NOT_FOUND, "Commit not found".into()))?;
 
     let diff_data: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT diff_data FROM commits_v2 WHERE id = $1")
+        sqlx::query_scalar("SELECT diff_data FROM commits WHERE id = $1")
             .bind(commit_id)
             .fetch_one(&state.pool)
             .await
@@ -438,7 +438,7 @@ pub async fn get_commit(
                 MIN(ca.line_start) AS line_start,
                 MAX(ca.line_end) AS line_end
          FROM commit_attributions ca
-         JOIN sessions_v2 s ON ca.session_id = s.id
+         JOIN sessions s ON ca.session_id = s.id
          WHERE ca.commit_id = $1
          GROUP BY ca.file_path, ca.session_id, s.session_id
          ORDER BY ca.file_path, MIN(ca.line_start) NULLS LAST",
@@ -547,7 +547,7 @@ pub async fn get_timeline(
                    NULL::text AS author,
                    e.timestamp
             FROM events e
-            JOIN sessions_v2 s ON e.session_id = s.id
+            JOIN sessions s ON e.session_id = s.id
             JOIN repos r ON s.repo_id = r.id
             WHERE r.org_id = $1
               AND ($2::uuid IS NULL OR s.repo_id = $2)
@@ -569,7 +569,7 @@ pub async fn get_timeline(
                    c.branch,
                    c.author,
                    c.committed_at AS timestamp
-            FROM commits_v2 c
+            FROM commits c
             JOIN repos r ON c.repo_id = r.id
             WHERE r.org_id = $1
               AND ($2::uuid IS NULL OR c.repo_id = $2)
@@ -641,7 +641,7 @@ pub async fn get_attribution(
     // Get commit + repo info
     let row = sqlx::query_as::<_, (String, Uuid)>(
         "SELECT c.commit_sha, c.repo_id
-         FROM commits_v2 c
+         FROM commits c
          JOIN repos r ON c.repo_id = r.id
          WHERE c.id = $1 AND r.org_id = $2",
     )
@@ -703,7 +703,7 @@ pub async fn get_attribution(
     // Resolve blame SHAs to commit IDs in our DB
     let sha_to_commit_id: std::collections::HashMap<String, Uuid> = if !blame_shas.is_empty() {
         sqlx::query_as::<_, (String, Uuid)>(
-            "SELECT commit_sha, id FROM commits_v2 WHERE repo_id = $1 AND commit_sha = ANY($2)",
+            "SELECT commit_sha, id FROM commits WHERE repo_id = $1 AND commit_sha = ANY($2)",
         )
         .bind(repo_id)
         .bind(&blame_shas)
@@ -722,7 +722,7 @@ pub async fn get_attribution(
     let attributions = sqlx::query_as::<_, (Uuid, Option<Uuid>, i32, i32, f32)>(
         "SELECT ca.commit_id, ca.session_id, ca.line_start, ca.line_end, ca.confidence
          FROM commit_attributions ca
-         JOIN sessions_v2 s ON ca.session_id = s.id
+         JOIN sessions s ON ca.session_id = s.id
          WHERE ca.commit_id = ANY($1) AND ca.file_path = $2",
     )
     .bind(&all_commit_ids)
@@ -735,7 +735,7 @@ pub async fn get_attribution(
     let session_ids: Vec<Uuid> = attributions.iter().filter_map(|a| a.1).collect();
     let session_short_ids: std::collections::HashMap<Uuid, String> = if !session_ids.is_empty() {
         sqlx::query_as::<_, (Uuid, String)>(
-            "SELECT id, LEFT(session_id, 8) FROM sessions_v2 WHERE id = ANY($1)",
+            "SELECT id, LEFT(session_id, 8) FROM sessions WHERE id = ANY($1)",
         )
         .bind(&session_ids)
         .fetch_all(&state.pool)
@@ -901,10 +901,10 @@ pub async fn get_branches(
             MAX(bt.tracking_type) AS status,
             MAX(bt.tracked_at) AS last_activity
          FROM branch_tracking bt
-         JOIN commits_v2 c ON bt.commit_id = c.id
+         JOIN commits c ON bt.commit_id = c.id
          JOIN repos r ON c.repo_id = r.id
          LEFT JOIN commit_attributions ca ON ca.commit_id = c.id
-         LEFT JOIN sessions_v2 s ON ca.session_id = s.id
+         LEFT JOIN sessions s ON ca.session_id = s.id
          WHERE r.org_id = $1
            AND ($2::uuid IS NULL OR c.repo_id = $2)
          GROUP BY bt.branch
