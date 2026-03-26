@@ -1,0 +1,23 @@
+web/src/lib/components/session-detail/SessionDetailPanel.svelte
+  734286ae00d2bbaa 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "1968f65abe70810a8cab6b841d1e0484e24ef337",
+  "prompts": {
+    "734286ae00d2bbaa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8c163980-121e-403c-8f8d-d71bc09f2daf",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
