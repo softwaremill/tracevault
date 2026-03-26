@@ -1,0 +1,51 @@
+web/src/lib/components/dashboard/SessionQualityBar.svelte
+  734286ae00d2bbaa 2-3,22,26,30
+web/src/routes/orgs/[slug]/analytics/+page.svelte
+  734286ae00d2bbaa 5,262-270,277,293,311,331,349
+web/src/routes/orgs/[slug]/analytics/sessions/+page.svelte
+  734286ae00d2bbaa 6,178-179,185,187-188,193
+web/src/lib/components/session-detail/SessionSummaryStats.svelte
+  734286ae00d2bbaa 54-66,71-83,88-100,105-117,164-176
+web/src/lib/components/HelpTip.svelte
+  734286ae00d2bbaa 1-20
+web/src/lib/components/session-detail/SessionCharts.svelte
+  734286ae00d2bbaa 3,158,165,172
+web/src/lib/components/StatCard.svelte
+  734286ae00d2bbaa 3,11,14,28-39
+web/src/routes/orgs/[slug]/analytics/tokens/+page.svelte
+  734286ae00d2bbaa 5,169,176,183,188,217
+web/src/lib/components/dashboard/KpiCard.svelte
+  734286ae00d2bbaa 2-3,12,22-23,55
+web/src/routes/orgs/[slug]/dashboard/+page.svelte
+  734286ae00d2bbaa 92,104,113,122
+web/src/lib/components/dashboard/ComplianceCard.svelte
+  734286ae00d2bbaa 2-3,24
+web/src/routes/orgs/[slug]/analytics/attribution/+page.svelte
+  734286ae00d2bbaa 5,169,173,177,184,202,220
+web/src/lib/components/dashboard/CacheSavingsCard.svelte
+  734286ae00d2bbaa 2-3,15
+web/src/routes/orgs/[slug]/analytics/cost/+page.svelte
+  734286ae00d2bbaa 8,173-175,179,193,210,224
+web/src/routes/orgs/[slug]/analytics/models/+page.svelte
+  734286ae00d2bbaa 6,166,183,231
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "519408470f1c057e6d4aa99496056f515dfd2b9a",
+  "prompts": {
+    "734286ae00d2bbaa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8c163980-121e-403c-8f8d-d71bc09f2daf",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 172,
+      "total_deletions": 47,
+      "accepted_lines": 172,
+      "overriden_lines": 0
+    }
+  }
+}
