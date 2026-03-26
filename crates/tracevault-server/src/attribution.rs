@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -214,4 +216,169 @@ pub async fn attribute_commit(
     }
 
     Ok(count)
+}
+
+/// Count total added and deleted lines per file from diff_data JSON.
+fn count_diff_lines(diff_data: &serde_json::Value) -> (HashMap<String, i64>, i64) {
+    let mut added_per_file: HashMap<String, i64> = HashMap::new();
+    let mut total_deleted: i64 = 0;
+
+    let Some(files) = diff_data.get("files").and_then(|f| f.as_array()) else {
+        return (added_per_file, 0);
+    };
+
+    for file in files {
+        let Some(file_path) = file.get("path").and_then(|p| p.as_str()) else {
+            continue;
+        };
+        let Some(hunks) = file.get("hunks").and_then(|h| h.as_array()) else {
+            continue;
+        };
+
+        let mut file_added: i64 = 0;
+        for hunk in hunks {
+            // Count added lines from added_lines array
+            if let Some(added) = hunk.get("added_lines").and_then(|l| l.as_array()) {
+                file_added += added.len() as i64;
+            } else if let Some(lines) = hunk.get("lines").and_then(|l| l.as_array()) {
+                // Fallback: count "+"-prefixed lines
+                file_added += lines
+                    .iter()
+                    .filter(|l| l.as_str().is_some_and(|s| s.starts_with('+')))
+                    .count() as i64;
+            }
+
+            // Count deleted lines
+            if let Some(lines) = hunk.get("lines").and_then(|l| l.as_array()) {
+                total_deleted += lines
+                    .iter()
+                    .filter(|l| l.as_str().is_some_and(|s| s.starts_with('-')))
+                    .count() as i64;
+            } else if let Some(del) = hunk.get("deleted_lines").and_then(|l| l.as_array()) {
+                total_deleted += del.len() as i64;
+            }
+        }
+
+        *added_per_file.entry(file_path.to_string()).or_default() += file_added;
+    }
+
+    (added_per_file, total_deleted)
+}
+
+/// Compute attribution summary from commit_attributions and store in commits.attribution JSONB.
+///
+/// After `attribute_commit` populates `commit_attributions`, this function:
+/// 1. Counts total added lines per file from diff_data
+/// 2. Queries commit_attributions for matched line ranges
+/// 3. Deduplicates overlapping ranges (union per file)
+/// 4. Computes AI vs human percentages
+/// 5. Stores the summary in commits.attribution
+pub async fn compute_attribution_summary(
+    pool: &PgPool,
+    commit_id: Uuid,
+    diff_data: &serde_json::Value,
+) -> Result<(), String> {
+    let (added_per_file, total_deleted) = count_diff_lines(diff_data);
+    let total_added: i64 = added_per_file.values().sum();
+
+    if total_added == 0 {
+        // No added lines — store 0% AI
+        let summary = serde_json::json!({
+            "summary": {
+                "total_lines_added": 0,
+                "total_lines_deleted": total_deleted,
+                "ai_percentage": 0.0,
+                "human_percentage": 0.0,
+            }
+        });
+        sqlx::query("UPDATE commits SET attribution = $1 WHERE id = $2")
+            .bind(&summary)
+            .bind(commit_id)
+            .execute(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    // Query all commit_attributions line ranges for this commit
+    let rows = sqlx::query_as::<_, (String, Option<i32>, Option<i32>)>(
+        "SELECT file_path, line_start, line_end FROM commit_attributions WHERE commit_id = $1",
+    )
+    .bind(commit_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Group line ranges by file and merge overlapping ranges
+    let mut ranges_by_file: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
+    for (file_path, line_start, line_end) in &rows {
+        if let (Some(start), Some(end)) = (line_start, line_end) {
+            if *start > 0 && *end > 0 {
+                ranges_by_file
+                    .entry(file_path.clone())
+                    .or_default()
+                    .push((*start, *end));
+            }
+        } else {
+            // File-level match with no line ranges — count all added lines in this file as AI
+            if let Some(&file_added) = added_per_file.get(file_path.as_str()) {
+                if file_added > 0 {
+                    ranges_by_file
+                        .entry(file_path.clone())
+                        .or_default()
+                        .push((1, file_added as i32));
+                }
+            }
+        }
+    }
+
+    // Count AI lines by merging overlapping ranges per file
+    let mut total_ai_lines: i64 = 0;
+    for (file_path, ranges) in &mut ranges_by_file {
+        let merged = merge_ranges(ranges);
+        let ai_lines: i64 = merged.iter().map(|(s, e)| (*e - *s + 1) as i64).sum();
+        // Cap AI lines at the file's total added lines
+        let file_added = added_per_file.get(file_path.as_str()).copied().unwrap_or(0);
+        total_ai_lines += ai_lines.min(file_added);
+    }
+
+    let ai_percentage = (total_ai_lines as f64 / total_added as f64) * 100.0;
+    let human_percentage = 100.0 - ai_percentage;
+
+    let summary = serde_json::json!({
+        "summary": {
+            "total_lines_added": total_added,
+            "total_lines_deleted": total_deleted,
+            "ai_percentage": ai_percentage,
+            "human_percentage": human_percentage,
+        }
+    });
+
+    sqlx::query("UPDATE commits SET attribution = $1 WHERE id = $2")
+        .bind(&summary)
+        .bind(commit_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// Merge overlapping or adjacent ranges into a minimal set of non-overlapping ranges.
+fn merge_ranges(ranges: &mut [(i32, i32)]) -> Vec<(i32, i32)> {
+    if ranges.is_empty() {
+        return vec![];
+    }
+    ranges.sort_unstable();
+
+    let mut merged: Vec<(i32, i32)> = vec![ranges[0]];
+    for &(start, end) in &ranges[1..] {
+        let last = merged.last_mut().unwrap();
+        if start <= last.1 + 1 {
+            last.1 = last.1.max(end);
+        } else {
+            merged.push((start, end));
+        }
+    }
+    merged
 }

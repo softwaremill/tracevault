@@ -7,7 +7,6 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tracevault_core::diff::parse_unified_diff;
-use tracevault_core::gitai::{gitai_to_attribution, parse_gitai_note};
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct PushState {
@@ -610,37 +609,6 @@ fn read_git_diff(
     Some(parse_unified_diff(&raw))
 }
 
-fn read_gitai_attribution(
-    project_root: &Path,
-    commit_sha: &str,
-    diff_files: &[tracevault_core::diff::FileDiff],
-) -> Option<serde_json::Value> {
-    let output = Command::new("git")
-        .args(["notes", "--ref", "refs/notes/ai", "show", commit_sha])
-        .current_dir(project_root)
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None; // git-ai not installed or no note for this commit
-    }
-
-    let note = String::from_utf8_lossy(&output.stdout);
-    let log = parse_gitai_note(&note)?;
-    let attribution = gitai_to_attribution(&log, diff_files);
-    serde_json::to_value(&attribution).ok()
-}
-
-fn is_gitai_installed() -> bool {
-    Command::new("git")
-        .args(["ai", "--version"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
 pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let (server_url, token) = resolve_credentials(project_root);
 
@@ -659,13 +627,6 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
         .and_then(|c| c.org_slug)
         .ok_or("No org_slug in config. Run 'tracevault init' first.")?;
 
-    if !is_gitai_installed() {
-        eprintln!("Warning: git-ai is not installed. AI attribution data will not be available.");
-        eprintln!("  Install it with: npm install -g @anthropic-ai/git-ai");
-        eprintln!("  See: https://github.com/anthropics/git-ai");
-        eprintln!();
-    }
-
     let client = ApiClient::new(&server_url, token.as_deref());
 
     let sessions_dir = project_root.join(".tracevault").join("sessions");
@@ -683,8 +644,6 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
         let diff_data = diff_files
             .as_ref()
             .and_then(|f| serde_json::to_value(f).ok());
-        let attribution =
-            read_gitai_attribution(project_root, sha, diff_files.as_deref().unwrap_or(&[]));
 
         let commit_req = PushTraceRequest {
             repo_name: git.repo_name.clone(),
@@ -700,7 +659,6 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
             estimated_cost_usd: None,
             api_calls: None,
             session_data: None,
-            attribution,
             transcript: None,
             diff_data,
             model_usage: None,
@@ -834,7 +792,6 @@ pub async fn push_traces(project_root: &Path) -> Result<(), Box<dyn std::error::
                 estimated_cost_usd: None,
                 api_calls: Some(summary.event_count as i32),
                 session_data: Some(session_data),
-                attribution: None, // commit-level only
                 transcript: transcript_data.transcript,
                 diff_data: None, // commit-level only
                 model_usage: transcript_data.model_usage,

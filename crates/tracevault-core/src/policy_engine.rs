@@ -27,13 +27,24 @@ impl PolicyEngine {
 fn evaluate_policy(policy: &PolicyRule, trace: &TraceRecord) -> PolicyEvaluation {
     let (result, details) = match &policy.condition {
         PolicyCondition::TraceCompleteness => eval_trace_completeness(trace),
-        PolicyCondition::AiPercentageThreshold { threshold } => {
-            eval_ai_percentage(trace, *threshold)
+        PolicyCondition::AiPercentageThreshold { .. } => {
+            // AI percentage is now computed server-side from commit_attributions.
+            // The client-side policy engine cannot evaluate this.
+            (
+                EvalResult::Pass,
+                "AI percentage evaluated server-side".into(),
+            )
         }
         PolicyCondition::ModelAllowlist { allowed_models } => {
             eval_model_allowlist(trace, allowed_models)
         }
-        PolicyCondition::SensitivePathPattern { patterns } => eval_sensitive_paths(trace, patterns),
+        PolicyCondition::SensitivePathPattern { .. } => {
+            // Sensitive path checking requires attribution data, now server-side only.
+            (
+                EvalResult::Pass,
+                "Sensitive path review evaluated server-side".into(),
+            )
+        }
         PolicyCondition::RequiredToolCall { tool_names } => {
             eval_required_tool_call(trace, tool_names)
         }
@@ -58,10 +69,8 @@ fn evaluate_policy(policy: &PolicyRule, trace: &TraceRecord) -> PolicyEvaluation
 fn eval_trace_completeness(trace: &TraceRecord) -> (EvalResult, String) {
     let has_session = !trace.session.session_id.is_empty();
     let has_model = trace.model.is_some();
-    let has_attribution =
-        !trace.attribution.files.is_empty() || trace.attribution.summary.total_lines_added == 0;
 
-    if has_session && has_model && has_attribution {
+    if has_session && has_model {
         (EvalResult::Pass, "Trace is complete".into())
     } else {
         let mut missing = vec![];
@@ -71,25 +80,7 @@ fn eval_trace_completeness(trace: &TraceRecord) -> (EvalResult, String) {
         if !has_model {
             missing.push("model");
         }
-        if !has_attribution {
-            missing.push("attribution");
-        }
         (EvalResult::Warn, format!("Missing: {}", missing.join(", ")))
-    }
-}
-
-fn eval_ai_percentage(trace: &TraceRecord, threshold: f32) -> (EvalResult, String) {
-    let pct = trace.attribution.summary.ai_percentage;
-    if pct > threshold {
-        (
-            EvalResult::Warn,
-            format!("AI percentage {pct:.1}% exceeds threshold {threshold:.1}%"),
-        )
-    } else {
-        (
-            EvalResult::Pass,
-            format!("AI percentage {pct:.1}% within threshold"),
-        )
     }
 }
 
@@ -106,25 +97,6 @@ fn eval_model_allowlist(trace: &TraceRecord, allowed: &[String]) -> (EvalResult,
             format!("Model {model} is not in allowlist: {}", allowed.join(", ")),
         ),
         None => (EvalResult::Fail, "No model specified in trace".into()),
-    }
-}
-
-fn eval_sensitive_paths(trace: &TraceRecord, patterns: &[String]) -> (EvalResult, String) {
-    let matched: Vec<_> = trace
-        .attribution
-        .files
-        .iter()
-        .filter(|f| patterns.iter().any(|p| f.path.contains(p)) && !f.ai_lines.is_empty())
-        .map(|f| f.path.clone())
-        .collect();
-
-    if matched.is_empty() {
-        (EvalResult::Pass, "No sensitive paths with AI code".into())
-    } else {
-        (
-            EvalResult::Warn,
-            format!("AI code in sensitive paths: {}", matched.join(", ")),
-        )
     }
 }
 

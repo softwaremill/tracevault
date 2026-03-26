@@ -37,10 +37,10 @@ pub async fn handle_commit_push(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // 2. Line-level attribution
+    // 2. Line-level attribution + summary
     let attributions_count = if let Some(diff_data) = &req.diff_data {
         let committed_at = req.committed_at.unwrap_or_else(chrono::Utc::now);
-        crate::attribution::attribute_commit(
+        let count = crate::attribution::attribute_commit(
             &state.pool,
             commit_db_id,
             repo_id,
@@ -48,7 +48,14 @@ pub async fn handle_commit_push(
             committed_at,
         )
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+        // Compute and store attribution summary from commit_attributions
+        crate::attribution::compute_attribution_summary(&state.pool, commit_db_id, diff_data)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+        count
     } else {
         0
     };
