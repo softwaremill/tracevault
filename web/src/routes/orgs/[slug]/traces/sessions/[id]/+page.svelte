@@ -264,7 +264,21 @@
 					if (c && typeof c === 'object') {
 						const block = c as Record<string, unknown>;
 						if (block.type === 'text' && block.text) return String(block.text);
-						if (block.type === 'tool_use') return `[Tool: ${block.name}]`;
+						if (block.type === 'tool_use') {
+							const input = (block.input as Record<string, unknown>) ?? {};
+							const summary = input.file_path
+								? String(input.file_path)
+								: input.command
+									? String(input.command).slice(0, 80)
+									: input.description
+										? String(input.description).slice(0, 80)
+										: input.pattern
+											? String(input.pattern)
+											: input.skill
+												? String(input.skill)
+												: '';
+							return summary ? `[${block.name}: ${summary}]` : `[${block.name}]`;
+						}
 						if (block.type === 'tool_result') {
 							const resultContent = block.content;
 							if (typeof resultContent === 'string') return resultContent.length > 200 ? resultContent.slice(0, 200) + '...' : resultContent;
