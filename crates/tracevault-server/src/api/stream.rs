@@ -31,13 +31,13 @@ pub async fn handle_stream(
 
     // 2. Upsert session
     let session_db_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO sessions_v2 (org_id, repo_id, user_id, session_id, model, cwd, started_at)
+        "INSERT INTO sessions (org_id, repo_id, user_id, session_id, model, cwd, started_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (repo_id, session_id) DO UPDATE SET
              updated_at = now(),
-             model = COALESCE(EXCLUDED.model, sessions_v2.model),
-             cwd = COALESCE(EXCLUDED.cwd, sessions_v2.cwd),
-             status = CASE WHEN sessions_v2.status = 'completed' THEN 'active' ELSE sessions_v2.status END
+             model = COALESCE(EXCLUDED.model, sessions.model),
+             cwd = COALESCE(EXCLUDED.cwd, sessions.cwd),
+             status = CASE WHEN sessions.status = 'completed' THEN 'active' ELSE sessions.status END
          RETURNING id",
     )
     .bind(auth.org_id)
@@ -122,7 +122,7 @@ pub async fn handle_stream(
                 );
 
                 sqlx::query(
-                    "UPDATE sessions_v2 SET
+                    "UPDATE sessions SET
                         input_tokens = input_tokens + $2,
                         output_tokens = output_tokens + $3,
                         cache_read_tokens = cache_read_tokens + $4,
@@ -202,7 +202,7 @@ pub async fn handle_stream(
 
                 // Increment total_tool_calls
                 sqlx::query(
-                    "UPDATE sessions_v2 SET total_tool_calls = total_tool_calls + 1 WHERE id = $1",
+                    "UPDATE sessions SET total_tool_calls = total_tool_calls + 1 WHERE id = $1",
                 )
                 .bind(session_db_id)
                 .execute(&state.pool)
@@ -218,7 +218,7 @@ pub async fn handle_stream(
         StreamEventType::SessionEnd => {
             if let Some(ref stats) = req.final_stats {
                 sqlx::query(
-                    "UPDATE sessions_v2 SET
+                    "UPDATE sessions SET
                          status = 'completed',
                          ended_at = $2,
                          duration_ms = COALESCE($3, duration_ms),
@@ -248,7 +248,7 @@ pub async fn handle_stream(
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
             } else {
                 sqlx::query(
-                    "UPDATE sessions_v2 SET status = 'completed', ended_at = $2 WHERE id = $1",
+                    "UPDATE sessions SET status = 'completed', ended_at = $2 WHERE id = $1",
                 )
                 .bind(session_db_id)
                 .bind(req.timestamp)

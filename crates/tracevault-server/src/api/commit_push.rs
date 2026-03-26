@@ -17,13 +17,13 @@ pub async fn handle_commit_push(
 ) -> Result<Json<CommitPushResponse>, (StatusCode, String)> {
     // 1. Upsert commit
     let commit_db_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO commits_v2 (repo_id, commit_sha, branch, author, message, diff_data, committed_at)
+        "INSERT INTO commits (repo_id, commit_sha, branch, author, message, diff_data, committed_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (repo_id, commit_sha)
          DO UPDATE SET
-           branch = COALESCE(EXCLUDED.branch, commits_v2.branch),
-           message = COALESCE(EXCLUDED.message, commits_v2.message),
-           diff_data = COALESCE(EXCLUDED.diff_data, commits_v2.diff_data)
+           branch = COALESCE(EXCLUDED.branch, commits.branch),
+           message = COALESCE(EXCLUDED.message, commits.message),
+           diff_data = COALESCE(EXCLUDED.diff_data, commits.diff_data)
          RETURNING id",
     )
     .bind(repo_id)
