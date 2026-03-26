@@ -1,0 +1,23 @@
+crates/tracevault-server/migrations/001_initial.sql
+  21c374685fad61bc 107-202,209,212,217-219,221-222,225-227,229-257,259,262-263,265,283,297,317,332,367-391
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "9fd6b488ee00195c03b14f9c8bec1303bc7f786a",
+  "prompts": {
+    "21c374685fad61bc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "42de0160-569e-4874-9d25-f0c46790288e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 168,
+      "total_deletions": 42,
+      "accepted_lines": 168,
+      "overriden_lines": 0
+    }
+  }
+}
