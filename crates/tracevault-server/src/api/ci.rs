@@ -97,9 +97,10 @@ pub async fn verify_commits(
                 Option<chrono::DateTime<chrono::Utc>>,
             ),
         >(
-            "SELECT id, record_hash, chain_hash, prev_chain_hash, signature, sealed_at
-             FROM commits
-             WHERE repo_id = $1 AND commit_sha = $2",
+            "SELECT c.id, cs.record_hash, cs.chain_hash, cs.prev_chain_hash, cs.signature, cs.sealed_at
+             FROM commits c
+             LEFT JOIN commit_seals cs ON cs.commit_id = c.id
+             WHERE c.repo_id = $1 AND c.commit_sha = $2",
         )
         .bind(repo_id)
         .bind(commit_sha)
