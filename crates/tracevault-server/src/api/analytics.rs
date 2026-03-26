@@ -68,9 +68,9 @@ pub async fn get_filters(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Get distinct authors from sessions_v2 via users
+    // Get distinct authors via users
     let authors = sqlx::query_as::<_, (String,)>(
-        "SELECT DISTINCT u.email FROM sessions_v2 s
+        "SELECT DISTINCT u.email FROM sessions s
          JOIN users u ON s.user_id = u.id
          WHERE s.org_id = $1
          ORDER BY u.email",
@@ -197,7 +197,7 @@ pub async fn get_overview(
             COALESCE(CAST(SUM(s.total_tool_calls) AS BIGINT), 0),
             COALESCE(CAST(SUM(s.cache_read_tokens) AS BIGINT), 0),
             COALESCE(CAST(SUM(s.cache_write_tokens) AS BIGINT), 0)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -215,12 +215,12 @@ pub async fn get_overview(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Total commits count (separate query since commits are decoupled from sessions in v2)
+    // Total commits count (commits are decoupled from sessions)
     let commit_count = sqlx::query_as::<_, (i64,)>(
         "SELECT COUNT(DISTINCT c.id)
-         FROM commits_v2 c
+         FROM commits c
          JOIN commit_attributions ca ON ca.commit_id = c.id
-         JOIN sessions_v2 s ON ca.session_id = s.id
+         JOIN sessions s ON ca.session_id = s.id
          JOIN repos r ON s.repo_id = r.id
          LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -265,7 +265,7 @@ pub async fn get_overview(
         "SELECT TO_CHAR(s.created_at::date, 'YYYY-MM-DD'),
                 COALESCE(CAST(SUM(s.input_tokens) AS BIGINT), 0),
                 COALESCE(CAST(SUM(s.output_tokens) AS BIGINT), 0)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -288,7 +288,7 @@ pub async fn get_overview(
     // Top 5 repos by tokens
     let top_repos = sqlx::query_as::<_, (String, i64)>(
         "SELECT r.name, COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -310,7 +310,7 @@ pub async fn get_overview(
     // Model distribution
     let models = sqlx::query_as::<_, (String, i64)>(
         "SELECT COALESCE(s.model, 'unknown'), COUNT(*)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -336,10 +336,10 @@ pub async fn get_overview(
                 COUNT(DISTINCT ca.session_id),
                 COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0),
                 c.created_at
-         FROM commits_v2 c
+         FROM commits c
          JOIN repos r ON c.repo_id = r.id
          LEFT JOIN commit_attributions ca ON ca.commit_id = c.id
-         LEFT JOIN sessions_v2 s ON ca.session_id = s.id
+         LEFT JOIN sessions s ON ca.session_id = s.id
          WHERE r.org_id = $1
            AND ($2::TEXT IS NULL OR r.name = $2)
            AND ($3::TEXT IS NULL OR c.author = $3)
@@ -361,7 +361,7 @@ pub async fn get_overview(
     // Sessions over time (daily buckets)
     let sessions_time = sqlx::query_as::<_, (String, i64)>(
         "SELECT TO_CHAR(COALESCE(s.started_at, s.created_at)::date, 'YYYY-MM-DD'), COUNT(*)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -384,7 +384,7 @@ pub async fn get_overview(
     // Hourly activity
     let hourly = sqlx::query_as::<_, (i32, i64)>(
         "SELECT EXTRACT(HOUR FROM s.started_at)::int, COUNT(*)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -512,7 +512,7 @@ pub async fn get_tokens(
         "SELECT TO_CHAR(s.created_at::date, 'YYYY-MM-DD'),
                 COALESCE(CAST(SUM(s.input_tokens) AS BIGINT), 0),
                 COALESCE(CAST(SUM(s.output_tokens) AS BIGINT), 0)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -538,7 +538,7 @@ pub async fn get_tokens(
                 COALESCE(CAST(SUM(s.input_tokens) AS BIGINT), 0),
                 COALESCE(CAST(SUM(s.output_tokens) AS BIGINT), 0),
                 COUNT(s.id)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -558,7 +558,7 @@ pub async fn get_tokens(
 
     let by_author = sqlx::query_as::<_, (String, i64)>(
         "SELECT u.email, COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -580,7 +580,7 @@ pub async fn get_tokens(
     let cache_totals = sqlx::query_as::<_, (i64, i64)>(
         "SELECT COALESCE(CAST(SUM(s.cache_read_tokens) AS BIGINT), 0),
                 COALESCE(CAST(SUM(s.cache_write_tokens) AS BIGINT), 0)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -684,7 +684,7 @@ pub async fn get_models(
 ) -> Result<Json<ModelsResponse>, (StatusCode, String)> {
     let org_id = q.effective_org_id(&auth);
 
-    // Common CTE using s.model directly (model_usage JSONB not available in v2)
+    // Common CTE using s.model directly
     let model_cte = "WITH model_data AS (
            SELECT u.email as author, s.created_at, r.name as repo_name,
                   COALESCE(s.model, 'unknown') as model,
@@ -695,7 +695,7 @@ pub async fn get_models(
                   COALESCE(s.cache_read_tokens, 0) as cache_read_tokens,
                   COALESCE(s.cache_write_tokens, 0) as cache_write_tokens,
                   s.duration_ms
-           FROM sessions_v2 s
+           FROM sessions s
            JOIN repos r ON s.repo_id = r.id
            LEFT JOIN users u ON s.user_id = u.id
            WHERE r.org_id = $1
@@ -817,7 +817,7 @@ pub async fn get_authors(
 ) -> Result<Json<AuthorsResponse>, (StatusCode, String)> {
     let org_id = q.effective_org_id(&auth);
 
-    // Author leaderboard from sessions_v2 via users
+    // Author leaderboard via users
     let leaderboard = sqlx::query_as::<
         _,
         (
@@ -839,7 +839,7 @@ pub async fn get_authors(
                 MAX(s.created_at),
                 CAST(AVG(s.duration_ms) AS BIGINT),
                 COALESCE(CAST(SUM(s.total_tool_calls) AS BIGINT), 0)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -879,10 +879,10 @@ pub async fn get_authors(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Model preferences from sessions_v2 (no model_usage JSONB in v2)
+    // Model preferences by session model
     let model_preferences = sqlx::query_as::<_, (String, String, i64)>(
         "SELECT u.email, COALESCE(s.model, 'unknown'), COUNT(*)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -907,7 +907,7 @@ pub async fn get_authors(
             .into_iter()
             .map(|(a, s, t, cost, ai, la, dur, tc)| AuthorLeaderboard {
                 author: a,
-                commits: 0, // commits are decoupled from sessions in v2
+                commits: 0, // commits are decoupled from sessions
                 sessions: s,
                 tokens: t,
                 cost,
@@ -915,7 +915,7 @@ pub async fn get_authors(
                 last_active: la,
                 avg_duration_ms: dur,
                 total_tool_calls: tc,
-                total_compactions: 0, // not tracked in v2
+                total_compactions: 0, // not tracked
             })
             .collect(),
         timeline: timeline
@@ -1185,7 +1185,7 @@ pub async fn get_sessions(
                 s.total_tool_calls,
                 s.total_tokens, s.estimated_cost_usd,
                 u.email, r.name
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -1219,7 +1219,7 @@ pub async fn get_sessions(
                            THEN (SELECT COUNT(*) FROM transcript_chunks tc WHERE tc.session_id = s.id AND tc.data->>'type' = 'assistant')::INT
                            ELSE COALESCE(s.assistant_messages, 0) END
                 )::float8
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -1241,7 +1241,7 @@ pub async fn get_sessions(
     let tool_freq_rows = sqlx::query_as::<_, (String, i64)>(
         "SELECT e.tool_name, COUNT(*) as cnt
          FROM events e
-         JOIN sessions_v2 s ON e.session_id = s.id
+         JOIN sessions s ON e.session_id = s.id
          JOIN repos r ON s.repo_id = r.id
          JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -1345,7 +1345,7 @@ pub async fn get_cost(
         "SELECT COALESCE(SUM(s.estimated_cost_usd), 0.0),
                 COALESCE(AVG(s.estimated_cost_usd), 0.0),
                 COALESCE(CAST(SUM(s.cache_read_tokens) AS BIGINT), 0)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -1373,7 +1373,7 @@ pub async fn get_cost(
     let cost_time = sqlx::query_as::<_, (String, f64)>(
         "SELECT TO_CHAR(s.created_at::date, 'YYYY-MM-DD'),
                 COALESCE(SUM(s.estimated_cost_usd), 0.0)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -1393,13 +1393,13 @@ pub async fn get_cost(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Cost by model (using s.model directly, no model_usage JSONB in v2)
+    // Cost by model
     let cost_model = sqlx::query_as::<_, (String, f64, i64, i64)>(
         "SELECT COALESCE(s.model, 'unknown'),
                 COALESCE(SUM(s.estimated_cost_usd), 0.0),
                 COALESCE(CAST(SUM(COALESCE(s.input_tokens, 0) + COALESCE(s.output_tokens, 0)) AS BIGINT), 0),
                 COUNT(*)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -1422,7 +1422,7 @@ pub async fn get_cost(
     // Cost by repo
     let cost_repo = sqlx::query_as::<_, (String, f64)>(
         "SELECT r.name, COALESCE(SUM(s.estimated_cost_usd), 0.0)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          LEFT JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1
@@ -1443,7 +1443,7 @@ pub async fn get_cost(
     // Cost by author
     let cost_author = sqlx::query_as::<_, (String, f64)>(
         "SELECT u.email, COALESCE(SUM(s.estimated_cost_usd), 0.0)
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          JOIN users u ON s.user_id = u.id
          WHERE r.org_id = $1

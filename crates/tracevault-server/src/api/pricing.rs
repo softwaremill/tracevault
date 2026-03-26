@@ -83,7 +83,7 @@ pub async fn list_models(
     auth: OrgAuth,
 ) -> Result<Json<Vec<String>>, (StatusCode, String)> {
     let models = sqlx::query_scalar::<_, String>(
-        "SELECT DISTINCT model FROM sessions_v2 s
+        "SELECT DISTINCT model FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          WHERE r.org_id = $1 AND s.model IS NOT NULL
          ORDER BY model",

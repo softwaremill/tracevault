@@ -307,10 +307,12 @@ pub async fn verify_chain(
             chrono::DateTime<chrono::Utc>,
         ),
     >(
-        "SELECT c.id, c.record_hash, c.chain_hash, c.prev_chain_hash, c.signature, c.sealed_at
-         FROM commits c JOIN repos r ON c.repo_id = r.id
-         WHERE r.org_id = $1 AND c.sealed_at IS NOT NULL
-         ORDER BY c.sealed_at ASC, c.created_at ASC, c.id ASC",
+        "SELECT c.id, cs.record_hash, cs.chain_hash, cs.prev_chain_hash, cs.signature, cs.sealed_at
+         FROM commits c
+         JOIN commit_seals cs ON cs.commit_id = c.id
+         JOIN repos r ON c.repo_id = r.id
+         WHERE r.org_id = $1
+         ORDER BY cs.sealed_at ASC, c.created_at ASC, c.id ASC",
     )
     .bind(org_id)
     .fetch_all(&state.pool)
@@ -564,8 +566,10 @@ pub async fn verify_trace(
             Option<chrono::DateTime<chrono::Utc>>,
         ),
     >(
-        "SELECT c.id, c.record_hash, c.chain_hash, c.prev_chain_hash, c.signature, c.sealed_at
-         FROM commits c JOIN repos r ON c.repo_id = r.id
+        "SELECT c.id, cs.record_hash, cs.chain_hash, cs.prev_chain_hash, cs.signature, cs.sealed_at
+         FROM commits c
+         JOIN repos r ON c.repo_id = r.id
+         LEFT JOIN commit_seals cs ON cs.commit_id = c.id
          WHERE c.commit_sha = $1 AND r.org_id = $2",
     )
     .bind(&sha)

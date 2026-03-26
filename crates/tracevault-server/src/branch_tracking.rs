@@ -4,8 +4,8 @@ use uuid::Uuid;
 
 /// Track a commit reaching a branch (or merge target).
 ///
-/// Looks up the commit in `commits_v2` by repo_id + commit_sha.
-/// If the commit isn't in v2 yet, silently returns Ok (it may arrive later via commit-push).
+/// Looks up the commit in commits by repo_id + commit_sha.
+/// If the commit isn't tracked yet, silently returns Ok (it may arrive later via commit-push).
 /// Inserts into `branch_tracking` with ON CONFLICT DO NOTHING to avoid duplicates.
 pub async fn track_commit_on_branch(
     pool: &PgPool,
@@ -16,7 +16,7 @@ pub async fn track_commit_on_branch(
     tracking_type: &str,
 ) -> Result<(), String> {
     let commit_id: Option<Uuid> =
-        sqlx::query_scalar("SELECT id FROM commits_v2 WHERE repo_id = $1 AND commit_sha = $2")
+        sqlx::query_scalar("SELECT id FROM commits WHERE repo_id = $1 AND commit_sha = $2")
             .bind(repo_id)
             .bind(commit_sha)
             .fetch_optional(pool)
