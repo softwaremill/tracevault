@@ -89,6 +89,7 @@
 						sparkline={data.cost_sparkline}
 						href="/orgs/{slug}/analytics/cost"
 						color="#3b82f6"
+						tooltip="Total estimated cost across all sessions in the selected period, based on model pricing rates."
 					/>
 					<KpiCard
 						label="Active Devs"
@@ -100,6 +101,7 @@
 						sparkline={data.authors_sparkline}
 						href="/orgs/{slug}/analytics/authors"
 						color="#8b5cf6"
+						tooltip="Number of unique developers who had AI coding sessions in the selected period."
 					/>
 					<KpiCard
 						label="Sessions"
@@ -108,6 +110,7 @@
 						sparkline={data.sessions_sparkline}
 						href="/orgs/{slug}/analytics/sessions"
 						color="#22c55e"
+						tooltip="Total AI coding sessions started in the selected period."
 					/>
 					<KpiCard
 						label="Total Tokens"
@@ -116,6 +119,7 @@
 						sparkline={data.tokens_sparkline}
 						href="/orgs/{slug}/analytics/tokens"
 						color="#f59e0b"
+						tooltip="Total tokens processed across all sessions, including input, output, and cached tokens."
 					/>
 				</div>
 				<SessionQualityBar

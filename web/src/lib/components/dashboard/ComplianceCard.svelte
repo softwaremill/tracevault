@@ -1,4 +1,6 @@
 <script lang="ts">
+	import HelpTip from '$lib/components/HelpTip.svelte';
+
 	interface Props {
 		score: number;
 		trend: number;
@@ -19,7 +21,7 @@
 
 <a {href} class="bg-background hover:bg-muted/50 block rounded-lg border p-4 transition-colors">
 	<div class="text-muted-foreground text-[11px] font-medium uppercase tracking-wide">
-		Compliance
+		Compliance<HelpTip text="Percentage of sessions with valid cryptographic signatures, ensuring AI-generated code is properly attributed." />
 	</div>
 	<div class="mt-1 text-3xl font-bold {scoreColor}">{score.toFixed(0)}%</div>
 	<div class="mt-0.5 text-xs font-medium {trend >= 0 ? 'text-green-500' : 'text-amber-500'}">
