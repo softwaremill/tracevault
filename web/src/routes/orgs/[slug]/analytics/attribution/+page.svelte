@@ -2,6 +2,7 @@
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
 	import Chart from '$lib/components/chart.svelte';
+	import HelpTip from '$lib/components/HelpTip.svelte';
 	import {
 		Chart as ChartJS,
 		CategoryScale,
@@ -165,22 +166,22 @@
 		<div class="border-border overflow-hidden rounded-lg border">
 			<div class="grid grid-cols-3 gap-px">
 				<div class="bg-background p-3 text-center">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">AI Lines</div>
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">AI Lines<HelpTip text="Total lines of code attributed to AI across all commits." /></div>
 					<div class="mt-1 text-lg font-semibold" style="color: {AI_COLOR}">{fmtNum(data.totals.ai_lines)}</div>
 				</div>
 				<div class="bg-background p-3 text-center">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Human Lines</div>
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Human Lines<HelpTip text="Total lines of code written by humans." /></div>
 					<div class="mt-1 text-lg font-semibold" style="color: {HUMAN_COLOR}">{fmtNum(data.totals.human_lines)}</div>
 				</div>
 				<div class="bg-background p-3 text-center">
-					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Overall AI %</div>
+					<div class="text-muted-foreground text-[11px] uppercase tracking-wide">Overall AI %<HelpTip text="Percentage of all code lines attributed to AI assistance." /></div>
 					<div class="mt-1 text-lg font-semibold">{data.totals.ai_pct.toFixed(1)}%</div>
 				</div>
 			</div>
 		</div>
 
 		<div class="border-border rounded-lg border p-3">
-			<h4 class="mb-2 text-sm font-semibold">AI vs Human Trend</h4>
+			<h4 class="mb-2 text-sm font-semibold">AI vs Human Trend<HelpTip text="How the ratio of AI-generated vs human-written code has changed over time." /></h4>
 			{#if data.trend.length > 0}
 				<Chart
 					type="line"
@@ -198,7 +199,7 @@
 
 		<div class="grid gap-6 lg:grid-cols-2">
 			<div class="border-border rounded-lg border p-3">
-				<h4 class="mb-2 text-sm font-semibold">By Repository</h4>
+				<h4 class="mb-2 text-sm font-semibold">By Repository<HelpTip text="AI vs human code ratio per repository." /></h4>
 				{#if data.by_repo.length > 0}
 					<Chart
 						type="bar"
@@ -216,7 +217,7 @@
 			</div>
 
 			<div class="border-border rounded-lg border p-3">
-				<h4 class="mb-2 text-sm font-semibold">By Author</h4>
+				<h4 class="mb-2 text-sm font-semibold">By Author<HelpTip text="AI vs human code ratio per developer." /></h4>
 				{#if data.by_author.length > 0}
 					<Chart
 						type="bar"

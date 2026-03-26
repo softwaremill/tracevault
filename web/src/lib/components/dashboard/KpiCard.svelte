@@ -1,4 +1,6 @@
 <script lang="ts">
+	import HelpTip from '$lib/components/HelpTip.svelte';
+
 	interface Props {
 		label: string;
 		value: string;
@@ -7,6 +9,7 @@
 		sparkline: number[];
 		href: string;
 		color?: string;
+		tooltip?: string;
 	}
 
 	let {
@@ -16,7 +19,8 @@
 		trendLabel,
 		sparkline,
 		href,
-		color = '#3b82f6'
+		color = '#3b82f6',
+		tooltip
 	}: Props = $props();
 
 	const trendPositive = $derived(trend >= 0);
@@ -48,6 +52,7 @@
 >
 	<div class="text-muted-foreground text-[11px] font-medium uppercase tracking-wide">
 		{label}
+		{#if tooltip}<HelpTip text={tooltip} />{/if}
 	</div>
 	<div class="mt-1 text-2xl font-semibold">{value}</div>
 	<div class="mt-0.5 text-xs font-medium {trendPositive ? 'text-green-500' : 'text-amber-500'}">

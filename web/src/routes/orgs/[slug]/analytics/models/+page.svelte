@@ -3,6 +3,7 @@
 	import { api } from '$lib/api';
 	import * as Table from '$lib/components/ui/table/index.js';
 	import Chart from '$lib/components/chart.svelte';
+	import HelpTip from '$lib/components/HelpTip.svelte';
 	import {
 		Chart as ChartJS,
 		CategoryScale,
@@ -162,7 +163,7 @@
 	{:else if data}
 		<div class="grid gap-6 lg:grid-cols-2">
 			<div class="border-border rounded-lg border p-3">
-				<h4 class="mb-2 text-sm font-semibold">Model Distribution</h4>
+				<h4 class="mb-2 text-sm font-semibold">Model Distribution<HelpTip text="Number of sessions using each AI model." /></h4>
 				{#if data.distribution.length > 0}
 					<div class="flex justify-center">
 						<div class="max-w-[300px]">
@@ -179,7 +180,7 @@
 			</div>
 
 			<div class="border-border rounded-lg border p-3">
-				<h4 class="mb-2 text-sm font-semibold">Model Trends</h4>
+				<h4 class="mb-2 text-sm font-semibold">Model Trends<HelpTip text="How model usage has changed over time." /></h4>
 				{#if data.trends.length > 0}
 					<Chart
 						type="line"
@@ -227,7 +228,7 @@
 		</div>
 
 		<div class="border-border overflow-hidden rounded-lg border">
-			<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground p-3">Model Comparison</h2>
+			<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground p-3">Model Comparison<HelpTip text="Average token consumption per session for each model." /></h2>
 			{#if data.comparison.length > 0}
 				<div class="p-3 pt-0">
 					<Chart

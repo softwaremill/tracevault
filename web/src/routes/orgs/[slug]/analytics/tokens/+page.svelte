@@ -2,6 +2,7 @@
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
 	import StatCard from '$lib/components/StatCard.svelte';
+	import HelpTip from '$lib/components/HelpTip.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
 	import Chart from '$lib/components/chart.svelte';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
@@ -165,23 +166,26 @@
 				value={fmtNum(data.cache_read_tokens)}
 				icon={BookOpenIcon}
 				color="#3b82f6"
+				tooltip="Tokens served from the prompt cache at reduced cost."
 			/>
 			<StatCard
 				label="Cache Write Tokens"
 				value={fmtNum(data.cache_write_tokens)}
 				icon={BookMarkedIcon}
 				color="#8b5cf6"
+				tooltip="Tokens written to the prompt cache for future reuse. Writing costs more than regular input."
 			/>
 			<StatCard
 				label="Cache Savings"
 				value={'$' + data.cache_savings_usd.toFixed(2)}
 				icon={PiggyBankIcon}
 				color="#10b981"
+				tooltip="Net money saved through prompt caching."
 			/>
 		</div>
 
 		<div class="border-border rounded-lg border p-3">
-			<h4 class="mb-2 text-sm font-semibold">Tokens Over Time</h4>
+			<h4 class="mb-2 text-sm font-semibold">Tokens Over Time<HelpTip text="Daily input and output token usage." /></h4>
 			{#if data.time_series.length > 0}
 				<Chart
 					type="line"
@@ -210,7 +214,7 @@
 		</DataTable>
 
 		<div class="border-border rounded-lg border p-3">
-			<h4 class="mb-2 text-sm font-semibold">By Author</h4>
+			<h4 class="mb-2 text-sm font-semibold">By Author<HelpTip text="Total token consumption by developer." /></h4>
 			{#if data.by_author.length > 0}
 				<Chart
 					type="bar"

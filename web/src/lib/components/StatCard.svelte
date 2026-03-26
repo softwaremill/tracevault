@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Component } from 'svelte';
+	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 
 	interface Props {
 		label: string;
@@ -7,9 +8,10 @@
 		icon: Component;
 		color?: string;
 		secondary?: string;
+		tooltip?: string;
 	}
 
-	let { label, value, icon: Icon, color = '#3b82f6', secondary }: Props = $props();
+	let { label, value, icon: Icon, color = '#3b82f6', secondary, tooltip }: Props = $props();
 </script>
 
 <div class="bg-background rounded-lg border border-border p-4">
@@ -23,6 +25,18 @@
 		<div class="min-w-0">
 			<div class="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">
 				{label}
+				{#if tooltip}
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							<span class="ml-1 cursor-help" style="color: #4f6ef7">?</span>
+						</Tooltip.Trigger>
+						<Tooltip.Portal>
+							<Tooltip.Content class="max-w-xs text-xs font-normal normal-case tracking-normal">
+								{tooltip}
+							</Tooltip.Content>
+						</Tooltip.Portal>
+					</Tooltip.Root>
+				{/if}
 			</div>
 			<div class="text-xl font-bold leading-tight">{value}</div>
 			{#if secondary}
