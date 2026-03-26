@@ -133,7 +133,7 @@
 		scales: {
 			y: {
 				ticks: {
-					callback: (value: string | number) => `$${Number(value).toFixed(3)}`
+					callback: (value: string | number) => `$${Math.round(Number(value))}`
 				}
 			}
 		},
