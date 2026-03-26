@@ -207,9 +207,10 @@ async fn query_compliance(
 ) -> Result<ComplianceData, (StatusCode, String)> {
     let (sealed, unsigned): (i64, i64) = sqlx::query_as(
         "SELECT
-            COUNT(*) FILTER (WHERE s.sealed_at IS NOT NULL),
-            COUNT(*) FILTER (WHERE s.sealed_at IS NOT NULL AND s.signature IS NULL)
+            COUNT(*) FILTER (WHERE ss.sealed_at IS NOT NULL),
+            COUNT(*) FILTER (WHERE ss.sealed_at IS NOT NULL AND ss.signature IS NULL)
         FROM sessions s
+        LEFT JOIN session_seals ss ON ss.session_id = s.id
         JOIN repos r ON r.id = s.repo_id
         WHERE r.org_id = $1
           AND s.started_at >= $2
