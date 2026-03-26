@@ -151,7 +151,7 @@ pub async fn sync_pricing(
 
     // Get distinct model names actually used in sessions
     let session_models = sqlx::query_scalar::<_, String>(
-        "SELECT DISTINCT model FROM sessions_v2 WHERE model IS NOT NULL",
+        "SELECT DISTINCT model FROM sessions WHERE model IS NOT NULL",
     )
     .fetch_all(pool)
     .await

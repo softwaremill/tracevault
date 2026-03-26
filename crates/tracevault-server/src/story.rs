@@ -113,10 +113,10 @@ pub async fn gather_story_context(
     // 2. Enrich with TraceVault DB data (async)
     let mut changes = Vec::new();
     for gc in &git_commits {
-        // Fetch commit UUID and attribution from commits_v2
+        // Fetch commit UUID and attribution
         let tv_data = sqlx::query_as::<_, (Uuid, Option<serde_json::Value>)>(
             "SELECT c.id, c.diff_data \
-             FROM commits_v2 c \
+             FROM commits c \
              WHERE c.repo_id = $1 AND c.commit_sha = $2 LIMIT 1",
         )
         .bind(repo_id)
@@ -131,7 +131,7 @@ pub async fn gather_story_context(
                 // Fetch sessions linked via commit_attributions
                 let session_rows = sqlx::query_as::<_, (Uuid, String, Option<String>)>(
                     "SELECT DISTINCT s.id, s.session_id, s.model \
-                     FROM sessions_v2 s \
+                     FROM sessions s \
                      JOIN commit_attributions ca ON ca.session_id = s.id \
                      WHERE ca.commit_id = $1 \
                      ORDER BY s.id",

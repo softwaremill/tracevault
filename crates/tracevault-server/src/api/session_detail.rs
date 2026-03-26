@@ -438,7 +438,7 @@ pub async fn get_session_detail(
                 s.estimated_cost_usd,
                 s.user_messages, s.assistant_messages,
                 s.total_tool_calls
-         FROM sessions_v2 s
+         FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          WHERE s.id = $1 AND r.org_id = $2",
     )
@@ -472,7 +472,7 @@ pub async fn get_session_detail(
     let (per_call, transcript_records, token_distribution, cost_breakdown, cache_savings) =
         parse_transcript(&transcript_val, &pricing);
 
-    // Count API calls from per_call data since api_calls column doesn't exist on sessions_v2
+    // Count API calls from per_call data since api_calls column doesn't exist on sessions
     let api_calls = per_call.len() as i32;
 
     Ok(Json(SessionDetailResponse {

@@ -166,7 +166,7 @@ pub async fn attribute_commit(
             "SELECT fc.session_id, fc.event_id, fc.change_type,
                     fc.line_start, fc.line_end, fc.diff_text
              FROM file_changes fc
-             JOIN sessions_v2 s ON fc.session_id = s.id
+             JOIN sessions s ON fc.session_id = s.id
              WHERE s.repo_id = $1
                AND fc.timestamp >= $2 - INTERVAL '48 hours'
                AND fc.timestamp <= $2

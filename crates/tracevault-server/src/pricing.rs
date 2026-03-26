@@ -196,7 +196,7 @@ pub async fn recalculate_sessions_for_pricing(
         "SELECT s.id, s.org_id, s.estimated_cost_usd,
                 COALESCE(s.input_tokens, 0), COALESCE(s.output_tokens, 0),
                 COALESCE(s.cache_read_tokens, 0), COALESCE(s.cache_write_tokens, 0)
-         FROM sessions_v2 s
+         FROM sessions s
          WHERE s.created_at >= $1
            AND ($2::timestamptz IS NULL OR s.created_at < $2)
            AND s.model = $3
@@ -239,7 +239,7 @@ pub async fn recalculate_sessions_for_pricing(
             *cache_write,
         );
 
-        sqlx::query("UPDATE sessions_v2 SET estimated_cost_usd = $1 WHERE id = $2")
+        sqlx::query("UPDATE sessions SET estimated_cost_usd = $1 WHERE id = $2")
             .bind(new_cost)
             .bind(session_id)
             .execute(&mut *tx)
