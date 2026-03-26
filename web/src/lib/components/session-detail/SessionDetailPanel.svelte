@@ -16,7 +16,7 @@
 	let data: any = $state(null);
 	let loading = $state(true);
 	let error = $state('');
-	let showCharts = $state(false);
+	let showCharts = $state(true);
 	let showTranscript = $state(false);
 
 	async function fetchDetail() {
