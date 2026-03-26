@@ -219,7 +219,7 @@ async fn main() {
             "/api/v1/orgs/{slug}/repos/{repo_id}/story",
             post(api::code::generate_story),
         )
-        // Org-scoped: traces (v2 streaming UI)
+        // Org-scoped: traces
         .route(
             "/api/v1/orgs/{slug}/traces/stats",
             get(api::traces_ui::get_stats),

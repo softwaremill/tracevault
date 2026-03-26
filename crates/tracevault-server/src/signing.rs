@@ -1,10 +1,9 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, SigningKey, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 
 #[derive(Clone)]
 pub struct SigningService {
-    signing_key: SigningKey,
     verifying_key: VerifyingKey,
 }
 
@@ -22,19 +21,7 @@ impl SigningService {
             SigningKey::generate(&mut rand::thread_rng())
         };
         let verifying_key = signing_key.verifying_key();
-        Self {
-            signing_key,
-            verifying_key,
-        }
-    }
-
-    /// SHA-256 hash of canonical JSON bytes, returned as hex string.
-    /// Used by session/commit sealing (v2 streaming architecture — deferred).
-    #[allow(dead_code)]
-    pub fn record_hash(&self, canonical_json: &[u8]) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(canonical_json);
-        hex::encode(hasher.finalize())
+        Self { verifying_key }
     }
 
     /// Compute chain hash: SHA-256(prev_chain_hash || record_hash).
@@ -45,14 +32,6 @@ impl SigningService {
         }
         hasher.update(record_hash.as_bytes());
         hex::encode(hasher.finalize())
-    }
-
-    /// Sign a record hash, returning base64-encoded signature.
-    /// Used by session/commit sealing (v2 streaming architecture — deferred).
-    #[allow(dead_code)]
-    pub fn sign(&self, record_hash: &str) -> String {
-        let sig = self.signing_key.sign(record_hash.as_bytes());
-        BASE64.encode(sig.to_bytes())
     }
 
     /// Verify a signature against a record hash.
