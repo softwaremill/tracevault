@@ -65,6 +65,7 @@
 
 	let expandedEvents = $state(new Set<string>());
 	let expandedFiles = $state(new Set<string>());
+	let transcriptFilters = $state(new Set<string>());
 	let sectionsOpen = $state({
 		events: true,
 		files: false,
@@ -194,6 +195,18 @@
 		else next.add(id);
 		expandedFiles = next;
 	}
+
+	function toggleTranscriptFilter(role: string) {
+		const next = new Set(transcriptFilters);
+		if (next.has(role)) next.delete(role);
+		else next.add(role);
+		transcriptFilters = next;
+	}
+
+	const ROLE_COLORS: Record<string, string> = {
+		user: '#3ecf8e',
+		assistant: '#a78bfa'
+	};
 
 	interface DiffLine {
 		type: 'add' | 'remove' | 'header';
@@ -551,6 +564,7 @@
 							<p class="text-muted-foreground px-4 py-4 text-sm">No transcript data.</p>
 						{:else}
 							{@const turns = extractTurns(data.transcript_chunks)}
+							{@const roleCounts = turns.reduce((acc, t) => { acc[t.role] = (acc[t.role] || 0) + 1; return acc; }, {} as Record<string, number>)}
 							{#if turns.length === 0}
 								<div class="divide-border divide-y">
 									{#each data.transcript_chunks as chunk (chunk.chunk_index)}
@@ -558,8 +572,21 @@
 									{/each}
 								</div>
 							{:else}
+								<div class="flex flex-wrap gap-2 px-4 pt-3">
+									{#each Object.entries(roleCounts) as [role, count]}
+										{@const color = ROLE_COLORS[role] || '#6b7594'}
+										{@const isActive = transcriptFilters.size === 0 || transcriptFilters.has(role)}
+										<button
+											class="rounded-full border px-2.5 py-1 text-[11px] transition-opacity"
+											style="background: {color}15; color: {color}; border-color: {color}30; opacity: {isActive ? 1 : 0.4}"
+											onclick={() => toggleTranscriptFilter(role)}
+										>
+											{role} ({count})
+										</button>
+									{/each}
+								</div>
 								<div class="space-y-2 p-4">
-									{#each turns as turn, i}
+									{#each turns.filter(t => transcriptFilters.size === 0 || transcriptFilters.has(t.role)) as turn}
 										<div
 											class="max-w-[85%] rounded-lg px-3 py-2 text-xs
 												{turn.role === 'user'
