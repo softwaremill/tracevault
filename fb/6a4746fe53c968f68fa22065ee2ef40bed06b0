@@ -1,0 +1,25 @@
+crates/tracevault-server/src/api/compliance.rs
+  21c374685fad61bc 310-315,569-572
+crates/tracevault-server/src/api/ci.rs
+  21c374685fad61bc 100-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "fb6a4746fe53c968f68fa22065ee2ef40bed06b0",
+  "prompts": {
+    "21c374685fad61bc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "42de0160-569e-4874-9d25-f0c46790288e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 14,
+      "overriden_lines": 0
+    }
+  }
+}
