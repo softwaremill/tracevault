@@ -1,0 +1,23 @@
+crates/tracevault-server/src/api/traces_ui.rs
+  21c374685fad61bc 185,199,211,224,263,300,349,382,416,428,441,550,572,644,706,725,738,904,907
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "ec6ff717698d16ca1769d9f07858789bba422622",
+  "prompts": {
+    "21c374685fad61bc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "42de0160-569e-4874-9d25-f0c46790288e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 19,
+      "overriden_lines": 0
+    }
+  }
+}
