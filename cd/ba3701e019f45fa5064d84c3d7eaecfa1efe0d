@@ -1,0 +1,23 @@
+crates/tracevault-server/src/repo_manager.rs
+  4964e7c678ce380d 4,35-47,80-84,90-108,115-117,121-131,137-144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "cdba3701e019f45fa5064d84c3d7eaecfa1efe0d",
+  "prompts": {
+    "4964e7c678ce380d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c50d2460-993e-4c39-a8e2-8245b911e826",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 63,
+      "total_deletions": 101,
+      "accepted_lines": 62,
+      "overriden_lines": 0
+    }
+  }
+}
