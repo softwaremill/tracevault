@@ -1,0 +1,23 @@
+web/src/routes/orgs/[slug]/traces/sessions/[id]/+page.svelte
+  734286ae00d2bbaa 267-281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "8c559115e10aff063a983763b51c2d4f6f7f7344",
+  "prompts": {
+    "734286ae00d2bbaa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8c163980-121e-403c-8f8d-d71bc09f2daf",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Kris <krzysztof.grajek@googlemail.com>",
+      "messages": [],
+      "total_additions": 15,
+      "total_deletions": 1,
+      "accepted_lines": 15,
+      "overriden_lines": 0
+    }
+  }
+}
