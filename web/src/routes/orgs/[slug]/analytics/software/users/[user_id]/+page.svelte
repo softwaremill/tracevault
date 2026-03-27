@@ -7,6 +7,8 @@
 	import Chart from '$lib/components/chart.svelte';
 	import SessionDetailPanel from '$lib/components/session-detail/SessionDetailPanel.svelte';
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
+	import BotIcon from '@lucide/svelte/icons/bot';
+	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import {
 		Chart as ChartJS,
 		CategoryScale,
@@ -45,7 +47,22 @@
 		recent_sessions: RecentSession[];
 	}
 
+	interface AiToolItem {
+		name: string;
+		usage_count: number;
+		first_seen: string;
+		last_seen: string;
+		session_count: number;
+	}
+	interface AiToolsUserDetailResponse {
+		user: { user_id: string; email: string; name: string | null };
+		mcp_servers: AiToolItem[];
+		skill_groups: AiToolItem[];
+		recent_sessions: { id: string; session_id: string; repo_name: string; started_at: string | null; duration_ms: number | null; ai_tools_used: string[] }[];
+	}
+
 	let data: UserDetailResponse | null = $state(null);
+	let aiData: AiToolsUserDetailResponse | null = $state(null);
 	let loading = $state(true);
 	let error = $state('');
 	let expandedSessionId = $state<string | null>(null);
@@ -57,9 +74,13 @@
 		loading = true;
 		error = '';
 		try {
-			data = await api.get<UserDetailResponse>(
-				`/api/v1/orgs/${slug}/analytics/software/users/${userId}` + (search ? '?' + search : '')
-			);
+			const qs = search ? '?' + search : '';
+			const [softwareRes, aiRes] = await Promise.all([
+				api.get<UserDetailResponse>(`/api/v1/orgs/${slug}/analytics/software/users/${userId}${qs}`),
+				api.get<AiToolsUserDetailResponse>(`/api/v1/orgs/${slug}/analytics/ai-tools/users/${userId}${qs}`)
+			]);
+			data = softwareRes;
+			aiData = aiRes;
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load';
 		} finally {
@@ -110,8 +131,18 @@
 		return data.software.length;
 	});
 
-	const softwareColumns = [
-		{ key: 'name', label: 'Software' },
+	const mcpServerCount = $derived.by(() => {
+		if (!aiData) return 0;
+		return aiData.mcp_servers.length;
+	});
+
+	const skillGroupCount = $derived.by(() => {
+		if (!aiData) return 0;
+		return aiData.skill_groups.length;
+	});
+
+	const toolColumns = [
+		{ key: 'name', label: 'Name' },
 		{ key: 'usage_count', label: 'Usage Count', sortable: true },
 		{ key: 'session_count', label: 'Sessions', sortable: true },
 		{ key: 'first_seen', label: 'First Seen', sortable: true },
@@ -134,15 +165,15 @@
 		}));
 	});
 
-	function softwareChartData(d: UserDetailResponse) {
-		const items = d.software.slice(0, 10);
+	function chartData(items: { name: string; usage_count: number }[]) {
+		const top = items.slice(0, 10);
 		return {
-			labels: items.map((s) => s.name),
+			labels: top.map((s) => s.name),
 			datasets: [
 				{
 					label: 'Usage Count',
-					data: items.map((s) => s.usage_count),
-					backgroundColor: items.map((_, i) => COLORS[i % COLORS.length])
+					data: top.map((s) => s.usage_count),
+					backgroundColor: top.map((_, i) => COLORS[i % COLORS.length])
 				}
 			]
 		};
@@ -150,7 +181,7 @@
 </script>
 
 <svelte:head>
-	<title>{data ? (data.user.name ?? data.user.email) : 'User'} - Software - TraceVault</title>
+	<title>{data ? (data.user.name ?? data.user.email) : 'User'} - Software & AI Tools - TraceVault</title>
 </svelte:head>
 
 <div class="space-y-6">
@@ -170,23 +201,38 @@
 			{/if}
 		</div>
 
-		<div class="grid grid-cols-1">
+		<div class="grid grid-cols-3 gap-3">
 			<StatCard
-				label="Unique Tools"
+				label="CLI Tools"
 				value={String(uniqueTools)}
 				icon={WrenchIcon}
 				color="#10b981"
 				tooltip="Number of distinct CLI tools this user has used."
 			/>
+			<StatCard
+				label="MCP Servers"
+				value={String(mcpServerCount)}
+				icon={BotIcon}
+				color="#3b82f6"
+				tooltip="Number of distinct MCP servers this user has used."
+			/>
+			<StatCard
+				label="Skill Groups"
+				value={String(skillGroupCount)}
+				icon={SparklesIcon}
+				color="#8b5cf6"
+				tooltip="Number of distinct skill groups this user has used."
+			/>
 		</div>
 
+		<!-- CLI Software -->
 		<div class="grid gap-6 lg:grid-cols-2">
 			<div class="border-border rounded-lg border p-3">
-				<h4 class="mb-2 text-sm font-semibold">Top Tools <HelpTip text="Most frequently used CLI tools by this user." /></h4>
+				<h4 class="mb-2 text-sm font-semibold">Top CLI Tools <HelpTip text="Most frequently used CLI tools by this user." /></h4>
 				{#if data.software.length > 0}
 					<Chart
 						type="bar"
-						data={softwareChartData(data)}
+						data={chartData(data.software)}
 						options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
 					/>
 				{:else}
@@ -195,9 +241,9 @@
 			</div>
 
 			<div>
-				<h4 class="mb-2 text-sm font-semibold">All Software <HelpTip text="Complete list of CLI tools detected." /></h4>
+				<h4 class="mb-2 text-sm font-semibold">All CLI Tools <HelpTip text="Complete list of CLI tools detected." /></h4>
 				<DataTable
-					columns={softwareColumns}
+					columns={toolColumns}
 					rows={data.software}
 					searchKeys={['name']}
 					defaultSort="usage_count"
@@ -223,6 +269,89 @@
 			</div>
 		</div>
 
+		<!-- MCP Servers -->
+		{#if aiData && aiData.mcp_servers.length > 0}
+			<div class="grid gap-6 lg:grid-cols-2">
+				<div class="border-border rounded-lg border p-3">
+					<h4 class="mb-2 text-sm font-semibold">Top MCP Servers <HelpTip text="Most frequently used MCP servers by this user." /></h4>
+					<Chart
+						type="bar"
+						data={chartData(aiData.mcp_servers)}
+						options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
+					/>
+				</div>
+				<div>
+					<h4 class="mb-2 text-sm font-semibold">All MCP Servers <HelpTip text="Complete list of MCP servers detected." /></h4>
+					<DataTable
+						columns={toolColumns}
+						rows={aiData.mcp_servers}
+						searchKeys={['name']}
+						defaultSort="usage_count"
+						defaultSortDir="desc"
+						rowIdKey="name"
+					>
+						{#snippet children({ row, col })}
+							{#if col.key === 'name'}
+								<span class="font-mono font-medium">{row.name}</span>
+							{:else if col.key === 'usage_count'}
+								<span class="font-mono">{fmtNum(row.usage_count as number)}</span>
+							{:else if col.key === 'session_count'}
+								<span class="font-mono">{row.session_count}</span>
+							{:else if col.key === 'first_seen'}
+								{fmtDate(row.first_seen as string)}
+							{:else if col.key === 'last_seen'}
+								{fmtDate(row.last_seen as string)}
+							{:else}
+								{row[col.key] ?? '-'}
+							{/if}
+						{/snippet}
+					</DataTable>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Skill Groups -->
+		{#if aiData && aiData.skill_groups.length > 0}
+			<div class="grid gap-6 lg:grid-cols-2">
+				<div class="border-border rounded-lg border p-3">
+					<h4 class="mb-2 text-sm font-semibold">Top Skill Groups <HelpTip text="Most frequently used skill groups by this user." /></h4>
+					<Chart
+						type="bar"
+						data={chartData(aiData.skill_groups)}
+						options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
+					/>
+				</div>
+				<div>
+					<h4 class="mb-2 text-sm font-semibold">All Skill Groups <HelpTip text="Complete list of skill groups detected." /></h4>
+					<DataTable
+						columns={toolColumns}
+						rows={aiData.skill_groups}
+						searchKeys={['name']}
+						defaultSort="usage_count"
+						defaultSortDir="desc"
+						rowIdKey="name"
+					>
+						{#snippet children({ row, col })}
+							{#if col.key === 'name'}
+								<span class="font-mono font-medium">{row.name}</span>
+							{:else if col.key === 'usage_count'}
+								<span class="font-mono">{fmtNum(row.usage_count as number)}</span>
+							{:else if col.key === 'session_count'}
+								<span class="font-mono">{row.session_count}</span>
+							{:else if col.key === 'first_seen'}
+								{fmtDate(row.first_seen as string)}
+							{:else if col.key === 'last_seen'}
+								{fmtDate(row.last_seen as string)}
+							{:else}
+								{row[col.key] ?? '-'}
+							{/if}
+						{/snippet}
+					</DataTable>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Recent Sessions -->
 		<div>
 			<h4 class="mb-2 text-sm font-semibold">Recent Sessions <HelpTip text="Latest sessions with tools detected." /></h4>
 			<DataTable
