@@ -1,11 +1,20 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
+	import { goto } from '$app/navigation';
 	import PeriodSwitcher from '$lib/components/dashboard/PeriodSwitcher.svelte';
 	import KpiCard from '$lib/components/dashboard/KpiCard.svelte';
 	import SessionQualityBar from '$lib/components/dashboard/SessionQualityBar.svelte';
 	import ComplianceCard from '$lib/components/dashboard/ComplianceCard.svelte';
 	import CacheSavingsCard from '$lib/components/dashboard/CacheSavingsCard.svelte';
+	import * as Table from '$lib/components/ui/table/index.js';
+
+	interface TopAuthor {
+		author: string;
+		sessions: number;
+		tokens: number;
+		cost: number;
+	}
 
 	interface DashboardData {
 		total_cost_usd: number;
@@ -29,6 +38,7 @@
 		chain_verified: boolean | null;
 		cache_savings_usd: number;
 		cache_savings_pct: number;
+		top_authors: TopAuthor[];
 	}
 
 	const slug = $derived($page.params.slug);
@@ -78,6 +88,38 @@
 	{:else if error}
 		<div class="py-12 text-center text-sm text-red-500">{error}</div>
 	{:else if data}
+		<!-- Top Authors Leaderboard -->
+		{#if data.top_authors.length > 0}
+			<div class="border-border overflow-hidden rounded-lg border">
+				<div class="border-border flex items-center justify-between border-b px-3 py-2">
+					<h3 class="text-sm font-semibold">Top Authors by Cost</h3>
+					<a href="/orgs/{slug}/analytics/authors" class="text-muted-foreground hover:text-foreground text-xs transition-colors">View all &rarr;</a>
+				</div>
+				<Table.Root class="text-xs">
+					<Table.Header>
+						<Table.Row class="bg-muted/30 border-border border-b">
+							<Table.Head class="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">#</Table.Head>
+							<Table.Head class="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">Author</Table.Head>
+							<Table.Head class="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider text-right">Sessions</Table.Head>
+							<Table.Head class="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider text-right">Tokens</Table.Head>
+							<Table.Head class="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider text-right">Cost</Table.Head>
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{#each data.top_authors as author, i}
+							<Table.Row class="cursor-pointer border-l-[3px] border-l-transparent transition-colors hover:border-l-primary" onclick={() => goto(`/orgs/${slug}/analytics/authors`)}>
+								<Table.Cell class="text-muted-foreground font-mono">{i + 1}</Table.Cell>
+								<Table.Cell class="font-medium">{author.author}</Table.Cell>
+								<Table.Cell class="text-right font-mono">{fmtNum(author.sessions)}</Table.Cell>
+								<Table.Cell class="text-right font-mono">{fmtNum(author.tokens)}</Table.Cell>
+								<Table.Cell class="text-right font-mono">{fmtCost(author.cost)}</Table.Cell>
+							</Table.Row>
+						{/each}
+					</Table.Body>
+				</Table.Root>
+			</div>
+		{/if}
+
 		<div class="flex gap-4">
 			<!-- Left: KPI grid + session quality -->
 			<div class="flex-[2] space-y-4">
@@ -145,5 +187,6 @@
 				/>
 			</div>
 		</div>
+
 	{/if}
 </div>

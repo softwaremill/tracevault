@@ -18,6 +18,14 @@ pub struct DashboardQuery {
 }
 
 #[derive(Debug, Serialize)]
+pub struct TopAuthor {
+    pub author: String,
+    pub sessions: i64,
+    pub tokens: i64,
+    pub cost: f64,
+}
+
+#[derive(Debug, Serialize)]
 pub struct DashboardResponse {
     pub total_cost_usd: f64,
     pub cost_trend_pct: f64,
@@ -40,6 +48,7 @@ pub struct DashboardResponse {
     pub chain_verified: Option<bool>,
     pub cache_savings_usd: f64,
     pub cache_savings_pct: f64,
+    pub top_authors: Vec<TopAuthor>,
 }
 
 fn period_ranges(
@@ -243,6 +252,46 @@ async fn query_compliance(
     })
 }
 
+async fn query_top_authors(
+    pool: &sqlx::PgPool,
+    org_id: Uuid,
+    from: chrono::DateTime<Utc>,
+    to: chrono::DateTime<Utc>,
+) -> Result<Vec<TopAuthor>, (StatusCode, String)> {
+    let rows: Vec<(String, i64, i64, f64)> = sqlx::query_as(
+        "SELECT
+            u.email,
+            COUNT(s.id)::int8,
+            COALESCE(SUM(s.total_tokens), 0)::int8,
+            COALESCE(SUM(s.estimated_cost_usd), 0)::float8
+        FROM sessions s
+        JOIN repos r ON r.id = s.repo_id
+        JOIN users u ON u.id = s.user_id
+        WHERE r.org_id = $1
+          AND s.started_at >= $2
+          AND s.started_at < $3
+        GROUP BY u.email
+        ORDER BY SUM(s.estimated_cost_usd) DESC NULLS LAST
+        LIMIT 5",
+    )
+    .bind(org_id)
+    .bind(from)
+    .bind(to)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(author, sessions, tokens, cost)| TopAuthor {
+            author,
+            sessions,
+            tokens,
+            cost,
+        })
+        .collect())
+}
+
 pub async fn get_dashboard(
     State(state): State<AppState>,
     auth: OrgAuth,
@@ -251,12 +300,13 @@ pub async fn get_dashboard(
     let period = q.period.as_deref().unwrap_or("7d");
     let (cur_start, cur_end, prev_start, prev_end) = period_ranges(period);
 
-    let (current, previous, sparkline_raw, compliance_cur, compliance_prev) = tokio::try_join!(
+    let (current, previous, sparkline_raw, compliance_cur, compliance_prev, top_authors) = tokio::try_join!(
         query_kpi_totals(&state.pool, auth.org_id, cur_start, cur_end),
         query_kpi_totals(&state.pool, auth.org_id, prev_start, prev_end),
         query_sparklines(&state.pool, auth.org_id, cur_start, cur_end),
         query_compliance(&state.pool, auth.org_id, cur_start, cur_end),
         query_compliance(&state.pool, auth.org_id, prev_start, prev_end),
+        query_top_authors(&state.pool, auth.org_id, cur_start, cur_end),
     )?;
 
     // Fill sparkline gaps: generate all dates in [cur_start, cur_end) and zero-fill missing days
@@ -344,6 +394,7 @@ pub async fn get_dashboard(
         chain_verified: compliance_cur.chain_verified,
         cache_savings_usd: cache_savings,
         cache_savings_pct,
+        top_authors,
     }))
 }
 
