@@ -361,6 +361,10 @@ async fn main() {
             get(api::analytics::get_authors),
         )
         .route(
+            "/api/v1/orgs/{slug}/analytics/authors/{user_id}",
+            get(api::analytics::get_author_detail),
+        )
+        .route(
             "/api/v1/orgs/{slug}/analytics/attribution",
             get(api::analytics::get_attribution),
         )
