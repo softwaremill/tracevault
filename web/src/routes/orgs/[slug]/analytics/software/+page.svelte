@@ -98,9 +98,10 @@
 		return 'just now';
 	}
 
-	const totalUniqueTools = $derived(
-		data ? new Set(data.org_top_tools.map((t) => t.name)).size : 0
-	);
+	const totalUniqueTools = $derived.by(() => {
+		if (!data) return 0;
+		return new Set(data.org_top_tools.map((t) => t.name)).size;
+	});
 
 	const mostPopularTool = $derived.by(() => {
 		if (!data || data.org_top_tools.length === 0) return '-';

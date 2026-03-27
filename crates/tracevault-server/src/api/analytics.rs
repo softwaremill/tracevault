@@ -1582,8 +1582,8 @@ pub async fn get_software(
 
     let users: Vec<SoftwareUserItem> = user_rows
         .into_iter()
-        .map(|(user_id, email, name, unique_tools, total_usage, last_active)| {
-            SoftwareUserItem {
+        .map(
+            |(user_id, email, name, unique_tools, total_usage, last_active)| SoftwareUserItem {
                 user_id,
                 email,
                 name,
@@ -1591,8 +1591,8 @@ pub async fn get_software(
                 total_usage,
                 top_tools: user_top_tools.remove(&user_id).unwrap_or_default(),
                 last_active,
-            }
-        })
+            },
+        )
         .collect();
 
     // Org-wide top tools
@@ -1687,7 +1687,16 @@ pub async fn get_software_user_detail(
     .map_err(|e| (StatusCode::NOT_FOUND, format!("User not found: {}", e)))?;
 
     // Software list
-    let software = sqlx::query_as::<_, (String, i64, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>, i64)>(
+    let software = sqlx::query_as::<
+        _,
+        (
+            String,
+            i64,
+            chrono::DateTime<chrono::Utc>,
+            chrono::DateTime<chrono::Utc>,
+            i64,
+        ),
+    >(
         "SELECT software_name,
                 SUM(usage_count) AS usage_count,
                 MIN(first_seen_at) AS first_seen,
@@ -1743,7 +1752,17 @@ pub async fn get_software_user_detail(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Recent sessions (last 20)
-    let recent = sqlx::query_as::<_, (Uuid, String, String, Option<chrono::DateTime<chrono::Utc>>, Option<i64>, Option<f64>)>(
+    let recent = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            String,
+            Option<chrono::DateTime<chrono::Utc>>,
+            Option<i64>,
+            Option<f64>,
+        ),
+    >(
         "SELECT s.id, s.session_id, r.name,
                 s.started_at, s.duration_ms, s.estimated_cost_usd
          FROM sessions s
@@ -1789,13 +1808,15 @@ pub async fn get_software_user_detail(
         },
         software: software
             .into_iter()
-            .map(|(name, usage_count, first_seen, last_seen, session_count)| SoftwareItem {
-                name,
-                usage_count,
-                first_seen,
-                last_seen,
-                session_count,
-            })
+            .map(
+                |(name, usage_count, first_seen, last_seen, session_count)| SoftwareItem {
+                    name,
+                    usage_count,
+                    first_seen,
+                    last_seen,
+                    session_count,
+                },
+            )
             .collect(),
         total_sessions: stats.0,
         total_cost_usd: stats.1,
@@ -1806,17 +1827,19 @@ pub async fn get_software_user_detail(
             .collect(),
         recent_sessions: recent
             .into_iter()
-            .map(|(id, session_id, repo_name, started_at, duration_ms, cost_usd)| {
-                SoftwareRecentSession {
-                    id,
-                    session_id,
-                    repo_name,
-                    started_at,
-                    duration_ms,
-                    cost_usd,
-                    tools_used: session_tools_map.remove(&id).unwrap_or_default(),
-                }
-            })
+            .map(
+                |(id, session_id, repo_name, started_at, duration_ms, cost_usd)| {
+                    SoftwareRecentSession {
+                        id,
+                        session_id,
+                        repo_name,
+                        started_at,
+                        duration_ms,
+                        cost_usd,
+                        tools_used: session_tools_map.remove(&id).unwrap_or_default(),
+                    }
+                },
+            )
             .collect(),
     }))
 }

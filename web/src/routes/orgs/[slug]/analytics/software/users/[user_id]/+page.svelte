@@ -132,7 +132,10 @@
 		return data.model_preferences[0].model;
 	});
 
-	const uniqueTools = $derived(data ? data.software.length : 0);
+	const uniqueTools = $derived.by(() => {
+		if (!data) return 0;
+		return data.software.length;
+	});
 
 	const softwareColumns = [
 		{ key: 'name', label: 'Software' },
