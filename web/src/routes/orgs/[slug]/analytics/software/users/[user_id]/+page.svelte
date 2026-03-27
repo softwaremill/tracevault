@@ -6,11 +6,7 @@
 	import DataTable from '$lib/components/DataTable.svelte';
 	import Chart from '$lib/components/chart.svelte';
 	import SessionDetailPanel from '$lib/components/session-detail/SessionDetailPanel.svelte';
-	import MonitorPlayIcon from '@lucide/svelte/icons/monitor-play';
-	import DollarSignIcon from '@lucide/svelte/icons/dollar-sign';
-	import CoinsIcon from '@lucide/svelte/icons/coins';
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
-	import CpuIcon from '@lucide/svelte/icons/cpu';
 	import {
 		Chart as ChartJS,
 		CategoryScale,
@@ -35,29 +31,17 @@
 		last_seen: string;
 		session_count: number;
 	}
-
-	interface ModelPreference {
-		model: string;
-		sessions: number;
-	}
-
 	interface RecentSession {
 		id: string;
 		session_id: string;
 		repo_name: string;
 		started_at: string | null;
 		duration_ms: number | null;
-		cost_usd: number | null;
 		tools_used: string[];
 	}
-
 	interface UserDetailResponse {
 		user: { user_id: string; email: string; name: string | null };
 		software: SoftwareItem[];
-		total_sessions: number;
-		total_cost_usd: number;
-		total_tokens: number;
-		model_preferences: ModelPreference[];
 		recent_sessions: RecentSession[];
 	}
 
@@ -74,8 +58,7 @@
 		error = '';
 		try {
 			data = await api.get<UserDetailResponse>(
-				`/api/v1/orgs/${slug}/analytics/software/users/${userId}` +
-					(search ? '?' + search : '')
+				`/api/v1/orgs/${slug}/analytics/software/users/${userId}` + (search ? '?' + search : '')
 			);
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load';
@@ -93,11 +76,6 @@
 		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
 		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
 		return String(n);
-	}
-
-	function fmtCost(n: number | null): string {
-		if (n == null) return '-';
-		return `$${n.toFixed(2)}`;
 	}
 
 	function fmtDate(iso: string): string {
@@ -127,11 +105,6 @@
 		return 'just now';
 	}
 
-	const topModel = $derived.by(() => {
-		if (!data || data.model_preferences.length === 0) return '-';
-		return data.model_preferences[0].model;
-	});
-
 	const uniqueTools = $derived.by(() => {
 		if (!data) return 0;
 		return data.software.length;
@@ -149,7 +122,6 @@
 		{ key: 'session_id', label: 'Session ID' },
 		{ key: 'repo_name', label: 'Repo', sortable: true },
 		{ key: 'duration_ms', label: 'Duration', sortable: true },
-		{ key: 'cost_usd', label: 'Cost', sortable: true },
 		{ key: '_tools', label: 'Tools Used' },
 		{ key: 'started_at', label: 'Started', sortable: true }
 	];
@@ -178,9 +150,7 @@
 </script>
 
 <svelte:head>
-	<title
-		>{data ? (data.user.name ?? data.user.email) : 'User'} - Software Analytics - TraceVault</title
-	>
+	<title>{data ? (data.user.name ?? data.user.email) : 'User'} - Software - TraceVault</title>
 </svelte:head>
 
 <div class="space-y-6">
@@ -193,38 +163,14 @@
 		<p class="text-destructive">{error}</p>
 	{:else if data}
 		<div class="flex items-center gap-3">
-			<a
-				href="/orgs/{slug}/analytics/software"
-				class="text-muted-foreground hover:text-foreground text-sm">&larr; Back</a
-			>
+			<a href="/orgs/{slug}/analytics/authors/{userId}" class="text-muted-foreground hover:text-foreground text-sm">&larr; Back</a>
 			<h1 class="text-xl font-semibold">{data.user.name ?? data.user.email}</h1>
 			{#if data.user.name}
 				<span class="text-muted-foreground text-sm">{data.user.email}</span>
 			{/if}
 		</div>
 
-		<div class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
-			<StatCard
-				label="Total Sessions"
-				value={fmtNum(data.total_sessions)}
-				icon={MonitorPlayIcon}
-				color="#3b82f6"
-				tooltip="Total AI coding sessions for this user."
-			/>
-			<StatCard
-				label="Total Cost"
-				value={fmtCost(data.total_cost_usd)}
-				icon={DollarSignIcon}
-				color="#dc2626"
-				tooltip="Total estimated cost across all sessions."
-			/>
-			<StatCard
-				label="Total Tokens"
-				value={fmtNum(data.total_tokens)}
-				icon={CoinsIcon}
-				color="#f59e0b"
-				tooltip="Total tokens consumed across all sessions."
-			/>
+		<div class="grid grid-cols-1">
 			<StatCard
 				label="Unique Tools"
 				value={String(uniqueTools)}
@@ -232,30 +178,16 @@
 				color="#10b981"
 				tooltip="Number of distinct CLI tools this user has used."
 			/>
-			<StatCard
-				label="Top Model"
-				value={topModel}
-				icon={CpuIcon}
-				color="#8b5cf6"
-				tooltip="Most frequently used AI model."
-			/>
 		</div>
 
 		<div class="grid gap-6 lg:grid-cols-2">
 			<div class="border-border rounded-lg border p-3">
-				<h4 class="mb-2 text-sm font-semibold">
-					Top Tools
-					<HelpTip text="Most frequently used CLI tools by this user." />
-				</h4>
+				<h4 class="mb-2 text-sm font-semibold">Top Tools <HelpTip text="Most frequently used CLI tools by this user." /></h4>
 				{#if data.software.length > 0}
 					<Chart
 						type="bar"
 						data={softwareChartData(data)}
-						options={{
-							responsive: true,
-							indexAxis: 'y',
-							plugins: { legend: { display: false } }
-						}}
+						options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
 					/>
 				{:else}
 					<p class="text-muted-foreground text-sm">No data</p>
@@ -263,10 +195,7 @@
 			</div>
 
 			<div>
-				<h4 class="mb-2 text-sm font-semibold">
-					All Software
-					<HelpTip text="Complete list of CLI tools detected in this user's sessions." />
-				</h4>
+				<h4 class="mb-2 text-sm font-semibold">All Software <HelpTip text="Complete list of CLI tools detected." /></h4>
 				<DataTable
 					columns={softwareColumns}
 					rows={data.software}
@@ -295,10 +224,7 @@
 		</div>
 
 		<div>
-			<h4 class="mb-2 text-sm font-semibold">
-				Recent Sessions
-				<HelpTip text="Latest coding sessions with tools detected in each." />
-			</h4>
+			<h4 class="mb-2 text-sm font-semibold">Recent Sessions <HelpTip text="Latest sessions with tools detected." /></h4>
 			<DataTable
 				columns={sessionColumns}
 				rows={sessionRows}
@@ -317,15 +243,10 @@
 						<span class="font-mono">{(row.session_id as string).slice(0, 8)}</span>
 					{:else if col.key === 'duration_ms'}
 						<span class="font-mono">{fmtDuration(row.duration_ms as number | null)}</span>
-					{:else if col.key === 'cost_usd'}
-						<span class="font-mono">{fmtCost(row.cost_usd as number | null)}</span>
 					{:else if col.key === '_tools'}
 						<div class="flex flex-wrap gap-1">
 							{#each (row.tools_used as string[]) as tool}
-								<span
-									class="rounded-full px-2 py-0.5 text-[10px]"
-									style="background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.25)"
-								>{tool}</span>
+								<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.25)">{tool}</span>
 							{/each}
 						</div>
 					{:else if col.key === 'started_at'}
