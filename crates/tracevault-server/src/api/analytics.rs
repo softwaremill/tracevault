@@ -784,8 +784,8 @@ pub struct AuthorsResponse {
 
 #[derive(Debug, Serialize)]
 pub struct AuthorLeaderboard {
+    pub user_id: Uuid,
     pub author: String,
-    pub commits: i64,
     pub sessions: i64,
     pub tokens: i64,
     pub cost: f64,
@@ -793,7 +793,6 @@ pub struct AuthorLeaderboard {
     pub last_active: chrono::DateTime<chrono::Utc>,
     pub avg_duration_ms: Option<i64>,
     pub total_tool_calls: i64,
-    pub total_compactions: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -821,6 +820,7 @@ pub async fn get_authors(
     let leaderboard = sqlx::query_as::<
         _,
         (
+            Uuid,
             String,
             i64,
             i64,
@@ -831,7 +831,8 @@ pub async fn get_authors(
             i64,
         ),
     >(
-        "SELECT u.email,
+        "SELECT u.id,
+                u.email,
                 COUNT(s.id),
                 COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0),
                 COALESCE(SUM(s.estimated_cost_usd), 0.0),
@@ -846,7 +847,7 @@ pub async fn get_authors(
            AND ($2::TEXT IS NULL OR r.name = $2)
            AND ($3::TIMESTAMPTZ IS NULL OR s.created_at >= $3)
            AND ($4::TIMESTAMPTZ IS NULL OR s.created_at <= $4)
-         GROUP BY u.email
+         GROUP BY u.id, u.email
          ORDER BY 3 DESC",
     )
     .bind(org_id)
@@ -905,9 +906,9 @@ pub async fn get_authors(
     Ok(Json(AuthorsResponse {
         leaderboard: leaderboard
             .into_iter()
-            .map(|(a, s, t, cost, ai, la, dur, tc)| AuthorLeaderboard {
+            .map(|(uid, a, s, t, cost, ai, la, dur, tc)| AuthorLeaderboard {
+                user_id: uid,
                 author: a,
-                commits: 0, // commits are decoupled from sessions
                 sessions: s,
                 tokens: t,
                 cost,
@@ -915,7 +916,6 @@ pub async fn get_authors(
                 last_active: la,
                 avg_duration_ms: dur,
                 total_tool_calls: tc,
-                total_compactions: 0, // not tracked
             })
             .collect(),
         timeline: timeline
