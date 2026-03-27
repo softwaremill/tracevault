@@ -74,7 +74,8 @@
 		{ href: `/orgs/${slug}/analytics/authors`, label: 'Authors' },
 		{ href: `/orgs/${slug}/analytics/attribution`, label: 'Attribution' },
 		{ href: `/orgs/${slug}/analytics/sessions`, label: 'Sessions' },
-		{ href: `/orgs/${slug}/analytics/cost`, label: 'Cost' }
+		{ href: `/orgs/${slug}/analytics/cost`, label: 'Cost' },
+		{ href: `/orgs/${slug}/analytics/software`, label: 'Software' }
 	]);
 
 	const complianceSubItems = $derived([

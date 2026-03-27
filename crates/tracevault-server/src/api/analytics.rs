@@ -1,7 +1,7 @@
 use crate::extractors::OrgAuth;
 use crate::AppState;
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Json,
 };
@@ -784,8 +784,8 @@ pub struct AuthorsResponse {
 
 #[derive(Debug, Serialize)]
 pub struct AuthorLeaderboard {
+    pub user_id: Uuid,
     pub author: String,
-    pub commits: i64,
     pub sessions: i64,
     pub tokens: i64,
     pub cost: f64,
@@ -793,7 +793,6 @@ pub struct AuthorLeaderboard {
     pub last_active: chrono::DateTime<chrono::Utc>,
     pub avg_duration_ms: Option<i64>,
     pub total_tool_calls: i64,
-    pub total_compactions: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -821,6 +820,7 @@ pub async fn get_authors(
     let leaderboard = sqlx::query_as::<
         _,
         (
+            Uuid,
             String,
             i64,
             i64,
@@ -831,7 +831,8 @@ pub async fn get_authors(
             i64,
         ),
     >(
-        "SELECT u.email,
+        "SELECT u.id,
+                u.email,
                 COUNT(s.id),
                 COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0),
                 COALESCE(SUM(s.estimated_cost_usd), 0.0),
@@ -846,7 +847,7 @@ pub async fn get_authors(
            AND ($2::TEXT IS NULL OR r.name = $2)
            AND ($3::TIMESTAMPTZ IS NULL OR s.created_at >= $3)
            AND ($4::TIMESTAMPTZ IS NULL OR s.created_at <= $4)
-         GROUP BY u.email
+         GROUP BY u.id, u.email
          ORDER BY 3 DESC",
     )
     .bind(org_id)
@@ -905,9 +906,9 @@ pub async fn get_authors(
     Ok(Json(AuthorsResponse {
         leaderboard: leaderboard
             .into_iter()
-            .map(|(a, s, t, cost, ai, la, dur, tc)| AuthorLeaderboard {
+            .map(|(uid, a, s, t, cost, ai, la, dur, tc)| AuthorLeaderboard {
+                user_id: uid,
                 author: a,
-                commits: 0, // commits are decoupled from sessions
                 sessions: s,
                 tokens: t,
                 cost,
@@ -915,7 +916,6 @@ pub async fn get_authors(
                 last_active: la,
                 avg_duration_ms: dur,
                 total_tool_calls: tc,
-                total_compactions: 0, // not tracked
             })
             .collect(),
         timeline: timeline
@@ -1485,6 +1485,401 @@ pub async fn get_cost(
         cost_by_author: cost_author
             .into_iter()
             .map(|(a, c)| AuthorCost { author: a, cost: c })
+            .collect(),
+    }))
+}
+
+// --- Software analytics endpoint ---
+
+#[derive(Debug, Serialize)]
+pub struct OrgTopTool {
+    pub name: String,
+    pub count: i64,
+    pub users: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SoftwareResponse {
+    pub org_top_tools: Vec<OrgTopTool>,
+}
+
+pub async fn get_software(
+    State(state): State<AppState>,
+    auth: OrgAuth,
+    Query(q): Query<AnalyticsQuery>,
+) -> Result<Json<SoftwareResponse>, (StatusCode, String)> {
+    let org_id = q.effective_org_id(&auth);
+
+    let org_tools = sqlx::query_as::<_, (String, i64, i64)>(
+        "SELECT usu.software_name, SUM(usu.usage_count) AS count, COUNT(DISTINCT usu.user_id) AS users
+         FROM user_software_usage usu
+         JOIN sessions s ON usu.session_id = s.id
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON usu.user_id = u.id
+         WHERE usu.org_id = $1
+           AND ($2::TEXT IS NULL OR r.name = $2)
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR usu.last_seen_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR usu.first_seen_at <= $5)
+         GROUP BY usu.software_name
+         ORDER BY count DESC",
+    )
+    .bind(org_id)
+    .bind(&q.repo)
+    .bind(&q.author)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(SoftwareResponse {
+        org_top_tools: org_tools
+            .into_iter()
+            .map(|(name, count, users)| OrgTopTool { name, count, users })
+            .collect(),
+    }))
+}
+
+// --- Software user detail endpoint ---
+
+#[derive(Debug, Serialize)]
+pub struct SoftwareUserInfo {
+    pub user_id: Uuid,
+    pub email: String,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SoftwareItem {
+    pub name: String,
+    pub usage_count: i64,
+    pub first_seen: chrono::DateTime<chrono::Utc>,
+    pub last_seen: chrono::DateTime<chrono::Utc>,
+    pub session_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SoftwareRecentSession {
+    pub id: Uuid,
+    pub session_id: String,
+    pub repo_name: String,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub duration_ms: Option<i64>,
+    pub tools_used: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SoftwareUserDetailResponse {
+    pub user: SoftwareUserInfo,
+    pub software: Vec<SoftwareItem>,
+    pub recent_sessions: Vec<SoftwareRecentSession>,
+}
+
+pub async fn get_software_user_detail(
+    State(state): State<AppState>,
+    auth: OrgAuth,
+    Path((_slug, user_id)): Path<(String, Uuid)>,
+    Query(q): Query<AnalyticsQuery>,
+) -> Result<Json<SoftwareUserDetailResponse>, (StatusCode, String)> {
+    let org_id = q.effective_org_id(&auth);
+
+    let user = sqlx::query_as::<_, (Uuid, String, Option<String>)>(
+        "SELECT id, email, name FROM users WHERE id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::NOT_FOUND, format!("User not found: {}", e)))?;
+
+    let software = sqlx::query_as::<
+        _,
+        (
+            String,
+            i64,
+            chrono::DateTime<chrono::Utc>,
+            chrono::DateTime<chrono::Utc>,
+            i64,
+        ),
+    >(
+        "SELECT software_name,
+                SUM(usage_count) AS usage_count,
+                MIN(first_seen_at) AS first_seen,
+                MAX(last_seen_at) AS last_seen,
+                COUNT(DISTINCT session_id) AS session_count
+         FROM user_software_usage
+         WHERE org_id = $1 AND user_id = $2
+           AND ($3::TIMESTAMPTZ IS NULL OR last_seen_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR first_seen_at <= $4)
+         GROUP BY software_name
+         ORDER BY usage_count DESC",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let recent = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            String,
+            Option<chrono::DateTime<chrono::Utc>>,
+            Option<i64>,
+        ),
+    >(
+        "SELECT s.id, s.session_id, r.name,
+                s.started_at, s.duration_ms
+         FROM sessions s
+         JOIN repos r ON s.repo_id = r.id
+         WHERE s.org_id = $1 AND s.user_id = $2
+           AND ($3::TIMESTAMPTZ IS NULL OR s.created_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at <= $4)
+         ORDER BY s.created_at DESC
+         LIMIT 20",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let session_ids: Vec<Uuid> = recent.iter().map(|r| r.0).collect();
+    let session_tools = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT session_id, software_name
+         FROM user_software_usage
+         WHERE session_id = ANY($1)
+         ORDER BY session_id, usage_count DESC",
+    )
+    .bind(&session_ids)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let mut session_tools_map: std::collections::HashMap<Uuid, Vec<String>> =
+        std::collections::HashMap::new();
+    for (sid, name) in session_tools {
+        session_tools_map.entry(sid).or_default().push(name);
+    }
+
+    Ok(Json(SoftwareUserDetailResponse {
+        user: SoftwareUserInfo {
+            user_id: user.0,
+            email: user.1,
+            name: user.2,
+        },
+        software: software
+            .into_iter()
+            .map(
+                |(name, usage_count, first_seen, last_seen, session_count)| SoftwareItem {
+                    name,
+                    usage_count,
+                    first_seen,
+                    last_seen,
+                    session_count,
+                },
+            )
+            .collect(),
+        recent_sessions: recent
+            .into_iter()
+            .map(
+                |(id, session_id, repo_name, started_at, duration_ms)| SoftwareRecentSession {
+                    id,
+                    session_id,
+                    repo_name,
+                    started_at,
+                    duration_ms,
+                    tools_used: session_tools_map.remove(&id).unwrap_or_default(),
+                },
+            )
+            .collect(),
+    }))
+}
+
+// --- Author detail endpoint ---
+
+#[derive(Debug, Serialize)]
+pub struct AuthorUserInfo {
+    pub user_id: Uuid,
+    pub email: String,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthorModelPref {
+    pub model: String,
+    pub sessions: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthorRecentSession {
+    pub id: Uuid,
+    pub session_id: String,
+    pub repo_name: String,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub duration_ms: Option<i64>,
+    pub cost_usd: Option<f64>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthorDetailResponse {
+    pub user: AuthorUserInfo,
+    pub sessions: i64,
+    pub tokens: i64,
+    pub cost_usd: f64,
+    pub avg_duration_ms: Option<i64>,
+    pub total_tool_calls: i64,
+    pub model_preferences: Vec<AuthorModelPref>,
+    pub top_software: Vec<String>,
+    pub recent_sessions: Vec<AuthorRecentSession>,
+}
+
+pub async fn get_author_detail(
+    State(state): State<AppState>,
+    auth: OrgAuth,
+    Path((_slug, user_id)): Path<(String, Uuid)>,
+    Query(q): Query<AnalyticsQuery>,
+) -> Result<Json<AuthorDetailResponse>, (StatusCode, String)> {
+    let org_id = q.effective_org_id(&auth);
+
+    let user = sqlx::query_as::<_, (Uuid, String, Option<String>)>(
+        "SELECT id, email, name FROM users WHERE id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::NOT_FOUND, format!("User not found: {}", e)))?;
+
+    let stats = sqlx::query_as::<_, (i64, i64, f64, Option<i64>, i64)>(
+        "SELECT COUNT(*),
+                COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0),
+                COALESCE(SUM(s.estimated_cost_usd), 0.0),
+                CAST(AVG(s.duration_ms) AS BIGINT),
+                COALESCE(CAST(SUM(s.total_tool_calls) AS BIGINT), 0)
+         FROM sessions s
+         JOIN repos r ON s.repo_id = r.id
+         WHERE r.org_id = $1 AND s.user_id = $2
+           AND ($3::TEXT IS NULL OR r.name = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(&q.repo)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let models = sqlx::query_as::<_, (String, i64)>(
+        "SELECT COALESCE(s.model, 'unknown'), COUNT(*)
+         FROM sessions s
+         JOIN repos r ON s.repo_id = r.id
+         WHERE r.org_id = $1 AND s.user_id = $2
+           AND ($3::TEXT IS NULL OR r.name = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)
+         GROUP BY s.model
+         ORDER BY 2 DESC",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(&q.repo)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let top_sw = sqlx::query_as::<_, (String,)>(
+        "SELECT software_name
+         FROM user_software_usage
+         WHERE org_id = $1 AND user_id = $2
+           AND ($3::TIMESTAMPTZ IS NULL OR last_seen_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR first_seen_at <= $4)
+         GROUP BY software_name
+         ORDER BY SUM(usage_count) DESC
+         LIMIT 5",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let recent = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            String,
+            Option<chrono::DateTime<chrono::Utc>>,
+            Option<i64>,
+            Option<f64>,
+            Option<String>,
+        ),
+    >(
+        "SELECT s.id, s.session_id, r.name,
+                s.started_at, s.duration_ms, s.estimated_cost_usd, s.model
+         FROM sessions s
+         JOIN repos r ON s.repo_id = r.id
+         WHERE s.org_id = $1 AND s.user_id = $2
+           AND ($3::TEXT IS NULL OR r.name = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)
+         ORDER BY s.created_at DESC
+         LIMIT 20",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(&q.repo)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(AuthorDetailResponse {
+        user: AuthorUserInfo {
+            user_id: user.0,
+            email: user.1,
+            name: user.2,
+        },
+        sessions: stats.0,
+        tokens: stats.1,
+        cost_usd: stats.2,
+        avg_duration_ms: stats.3,
+        total_tool_calls: stats.4,
+        model_preferences: models
+            .into_iter()
+            .map(|(model, sessions)| AuthorModelPref { model, sessions })
+            .collect(),
+        top_software: top_sw.into_iter().map(|(name,)| name).collect(),
+        recent_sessions: recent
+            .into_iter()
+            .map(
+                |(id, session_id, repo_name, started_at, duration_ms, cost_usd, model)| {
+                    AuthorRecentSession {
+                        id,
+                        session_id,
+                        repo_name,
+                        started_at,
+                        duration_ms,
+                        cost_usd,
+                        model,
+                    }
+                },
+            )
             .collect(),
     }))
 }

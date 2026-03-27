@@ -361,6 +361,10 @@ async fn main() {
             get(api::analytics::get_authors),
         )
         .route(
+            "/api/v1/orgs/{slug}/analytics/authors/{user_id}",
+            get(api::analytics::get_author_detail),
+        )
+        .route(
             "/api/v1/orgs/{slug}/analytics/attribution",
             get(api::analytics::get_attribution),
         )
@@ -375,6 +379,14 @@ async fn main() {
         .route(
             "/api/v1/orgs/{slug}/analytics/cost",
             get(api::analytics::get_cost),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/analytics/software",
+            get(api::analytics::get_software),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/analytics/software/users/{user_id}",
+            get(api::analytics::get_software_user_detail),
         )
         // Org-scoped: CI
         .route(

@@ -7,6 +7,7 @@ pub mod policy;
 pub mod policy_engine;
 pub mod redact;
 pub mod session;
+pub mod software;
 pub mod streaming;
 pub mod token_usage;
 pub mod trace;
