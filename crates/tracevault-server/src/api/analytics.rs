@@ -1,7 +1,7 @@
 use crate::extractors::OrgAuth;
 use crate::AppState;
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Json,
 };
@@ -1619,6 +1619,204 @@ pub async fn get_software(
         org_top_tools: org_tools
             .into_iter()
             .map(|(name, count, users)| OrgTopTool { name, count, users })
+            .collect(),
+    }))
+}
+
+// --- Software user detail endpoint ---
+
+#[derive(Debug, Serialize)]
+pub struct SoftwareUserInfo {
+    pub user_id: Uuid,
+    pub email: String,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SoftwareItem {
+    pub name: String,
+    pub usage_count: i64,
+    pub first_seen: chrono::DateTime<chrono::Utc>,
+    pub last_seen: chrono::DateTime<chrono::Utc>,
+    pub session_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SoftwareModelPreference {
+    pub model: String,
+    pub sessions: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SoftwareRecentSession {
+    pub id: Uuid,
+    pub session_id: String,
+    pub repo_name: String,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub duration_ms: Option<i64>,
+    pub cost_usd: Option<f64>,
+    pub tools_used: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SoftwareUserDetailResponse {
+    pub user: SoftwareUserInfo,
+    pub software: Vec<SoftwareItem>,
+    pub total_sessions: i64,
+    pub total_cost_usd: f64,
+    pub total_tokens: i64,
+    pub model_preferences: Vec<SoftwareModelPreference>,
+    pub recent_sessions: Vec<SoftwareRecentSession>,
+}
+
+pub async fn get_software_user_detail(
+    State(state): State<AppState>,
+    auth: OrgAuth,
+    Path((_slug, user_id)): Path<(String, Uuid)>,
+    Query(q): Query<AnalyticsQuery>,
+) -> Result<Json<SoftwareUserDetailResponse>, (StatusCode, String)> {
+    let org_id = q.effective_org_id(&auth);
+
+    // User info
+    let user = sqlx::query_as::<_, (Uuid, String, Option<String>)>(
+        "SELECT id, email, name FROM users WHERE id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::NOT_FOUND, format!("User not found: {}", e)))?;
+
+    // Software list
+    let software = sqlx::query_as::<_, (String, i64, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>, i64)>(
+        "SELECT software_name,
+                SUM(usage_count) AS usage_count,
+                MIN(first_seen_at) AS first_seen,
+                MAX(last_seen_at) AS last_seen,
+                COUNT(DISTINCT session_id) AS session_count
+         FROM user_software_usage
+         WHERE org_id = $1 AND user_id = $2
+           AND ($3::TIMESTAMPTZ IS NULL OR last_seen_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR first_seen_at <= $4)
+         GROUP BY software_name
+         ORDER BY usage_count DESC",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Session stats
+    let stats = sqlx::query_as::<_, (i64, f64, i64)>(
+        "SELECT COUNT(*), COALESCE(SUM(estimated_cost_usd), 0.0), COALESCE(SUM(total_tokens), 0)
+         FROM sessions
+         WHERE org_id = $1 AND user_id = $2
+           AND ($3::TIMESTAMPTZ IS NULL OR created_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR created_at <= $4)",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Model preferences
+    let models = sqlx::query_as::<_, (String, i64)>(
+        "SELECT COALESCE(model, 'unknown'), COUNT(*) AS sessions
+         FROM sessions
+         WHERE org_id = $1 AND user_id = $2
+           AND ($3::TIMESTAMPTZ IS NULL OR created_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR created_at <= $4)
+         GROUP BY model
+         ORDER BY sessions DESC",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Recent sessions (last 20)
+    let recent = sqlx::query_as::<_, (Uuid, String, String, Option<chrono::DateTime<chrono::Utc>>, Option<i64>, Option<f64>)>(
+        "SELECT s.id, s.session_id, r.name,
+                s.started_at, s.duration_ms, s.estimated_cost_usd
+         FROM sessions s
+         JOIN repos r ON s.repo_id = r.id
+         WHERE s.org_id = $1 AND s.user_id = $2
+           AND ($3::TIMESTAMPTZ IS NULL OR s.created_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at <= $4)
+         ORDER BY s.created_at DESC
+         LIMIT 20",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Get tools_used per session
+    let session_ids: Vec<Uuid> = recent.iter().map(|r| r.0).collect();
+    let session_tools = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT session_id, software_name
+         FROM user_software_usage
+         WHERE session_id = ANY($1)
+         ORDER BY session_id, usage_count DESC",
+    )
+    .bind(&session_ids)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let mut session_tools_map: std::collections::HashMap<Uuid, Vec<String>> =
+        std::collections::HashMap::new();
+    for (sid, name) in session_tools {
+        session_tools_map.entry(sid).or_default().push(name);
+    }
+
+    Ok(Json(SoftwareUserDetailResponse {
+        user: SoftwareUserInfo {
+            user_id: user.0,
+            email: user.1,
+            name: user.2,
+        },
+        software: software
+            .into_iter()
+            .map(|(name, usage_count, first_seen, last_seen, session_count)| SoftwareItem {
+                name,
+                usage_count,
+                first_seen,
+                last_seen,
+                session_count,
+            })
+            .collect(),
+        total_sessions: stats.0,
+        total_cost_usd: stats.1,
+        total_tokens: stats.2,
+        model_preferences: models
+            .into_iter()
+            .map(|(model, sessions)| SoftwareModelPreference { model, sessions })
+            .collect(),
+        recent_sessions: recent
+            .into_iter()
+            .map(|(id, session_id, repo_name, started_at, duration_ms, cost_usd)| {
+                SoftwareRecentSession {
+                    id,
+                    session_id,
+                    repo_name,
+                    started_at,
+                    duration_ms,
+                    cost_usd,
+                    tools_used: session_tools_map.remove(&id).unwrap_or_default(),
+                }
+            })
             .collect(),
     }))
 }
