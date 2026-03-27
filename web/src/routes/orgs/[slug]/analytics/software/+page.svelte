@@ -5,21 +5,9 @@
 	import StatCard from '$lib/components/StatCard.svelte';
 	import HelpTip from '$lib/components/HelpTip.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
-	import Chart from '$lib/components/chart.svelte';
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
 	import TrophyIcon from '@lucide/svelte/icons/trophy';
 	import UsersIcon from '@lucide/svelte/icons/users';
-	import {
-		Chart as ChartJS,
-		CategoryScale,
-		LinearScale,
-		BarElement,
-		Title,
-		Tooltip,
-		Legend
-	} from 'chart.js';
-
-	ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
 	const COLORS = [
 		'#3b82f6',
@@ -130,19 +118,17 @@
 		}));
 	});
 
-	function topToolsChartData(d: SoftwareResponse) {
-		const tools = d.org_top_tools.slice(0, 15);
-		return {
-			labels: tools.map((t) => t.name),
-			datasets: [
-				{
-					label: 'Usage Count',
-					data: tools.map((t) => t.count),
-					backgroundColor: tools.map((_, i) => COLORS[i % COLORS.length])
-				}
-			]
-		};
-	}
+	const topToolEntries = $derived.by(() => {
+		if (!data) return [];
+		return data.org_top_tools.slice(0, 12).map((t, i) => ({
+			name: t.name,
+			count: t.count,
+			users: t.users,
+			color: COLORS[i % COLORS.length]
+		}));
+	});
+
+	const topToolsTotal = $derived(topToolEntries.reduce((s, e) => s + e.count, 0));
 </script>
 
 <svelte:head>
@@ -192,16 +178,29 @@
 					text="Most frequently used CLI tools across all users in the organization."
 				/>
 			</h4>
-			{#if data.org_top_tools.length > 0}
-				<Chart
-					type="bar"
-					data={topToolsChartData(data)}
-					options={{
-						responsive: true,
-						indexAxis: 'y',
-						plugins: { legend: { display: false } }
-					}}
-				/>
+			{#if topToolEntries.length > 0}
+				<div class="flex h-9 overflow-hidden rounded-md">
+					{#each topToolEntries as entry}
+						<div
+							class="flex items-center justify-center overflow-hidden text-xs font-semibold text-white transition-all hover:brightness-110"
+							style="flex: {entry.count}; background: {entry.color}"
+							title="{entry.name}: {fmtNum(entry.count)} ({entry.users} users)"
+						>
+							{#if topToolsTotal > 0 && entry.count / topToolsTotal > 0.06}
+								<span class="truncate px-1">{entry.name}</span>
+							{/if}
+						</div>
+					{/each}
+				</div>
+				<div class="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+					{#each topToolEntries as entry}
+						<div class="text-muted-foreground flex items-center gap-1.5 text-xs">
+							<span class="inline-block h-2.5 w-2.5 rounded-sm" style="background: {entry.color}"></span>
+							{entry.name}
+							<span class="text-muted-foreground/60">{fmtNum(entry.count)}</span>
+						</div>
+					{/each}
+				</div>
 			{:else}
 				<p class="text-muted-foreground text-sm">No data</p>
 			{/if}
