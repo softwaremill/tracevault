@@ -153,7 +153,10 @@
 			<div class="border-border rounded-lg border p-3">
 				<div class="flex items-center justify-between mb-2">
 					<h4 class="text-sm font-semibold">Top Software <HelpTip text="Most frequently used CLI tools." /></h4>
-					<a href="/orgs/{slug}/analytics/software/users/{userId}" class="text-xs text-primary hover:underline">View all software &rarr;</a>
+					<div class="flex gap-3">
+						<a href="/orgs/{slug}/analytics/software/users/{userId}" class="text-xs text-primary hover:underline">View all software &rarr;</a>
+						<a href="/orgs/{slug}/analytics/ai-tools/users/{userId}" class="text-xs text-primary hover:underline">View AI tools &rarr;</a>
+					</div>
 				</div>
 				<div class="flex flex-wrap gap-2">
 					{#each data.top_software as tool, i}
