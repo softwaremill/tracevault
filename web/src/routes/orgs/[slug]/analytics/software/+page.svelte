@@ -6,6 +6,8 @@
 	import DataTable from '$lib/components/DataTable.svelte';
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
 	import TrophyIcon from '@lucide/svelte/icons/trophy';
+	import BotIcon from '@lucide/svelte/icons/bot';
+	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 
 	const COLORS = [
 		'#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
@@ -18,8 +20,16 @@
 		users: number;
 	}
 
+	interface AiToolsSummary {
+		total_mcp_servers: number;
+		total_skill_groups: number;
+		top_mcp_server: string | null;
+		top_skill_group: string | null;
+	}
+
 	interface SoftwareResponse {
 		org_top_tools: OrgTopTool[];
+		ai_tools_summary: AiToolsSummary;
 	}
 
 	let data: SoftwareResponse | null = $state(null);
@@ -113,6 +123,32 @@
 				tooltip="The CLI tool with the highest total usage count."
 			/>
 		</div>
+
+		{#if data.ai_tools_summary.total_mcp_servers > 0 || data.ai_tools_summary.total_skill_groups > 0}
+			<a href="/orgs/{slug}/analytics/ai-tools" class="border-border hover:border-primary/30 hover:bg-muted/30 block rounded-lg border p-3 transition-colors">
+				<h4 class="mb-2 text-sm font-semibold">AI Tools <HelpTip text="MCP servers and skill groups used across sessions." /></h4>
+				<div class="flex gap-6">
+					{#if data.ai_tools_summary.total_mcp_servers > 0}
+						<div class="flex items-center gap-2">
+							<BotIcon class="text-muted-foreground h-4 w-4" />
+							<span class="text-sm"><strong>{data.ai_tools_summary.total_mcp_servers}</strong> MCP Servers</span>
+							{#if data.ai_tools_summary.top_mcp_server}
+								<span class="text-muted-foreground text-xs">(top: {data.ai_tools_summary.top_mcp_server})</span>
+							{/if}
+						</div>
+					{/if}
+					{#if data.ai_tools_summary.total_skill_groups > 0}
+						<div class="flex items-center gap-2">
+							<SparklesIcon class="text-muted-foreground h-4 w-4" />
+							<span class="text-sm"><strong>{data.ai_tools_summary.total_skill_groups}</strong> Skill Groups</span>
+							{#if data.ai_tools_summary.top_skill_group}
+								<span class="text-muted-foreground text-xs">(top: {data.ai_tools_summary.top_skill_group})</span>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			</a>
+		{/if}
 
 		<div class="border-border rounded-lg border p-3">
 			<h4 class="mb-2 text-sm font-semibold">
