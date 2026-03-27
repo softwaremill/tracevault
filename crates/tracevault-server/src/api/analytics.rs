@@ -1492,17 +1492,6 @@ pub async fn get_cost(
 // --- Software analytics endpoint ---
 
 #[derive(Debug, Serialize)]
-pub struct SoftwareUserItem {
-    pub user_id: Uuid,
-    pub email: String,
-    pub name: Option<String>,
-    pub unique_tools: i64,
-    pub total_usage: i64,
-    pub top_tools: Vec<String>,
-    pub last_active: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Debug, Serialize)]
 pub struct OrgTopTool {
     pub name: String,
     pub count: i64,
@@ -1511,8 +1500,6 @@ pub struct OrgTopTool {
 
 #[derive(Debug, Serialize)]
 pub struct SoftwareResponse {
-    pub users: Vec<SoftwareUserItem>,
-    pub total_users: i64,
     pub org_top_tools: Vec<OrgTopTool>,
 }
 
@@ -1523,79 +1510,6 @@ pub async fn get_software(
 ) -> Result<Json<SoftwareResponse>, (StatusCode, String)> {
     let org_id = q.effective_org_id(&auth);
 
-    // Users with software stats
-    let user_rows = sqlx::query_as::<_, (Uuid, String, Option<String>, i64, i64, chrono::DateTime<chrono::Utc>)>(
-        "SELECT u.id, u.email, u.name,
-                COUNT(DISTINCT usu.software_name) AS unique_tools,
-                COALESCE(SUM(usu.usage_count), 0) AS total_usage,
-                MAX(usu.last_seen_at) AS last_active
-         FROM user_software_usage usu
-         JOIN users u ON usu.user_id = u.id
-         JOIN sessions s ON usu.session_id = s.id
-         WHERE usu.org_id = $1
-           AND ($2::TEXT IS NULL OR s.repo_id = (SELECT id FROM repos WHERE name = $2 AND org_id = $1))
-           AND ($3::TEXT IS NULL OR u.email = $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR usu.last_seen_at >= $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR usu.first_seen_at <= $5)
-         GROUP BY u.id, u.email, u.name
-         ORDER BY total_usage DESC",
-    )
-    .bind(org_id)
-    .bind(&q.repo)
-    .bind(&q.author)
-    .bind(q.from)
-    .bind(q.to)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let total_users = user_rows.len() as i64;
-
-    // Top 3 tools per user
-    let user_ids: Vec<Uuid> = user_rows.iter().map(|r| r.0).collect();
-    let top_tools_rows = sqlx::query_as::<_, (Uuid, String, i64)>(
-        "SELECT user_id, software_name, SUM(usage_count) AS cnt
-         FROM user_software_usage
-         WHERE org_id = $1 AND user_id = ANY($2)
-           AND ($3::TIMESTAMPTZ IS NULL OR last_seen_at >= $3)
-           AND ($4::TIMESTAMPTZ IS NULL OR first_seen_at <= $4)
-         GROUP BY user_id, software_name
-         ORDER BY user_id, cnt DESC",
-    )
-    .bind(org_id)
-    .bind(&user_ids)
-    .bind(q.from)
-    .bind(q.to)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    // Group top 3 per user
-    let mut user_top_tools: std::collections::HashMap<Uuid, Vec<String>> =
-        std::collections::HashMap::new();
-    for (uid, name, _cnt) in &top_tools_rows {
-        let entry = user_top_tools.entry(*uid).or_default();
-        if entry.len() < 3 {
-            entry.push(name.clone());
-        }
-    }
-
-    let users: Vec<SoftwareUserItem> = user_rows
-        .into_iter()
-        .map(
-            |(user_id, email, name, unique_tools, total_usage, last_active)| SoftwareUserItem {
-                user_id,
-                email,
-                name,
-                unique_tools,
-                total_usage,
-                top_tools: user_top_tools.remove(&user_id).unwrap_or_default(),
-                last_active,
-            },
-        )
-        .collect();
-
-    // Org-wide top tools
     let org_tools = sqlx::query_as::<_, (String, i64, i64)>(
         "SELECT software_name, SUM(usage_count) AS count, COUNT(DISTINCT user_id) AS users
          FROM user_software_usage
@@ -1603,8 +1517,7 @@ pub async fn get_software(
            AND ($2::TIMESTAMPTZ IS NULL OR last_seen_at >= $2)
            AND ($3::TIMESTAMPTZ IS NULL OR first_seen_at <= $3)
          GROUP BY software_name
-         ORDER BY count DESC
-         LIMIT 20",
+         ORDER BY count DESC",
     )
     .bind(org_id)
     .bind(q.from)
@@ -1614,8 +1527,6 @@ pub async fn get_software(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(SoftwareResponse {
-        users,
-        total_users,
         org_top_tools: org_tools
             .into_iter()
             .map(|(name, count, users)| OrgTopTool { name, count, users })
@@ -1837,6 +1748,188 @@ pub async fn get_software_user_detail(
                         duration_ms,
                         cost_usd,
                         tools_used: session_tools_map.remove(&id).unwrap_or_default(),
+                    }
+                },
+            )
+            .collect(),
+    }))
+}
+
+// --- Author detail endpoint ---
+
+#[derive(Debug, Serialize)]
+pub struct AuthorUserInfo {
+    pub user_id: Uuid,
+    pub email: String,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthorModelPref {
+    pub model: String,
+    pub sessions: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthorRecentSession {
+    pub id: Uuid,
+    pub session_id: String,
+    pub repo_name: String,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub duration_ms: Option<i64>,
+    pub cost_usd: Option<f64>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthorDetailResponse {
+    pub user: AuthorUserInfo,
+    pub sessions: i64,
+    pub tokens: i64,
+    pub cost_usd: f64,
+    pub avg_duration_ms: Option<i64>,
+    pub total_tool_calls: i64,
+    pub model_preferences: Vec<AuthorModelPref>,
+    pub top_software: Vec<String>,
+    pub recent_sessions: Vec<AuthorRecentSession>,
+}
+
+pub async fn get_author_detail(
+    State(state): State<AppState>,
+    auth: OrgAuth,
+    Path((_slug, user_id)): Path<(String, Uuid)>,
+    Query(q): Query<AnalyticsQuery>,
+) -> Result<Json<AuthorDetailResponse>, (StatusCode, String)> {
+    let org_id = q.effective_org_id(&auth);
+
+    let user = sqlx::query_as::<_, (Uuid, String, Option<String>)>(
+        "SELECT id, email, name FROM users WHERE id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::NOT_FOUND, format!("User not found: {}", e)))?;
+
+    let stats = sqlx::query_as::<_, (i64, i64, f64, Option<i64>, i64)>(
+        "SELECT COUNT(*),
+                COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0),
+                COALESCE(SUM(s.estimated_cost_usd), 0.0),
+                CAST(AVG(s.duration_ms) AS BIGINT),
+                COALESCE(CAST(SUM(s.total_tool_calls) AS BIGINT), 0)
+         FROM sessions s
+         JOIN repos r ON s.repo_id = r.id
+         WHERE r.org_id = $1 AND s.user_id = $2
+           AND ($3::TEXT IS NULL OR r.name = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(&q.repo)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let models = sqlx::query_as::<_, (String, i64)>(
+        "SELECT COALESCE(s.model, 'unknown'), COUNT(*)
+         FROM sessions s
+         JOIN repos r ON s.repo_id = r.id
+         WHERE r.org_id = $1 AND s.user_id = $2
+           AND ($3::TEXT IS NULL OR r.name = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)
+         GROUP BY s.model
+         ORDER BY 2 DESC",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(&q.repo)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let top_sw = sqlx::query_as::<_, (String,)>(
+        "SELECT software_name
+         FROM user_software_usage
+         WHERE org_id = $1 AND user_id = $2
+           AND ($3::TIMESTAMPTZ IS NULL OR last_seen_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR first_seen_at <= $4)
+         GROUP BY software_name
+         ORDER BY SUM(usage_count) DESC
+         LIMIT 5",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let recent = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            String,
+            Option<chrono::DateTime<chrono::Utc>>,
+            Option<i64>,
+            Option<f64>,
+            Option<String>,
+        ),
+    >(
+        "SELECT s.id, s.session_id, r.name,
+                s.started_at, s.duration_ms, s.estimated_cost_usd, s.model
+         FROM sessions s
+         JOIN repos r ON s.repo_id = r.id
+         WHERE s.org_id = $1 AND s.user_id = $2
+           AND ($3::TEXT IS NULL OR r.name = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR s.created_at <= $5)
+         ORDER BY s.created_at DESC
+         LIMIT 20",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(&q.repo)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(AuthorDetailResponse {
+        user: AuthorUserInfo {
+            user_id: user.0,
+            email: user.1,
+            name: user.2,
+        },
+        sessions: stats.0,
+        tokens: stats.1,
+        cost_usd: stats.2,
+        avg_duration_ms: stats.3,
+        total_tool_calls: stats.4,
+        model_preferences: models
+            .into_iter()
+            .map(|(model, sessions)| AuthorModelPref { model, sessions })
+            .collect(),
+        top_software: top_sw.into_iter().map(|(name,)| name).collect(),
+        recent_sessions: recent
+            .into_iter()
+            .map(
+                |(id, session_id, repo_name, started_at, duration_ms, cost_usd, model)| {
+                    AuthorRecentSession {
+                        id,
+                        session_id,
+                        repo_name,
+                        started_at,
+                        duration_ms,
+                        cost_usd,
+                        model,
                     }
                 },
             )
