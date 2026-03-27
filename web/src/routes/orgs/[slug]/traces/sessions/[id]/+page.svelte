@@ -66,6 +66,7 @@
 	let expandedEvents = $state(new Set<string>());
 	let expandedFiles = $state(new Set<string>());
 	let transcriptFilters = $state(new Set<string>());
+	let transcriptSearch = $state('');
 	let sectionsOpen = $state({
 		events: true,
 		files: false,
@@ -572,6 +573,14 @@
 									{/each}
 								</div>
 							{:else}
+								<div class="px-4 pt-3">
+									<input
+										type="text"
+										placeholder="Search transcript..."
+										bind:value={transcriptSearch}
+										class="border-border bg-background text-foreground placeholder:text-muted-foreground w-full rounded-md border px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+									/>
+								</div>
 								<div class="flex flex-wrap gap-2 px-4 pt-3">
 									{#each Object.entries(roleCounts) as [role, count]}
 										{@const color = ROLE_COLORS[role] || '#6b7594'}
@@ -586,7 +595,7 @@
 									{/each}
 								</div>
 								<div class="space-y-2 p-4">
-									{#each turns.filter(t => transcriptFilters.size === 0 || transcriptFilters.has(t.role)) as turn}
+									{#each turns.filter(t => (transcriptFilters.size === 0 || transcriptFilters.has(t.role)) && (!transcriptSearch.trim() || t.content.toLowerCase().includes(transcriptSearch.toLowerCase()) || t.role.toLowerCase().includes(transcriptSearch.toLowerCase()))) as turn}
 										<div
 											class="max-w-[85%] rounded-lg px-3 py-2 text-xs
 												{turn.role === 'user'

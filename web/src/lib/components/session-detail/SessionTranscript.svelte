@@ -41,6 +41,7 @@
 	);
 
 	let activeFilters = $state<Set<string>>(new Set());
+	let searchQuery = $state('');
 
 	function toggleFilter(type: string) {
 		const next = new Set(activeFilters);
@@ -53,13 +54,32 @@
 		(activeFilters.size === 0
 			? records
 			: records.filter((r) => activeFilters.has(r.record_type))
-		).filter((r) => r.text && r.text.trim().length > 0)
+		)
+			.filter((r) => r.text && r.text.trim().length > 0)
+			.filter((r) => {
+				if (!searchQuery.trim()) return true;
+				const q = searchQuery.toLowerCase();
+				return (
+					r.text?.toLowerCase().includes(q) ||
+					r.tool_name?.toLowerCase().includes(q) ||
+					r.record_type.toLowerCase().includes(q)
+				);
+			})
 	);
 </script>
 
 <div>
 	<div class="mb-3 flex items-center gap-2">
 		<span class="text-sm font-semibold">Transcript ({records.length} records)</span>
+	</div>
+
+	<div class="mb-3">
+		<input
+			type="text"
+			placeholder="Search transcript..."
+			bind:value={searchQuery}
+			class="border-border bg-background text-foreground placeholder:text-muted-foreground w-full rounded-md border px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+		/>
 	</div>
 
 	<div class="mb-3 flex flex-wrap gap-2">
