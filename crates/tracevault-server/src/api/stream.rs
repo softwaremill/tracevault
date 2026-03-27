@@ -3,6 +3,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use tracevault_core::software::extract_software;
 use tracevault_core::streaming::{
     extract_file_change, is_file_modifying_tool, StreamEventRequest, StreamEventResponse,
     StreamEventType,
@@ -211,6 +212,34 @@ pub async fn handle_stream(
                 .execute(&state.pool)
                 .await
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+                // Extract software usage from Bash commands
+                if tool_name == "Bash" {
+                    if let Some(ref tool_input) = req.tool_input {
+                        if let Some(command) = tool_input.get("command").and_then(|v| v.as_str()) {
+                            let software = extract_software(command);
+                            for sw in software {
+                                if let Err(e) = sqlx::query(
+                                    "INSERT INTO user_software_usage (org_id, user_id, session_id, software_name, first_seen_at, last_seen_at)
+                                     VALUES ($1, $2, $3, $4, $5, $5)
+                                     ON CONFLICT (session_id, software_name) DO UPDATE SET
+                                         usage_count = user_software_usage.usage_count + 1,
+                                         last_seen_at = EXCLUDED.last_seen_at",
+                                )
+                                .bind(auth.org_id)
+                                .bind(auth.user_id)
+                                .bind(session_db_id)
+                                .bind(&sw)
+                                .bind(req.timestamp)
+                                .execute(&state.pool)
+                                .await
+                                {
+                                    tracing::warn!("Failed to upsert software usage for '{}': {}", sw, e);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
