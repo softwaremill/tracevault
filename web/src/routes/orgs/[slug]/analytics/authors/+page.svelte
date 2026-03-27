@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import { api } from '$lib/api';
-	import * as Table from '$lib/components/ui/table/index.js';
+	import DataTable from '$lib/components/DataTable.svelte';
+	import HelpTip from '$lib/components/HelpTip.svelte';
 	import Chart from '$lib/components/chart.svelte';
 	import {
 		Chart as ChartJS,
@@ -29,8 +31,8 @@
 	const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
 	interface AuthorLeaderboard {
+		user_id: string;
 		author: string;
-		commits: number;
 		sessions: number;
 		tokens: number;
 		cost: number;
@@ -38,7 +40,6 @@
 		last_active: string;
 		avg_duration_ms: number | null;
 		total_tool_calls: number;
-		total_compactions: number;
 	}
 	interface AuthorTimeline {
 		date: string;
@@ -85,10 +86,6 @@
 		return String(n);
 	}
 
-	function fmtDate(iso: string): string {
-		return new Date(iso).toLocaleDateString();
-	}
-
 	function fmtDuration(ms: number | null): string {
 		if (ms == null) return '-';
 		const totalSeconds = Math.floor(ms / 1000);
@@ -98,6 +95,17 @@
 		if (hours >= 1) return `${hours}h ${minutes}m`;
 		if (minutes >= 1) return `${minutes}m ${seconds}s`;
 		return `${seconds}s`;
+	}
+
+	function fmtRelativeTime(iso: string): string {
+		const diff = Date.now() - new Date(iso).getTime();
+		const minutes = Math.floor(diff / 60000);
+		const hours = Math.floor(minutes / 60);
+		const days = Math.floor(hours / 24);
+		if (days > 0) return `${days}d ago`;
+		if (hours > 0) return `${hours}h ago`;
+		if (minutes > 0) return `${minutes}m ago`;
+		return 'just now';
 	}
 
 	function timelineChartData(d: AuthorsResponse) {
@@ -119,6 +127,26 @@
 		if (!data) return [];
 		return data.model_preferences.filter((p) => p.author === author);
 	}
+
+	const tableColumns = [
+		{ key: 'author', label: 'Author' },
+		{ key: 'sessions', label: 'Sessions', sortable: true },
+		{ key: 'tokens', label: 'Tokens', sortable: true },
+		{ key: 'cost', label: 'Cost', sortable: true },
+		{ key: 'ai_pct', label: 'AI %', sortable: true },
+		{ key: 'avg_duration_ms', label: 'Avg Duration', sortable: true },
+		{ key: 'total_tool_calls', label: 'Tool Calls', sortable: true },
+		{ key: 'last_active', label: 'Last Active', sortable: true },
+		{ key: '_models', label: 'Models' }
+	];
+
+	const tableRows = $derived.by(() => {
+		if (!data) return [] as Record<string, unknown>[];
+		return data.leaderboard.map((r) => ({
+			...r,
+			_models: modelPrefsForAuthor(r.author)
+		}));
+	});
 </script>
 
 <svelte:head>
@@ -126,7 +154,7 @@
 </svelte:head>
 
 <div class="space-y-6">
-	<h1 class="text-2xl font-bold">Author Analytics</h1>
+	<h1 class="text-xl font-semibold">Author Analytics</h1>
 
 	{#if loading}
 		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
@@ -136,58 +164,46 @@
 	{:else if error}
 		<p class="text-destructive">{error}</p>
 	{:else if data}
-		<div class="border-border overflow-hidden rounded-lg border">
-			<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground px-3 pt-3 pb-2">Leaderboard</h2>
-			{#if data.leaderboard.length > 0}
-				<Table.Root class="text-xs">
-					<Table.Header>
-						<Table.Row>
-							<Table.Head>Author</Table.Head>
-							<Table.Head>Commits</Table.Head>
-							<Table.Head>Sessions</Table.Head>
-							<Table.Head>Tokens</Table.Head>
-							<Table.Head>Cost</Table.Head>
-							<Table.Head>AI %</Table.Head>
-							<Table.Head>Avg Duration</Table.Head>
-							<Table.Head>Tool Calls</Table.Head>
-							<Table.Head>Compactions</Table.Head>
-							<Table.Head>Last Active</Table.Head>
-							<Table.Head>Models</Table.Head>
-						</Table.Row>
-					</Table.Header>
-					<Table.Body>
-						{#each data.leaderboard as row}
-							<Table.Row class="hover:bg-muted/40 transition-colors">
-								<Table.Cell class="font-medium">{row.author}</Table.Cell>
-								<Table.Cell>{row.commits}</Table.Cell>
-								<Table.Cell>{row.sessions}</Table.Cell>
-								<Table.Cell class="font-mono">{fmtNum(row.tokens)}</Table.Cell>
-								<Table.Cell class="font-mono">${row.cost.toFixed(2)}</Table.Cell>
-								<Table.Cell>
-									{row.ai_pct != null ? `${row.ai_pct.toFixed(1)}%` : 'N/A'}
-								</Table.Cell>
-								<Table.Cell class="font-mono">{fmtDuration(row.avg_duration_ms)}</Table.Cell>
-								<Table.Cell class="font-mono">{fmtNum(row.total_tool_calls)}</Table.Cell>
-								<Table.Cell>{row.total_compactions}</Table.Cell>
-								<Table.Cell>{fmtDate(row.last_active)}</Table.Cell>
-								<Table.Cell>
-									<div class="flex flex-wrap gap-1">
-										{#each modelPrefsForAuthor(row.author) as pref}
-											<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">{pref.model} ({pref.sessions})</span>
-										{/each}
-									</div>
-								</Table.Cell>
-							</Table.Row>
+		<DataTable
+			columns={tableColumns}
+			rows={tableRows}
+			searchKeys={['author']}
+			defaultSort="sessions"
+			defaultSortDir="desc"
+			rowIdKey="user_id"
+			onRowClick={(row) => {
+				goto(`/orgs/${slug}/analytics/authors/${row.user_id}`);
+			}}
+		>
+			{#snippet children({ row, col })}
+				{#if col.key === 'author'}
+					<span class="font-medium">{row.author}</span>
+				{:else if col.key === 'tokens'}
+					<span class="font-mono">{fmtNum(row.tokens as number)}</span>
+				{:else if col.key === 'cost'}
+					<span class="font-mono">${(row.cost as number).toFixed(2)}</span>
+				{:else if col.key === 'ai_pct'}
+					{row.ai_pct != null ? `${(row.ai_pct as number).toFixed(1)}%` : 'N/A'}
+				{:else if col.key === 'avg_duration_ms'}
+					<span class="font-mono">{fmtDuration(row.avg_duration_ms as number | null)}</span>
+				{:else if col.key === 'total_tool_calls'}
+					<span class="font-mono">{fmtNum(row.total_tool_calls as number)}</span>
+				{:else if col.key === 'last_active'}
+					{fmtRelativeTime(row.last_active as string)}
+				{:else if col.key === '_models'}
+					<div class="flex flex-wrap gap-1">
+						{#each (row._models as AuthorModelPreference[]) as pref}
+							<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">{pref.model} ({pref.sessions})</span>
 						{/each}
-					</Table.Body>
-				</Table.Root>
-			{:else}
-				<p class="text-muted-foreground text-sm px-3 pb-3">No data</p>
-			{/if}
-		</div>
+					</div>
+				{:else}
+					{row[col.key] ?? '-'}
+				{/if}
+			{/snippet}
+		</DataTable>
 
 		<div class="border-border rounded-lg border p-3">
-			<h4 class="mb-2 text-sm font-semibold">Activity Timeline</h4>
+			<h4 class="mb-2 text-sm font-semibold">Activity Timeline <HelpTip text="Commits per author per day." /></h4>
 			{#if data.timeline.length > 0}
 				<Chart
 					type="line"
