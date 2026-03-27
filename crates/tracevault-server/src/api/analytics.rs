@@ -1543,15 +1543,22 @@ pub async fn get_software(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let ai_summary_rows = sqlx::query_as::<_, (String, String, i64)>(
-        "SELECT tool_category, tool_name, SUM(usage_count) AS count
-         FROM user_ai_tool_usage
-         WHERE org_id = $1
-           AND ($2::TIMESTAMPTZ IS NULL OR last_seen_at >= $2)
-           AND ($3::TIMESTAMPTZ IS NULL OR first_seen_at <= $3)
-         GROUP BY tool_category, tool_name
+        "SELECT atu.tool_category, atu.tool_name, SUM(atu.usage_count) AS count
+         FROM user_ai_tool_usage atu
+         JOIN sessions s ON atu.session_id = s.id
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON atu.user_id = u.id
+         WHERE atu.org_id = $1
+           AND ($2::TEXT IS NULL OR r.name = $2)
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR atu.last_seen_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR atu.first_seen_at <= $5)
+         GROUP BY atu.tool_category, atu.tool_name
          ORDER BY count DESC",
     )
     .bind(org_id)
+    .bind(&q.repo)
+    .bind(&q.author)
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
@@ -1925,6 +1932,7 @@ pub async fn get_ai_tools_user_detail(
          FROM sessions s
          JOIN repos r ON s.repo_id = r.id
          WHERE s.org_id = $1 AND s.user_id = $2
+           AND EXISTS (SELECT 1 FROM user_ai_tool_usage WHERE session_id = s.id)
            AND ($3::TIMESTAMPTZ IS NULL OR s.created_at >= $3)
            AND ($4::TIMESTAMPTZ IS NULL OR s.created_at <= $4)
          ORDER BY s.created_at DESC
