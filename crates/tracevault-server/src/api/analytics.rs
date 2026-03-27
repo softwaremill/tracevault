@@ -1488,3 +1488,137 @@ pub async fn get_cost(
             .collect(),
     }))
 }
+
+// --- Software analytics endpoint ---
+
+#[derive(Debug, Serialize)]
+pub struct SoftwareUserItem {
+    pub user_id: Uuid,
+    pub email: String,
+    pub name: Option<String>,
+    pub unique_tools: i64,
+    pub total_usage: i64,
+    pub top_tools: Vec<String>,
+    pub last_active: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OrgTopTool {
+    pub name: String,
+    pub count: i64,
+    pub users: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SoftwareResponse {
+    pub users: Vec<SoftwareUserItem>,
+    pub total_users: i64,
+    pub org_top_tools: Vec<OrgTopTool>,
+}
+
+pub async fn get_software(
+    State(state): State<AppState>,
+    auth: OrgAuth,
+    Query(q): Query<AnalyticsQuery>,
+) -> Result<Json<SoftwareResponse>, (StatusCode, String)> {
+    let org_id = q.effective_org_id(&auth);
+
+    // Users with software stats
+    let user_rows = sqlx::query_as::<_, (Uuid, String, Option<String>, i64, i64, chrono::DateTime<chrono::Utc>)>(
+        "SELECT u.id, u.email, u.name,
+                COUNT(DISTINCT usu.software_name) AS unique_tools,
+                COALESCE(SUM(usu.usage_count), 0) AS total_usage,
+                MAX(usu.last_seen_at) AS last_active
+         FROM user_software_usage usu
+         JOIN users u ON usu.user_id = u.id
+         JOIN sessions s ON usu.session_id = s.id
+         WHERE usu.org_id = $1
+           AND ($2::TEXT IS NULL OR s.repo_id = (SELECT id FROM repos WHERE name = $2 AND org_id = $1))
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR usu.last_seen_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR usu.first_seen_at <= $5)
+         GROUP BY u.id, u.email, u.name
+         ORDER BY total_usage DESC",
+    )
+    .bind(org_id)
+    .bind(&q.repo)
+    .bind(&q.author)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let total_users = user_rows.len() as i64;
+
+    // Top 3 tools per user
+    let user_ids: Vec<Uuid> = user_rows.iter().map(|r| r.0).collect();
+    let top_tools_rows = sqlx::query_as::<_, (Uuid, String, i64)>(
+        "SELECT user_id, software_name, SUM(usage_count) AS cnt
+         FROM user_software_usage
+         WHERE org_id = $1 AND user_id = ANY($2)
+           AND ($3::TIMESTAMPTZ IS NULL OR last_seen_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR first_seen_at <= $4)
+         GROUP BY user_id, software_name
+         ORDER BY user_id, cnt DESC",
+    )
+    .bind(org_id)
+    .bind(&user_ids)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Group top 3 per user
+    let mut user_top_tools: std::collections::HashMap<Uuid, Vec<String>> =
+        std::collections::HashMap::new();
+    for (uid, name, _cnt) in &top_tools_rows {
+        let entry = user_top_tools.entry(*uid).or_default();
+        if entry.len() < 3 {
+            entry.push(name.clone());
+        }
+    }
+
+    let users: Vec<SoftwareUserItem> = user_rows
+        .into_iter()
+        .map(|(user_id, email, name, unique_tools, total_usage, last_active)| {
+            SoftwareUserItem {
+                user_id,
+                email,
+                name,
+                unique_tools,
+                total_usage,
+                top_tools: user_top_tools.remove(&user_id).unwrap_or_default(),
+                last_active,
+            }
+        })
+        .collect();
+
+    // Org-wide top tools
+    let org_tools = sqlx::query_as::<_, (String, i64, i64)>(
+        "SELECT software_name, SUM(usage_count) AS count, COUNT(DISTINCT user_id) AS users
+         FROM user_software_usage
+         WHERE org_id = $1
+           AND ($2::TIMESTAMPTZ IS NULL OR last_seen_at >= $2)
+           AND ($3::TIMESTAMPTZ IS NULL OR first_seen_at <= $3)
+         GROUP BY software_name
+         ORDER BY count DESC
+         LIMIT 20",
+    )
+    .bind(org_id)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(SoftwareResponse {
+        users,
+        total_users,
+        org_top_tools: org_tools
+            .into_iter()
+            .map(|(name, count, users)| OrgTopTool { name, count, users })
+            .collect(),
+    }))
+}
