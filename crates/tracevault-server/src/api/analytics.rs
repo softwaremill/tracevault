@@ -1511,15 +1511,22 @@ pub async fn get_software(
     let org_id = q.effective_org_id(&auth);
 
     let org_tools = sqlx::query_as::<_, (String, i64, i64)>(
-        "SELECT software_name, SUM(usage_count) AS count, COUNT(DISTINCT user_id) AS users
-         FROM user_software_usage
-         WHERE org_id = $1
-           AND ($2::TIMESTAMPTZ IS NULL OR last_seen_at >= $2)
-           AND ($3::TIMESTAMPTZ IS NULL OR first_seen_at <= $3)
-         GROUP BY software_name
+        "SELECT usu.software_name, SUM(usu.usage_count) AS count, COUNT(DISTINCT usu.user_id) AS users
+         FROM user_software_usage usu
+         JOIN sessions s ON usu.session_id = s.id
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON usu.user_id = u.id
+         WHERE usu.org_id = $1
+           AND ($2::TEXT IS NULL OR r.name = $2)
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR usu.last_seen_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR usu.first_seen_at <= $5)
+         GROUP BY usu.software_name
          ORDER BY count DESC",
     )
     .bind(org_id)
+    .bind(&q.repo)
+    .bind(&q.author)
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
@@ -1681,16 +1688,16 @@ pub async fn get_software_user_detail(
             .collect(),
         recent_sessions: recent
             .into_iter()
-            .map(|(id, session_id, repo_name, started_at, duration_ms)| {
-                SoftwareRecentSession {
+            .map(
+                |(id, session_id, repo_name, started_at, duration_ms)| SoftwareRecentSession {
                     id,
                     session_id,
                     repo_name,
                     started_at,
                     duration_ms,
                     tools_used: session_tools_map.remove(&id).unwrap_or_default(),
-                }
-            })
+                },
+            )
             .collect(),
     }))
 }
