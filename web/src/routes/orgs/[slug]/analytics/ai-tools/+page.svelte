@@ -55,8 +55,14 @@
 		return String(n);
 	}
 
-	const totalMcpServers = $derived(data?.mcp_servers.length ?? 0);
-	const totalSkillGroups = $derived(data?.skill_groups.length ?? 0);
+	const totalMcpServers = $derived.by(() => {
+		if (!data) return 0;
+		return data.mcp_servers.length;
+	});
+	const totalSkillGroups = $derived.by(() => {
+		if (!data) return 0;
+		return data.skill_groups.length;
+	});
 	const totalUsage = $derived.by(() => {
 		if (!data) return 0;
 		const mcp = data.mcp_servers.reduce((s, e) => s + e.count, 0);
@@ -73,8 +79,14 @@
 		}));
 	}
 
-	const mcpBarEntries = $derived(data ? barEntries(data.mcp_servers) : []);
-	const skillBarEntries = $derived(data ? barEntries(data.skill_groups) : []);
+	const mcpBarEntries = $derived.by(() => {
+		if (!data) return [];
+		return barEntries(data.mcp_servers);
+	});
+	const skillBarEntries = $derived.by(() => {
+		if (!data) return [];
+		return barEntries(data.skill_groups);
+	});
 	const mcpBarTotal = $derived(mcpBarEntries.reduce((s, e) => s + e.count, 0));
 	const skillBarTotal = $derived(skillBarEntries.reduce((s, e) => s + e.count, 0));
 
