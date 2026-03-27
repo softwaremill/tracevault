@@ -1719,7 +1719,7 @@ pub async fn get_software_user_detail(
 
     // Session stats
     let stats = sqlx::query_as::<_, (i64, f64, i64)>(
-        "SELECT COUNT(*), COALESCE(SUM(estimated_cost_usd), 0.0), COALESCE(SUM(total_tokens), 0)
+        "SELECT COUNT(*), COALESCE(SUM(estimated_cost_usd), 0.0), COALESCE(SUM(total_tokens), 0)::BIGINT
          FROM sessions
          WHERE org_id = $1 AND user_id = $2
            AND ($3::TIMESTAMPTZ IS NULL OR created_at >= $3)
