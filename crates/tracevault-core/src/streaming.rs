@@ -14,6 +14,8 @@ pub enum StreamEventType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StreamEventRequest {
     pub protocol_version: u32,
+    #[serde(default)]
+    pub tool: Option<String>,
     pub event_type: StreamEventType,
     pub session_id: String,
     pub timestamp: DateTime<Utc>,
