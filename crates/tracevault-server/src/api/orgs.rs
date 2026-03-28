@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth::hash_password;
+use crate::error::{self, AppError};
 use crate::extractors::{AuthUser, OrgAuth};
+use crate::permissions::Permission;
 
 // --- Create Org ---
 
@@ -43,31 +45,28 @@ pub async fn create_org(
     State(state): State<AppState>,
     auth: AuthUser,
     Json(req): Json<CreateOrgRequest>,
-) -> Result<(StatusCode, Json<CreateOrgResponse>), (StatusCode, String)> {
+) -> Result<(StatusCode, Json<CreateOrgResponse>), AppError> {
     // Normalize and validate slug
     let req_name = req.name.trim().to_lowercase();
     if !is_valid_slug(&req_name) {
-        return Err((
-            StatusCode::BAD_REQUEST,
+        return Err(AppError::BadRequest(
             "Slug must be 1-100 lowercase alphanumeric characters or hyphens, no leading/trailing hyphens".into(),
         ));
     }
     if RESERVED_SLUGS.contains(&req_name.as_str()) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!("'{}' is a reserved name", req_name),
-        ));
+        return Err(AppError::BadRequest(format!(
+            "'{}' is a reserved name",
+            req_name
+        )));
     }
 
     // Community edition: only one org allowed
     if !state.extensions.features.multi_org {
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orgs")
             .fetch_one(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .await?;
         if count.0 > 0 {
-            return Err((
-                StatusCode::FORBIDDEN,
+            return Err(AppError::Forbidden(
                 "Community edition supports one organization".into(),
             ));
         }
@@ -83,12 +82,9 @@ pub async fn create_org(
     .await
     .map_err(|e| {
         if e.to_string().contains("unique") {
-            (
-                StatusCode::CONFLICT,
-                "Organization name already taken".into(),
-            )
+            AppError::Conflict("Organization name already taken".into())
         } else {
-            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+            AppError::Sqlx(e)
         }
     })?;
 
@@ -97,7 +93,7 @@ pub async fn create_org(
     // Validate provided signing key if any
     if let Some(ref seed) = req.signing_key_seed {
         crate::org_signing::validate_seed(seed)
-            .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid signing key: {e}")))?;
+            .map_err(|e| AppError::BadRequest(format!("Invalid signing key: {e}")))?;
     }
 
     // Store signing key (auto-generate or use provided)
@@ -110,12 +106,7 @@ pub async fn create_org(
                 req.signing_key_seed.as_deref(),
             )
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Failed to generate signing key: {e}"),
-                )
-            })?,
+            .map_err(|e| AppError::Internal(format!("Failed to generate signing key: {e}")))?,
         )
     } else {
         None
@@ -128,15 +119,13 @@ pub async fn create_org(
     .bind(auth.user_id)
     .bind(org_id)
     .execute(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Create default compliance settings
     sqlx::query("INSERT INTO org_compliance_settings (org_id) VALUES ($1)")
         .bind(org_id)
         .execute(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
     Ok((
         StatusCode::CREATED,
@@ -161,9 +150,9 @@ pub struct OrgResponse {
 pub async fn get_org(
     State(state): State<AppState>,
     auth: OrgAuth,
-) -> Result<Json<OrgResponse>, (StatusCode, String)> {
+) -> Result<Json<OrgResponse>, AppError> {
     if auth.role != "owner" && auth.role != "admin" {
-        return Err((StatusCode::FORBIDDEN, "Requires admin role".into()));
+        return Err(AppError::Forbidden("Requires admin role".into()));
     }
 
     let row = sqlx::query_as::<_, (Uuid, String, Option<String>, chrono::DateTime<chrono::Utc>)>(
@@ -171,9 +160,8 @@ pub async fn get_org(
     )
     .bind(auth.org_id)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, "Org not found".into()))?;
+    .await?
+    .ok_or_else(|| AppError::NotFound("Org not found".into()))?;
 
     Ok(Json(OrgResponse {
         id: row.0,
@@ -192,9 +180,9 @@ pub async fn update_org(
     State(state): State<AppState>,
     auth: OrgAuth,
     Json(req): Json<UpdateOrgRequest>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<StatusCode, AppError> {
     if auth.role != "owner" {
-        return Err((StatusCode::FORBIDDEN, "Requires owner role".into()));
+        return Err(AppError::Forbidden("Requires owner role".into()));
     }
 
     if let Some(display_name) = &req.display_name {
@@ -202,8 +190,7 @@ pub async fn update_org(
             .bind(display_name)
             .bind(auth.org_id)
             .execute(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .await?;
     }
 
     Ok(StatusCode::OK)
@@ -223,20 +210,17 @@ pub struct MemberResponse {
 pub async fn list_members(
     State(state): State<AppState>,
     auth: OrgAuth,
-) -> Result<Json<Vec<MemberResponse>>, (StatusCode, String)> {
+) -> Result<Json<Vec<MemberResponse>>, AppError> {
     if !state
         .extensions
         .permissions
-        .has_permission(&auth.role, crate::permissions::Permission::UserManage)
+        .has_permission(&auth.role, Permission::UserManage)
         && !state
             .extensions
             .permissions
-            .has_permission(&auth.role, crate::permissions::Permission::AuditLogView)
+            .has_permission(&auth.role, Permission::AuditLogView)
     {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "Requires admin or auditor role".into(),
-        ));
+        return Err(AppError::Forbidden("Requires admin or auditor role".into()));
     }
 
     let rows = sqlx::query_as::<
@@ -257,8 +241,7 @@ pub async fn list_members(
     )
     .bind(auth.org_id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let members = rows
         .into_iter()
@@ -286,15 +269,14 @@ pub async fn invite_member(
     State(state): State<AppState>,
     auth: OrgAuth,
     Json(req): Json<InviteMemberRequest>,
-) -> Result<(StatusCode, Json<MemberResponse>), (StatusCode, String)> {
+) -> Result<(StatusCode, Json<MemberResponse>), AppError> {
     if auth.role != "owner" && auth.role != "admin" {
-        return Err((StatusCode::FORBIDDEN, "Requires admin role".into()));
+        return Err(AppError::Forbidden("Requires admin role".into()));
     }
 
     let role = req.role.unwrap_or_else(|| "developer".into());
     if !state.extensions.permissions.is_valid_role(&role) || role == "owner" {
-        return Err((
-            StatusCode::BAD_REQUEST,
+        return Err(AppError::BadRequest(
             "Role must be one of: admin, policy_admin, developer, auditor".into(),
         ));
     }
@@ -303,18 +285,13 @@ pub async fn invite_member(
     let existing_user = sqlx::query_as::<_, (Uuid,)>("SELECT id FROM users WHERE email = $1")
         .bind(&req.email)
         .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
     let user_id = if let Some((id,)) = existing_user {
         id
     } else {
-        let password_hash = hash_password(&req.password).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to hash password: {e}"),
-            )
-        })?;
+        let password_hash = hash_password(&req.password)
+            .map_err(|e| AppError::Internal(format!("Failed to hash password: {e}")))?;
 
         let row = sqlx::query_as::<_, (Uuid,)>(
             "INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id",
@@ -326,9 +303,9 @@ pub async fn invite_member(
         .await
         .map_err(|e| {
             if e.to_string().contains("unique") {
-                (StatusCode::CONFLICT, "Email already registered".into())
+                AppError::Conflict("Email already registered".into())
             } else {
-                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                AppError::Sqlx(e)
             }
         })?;
 
@@ -345,14 +322,12 @@ pub async fn invite_member(
     .bind(auth.org_id)
     .bind(&role)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let created_at = match membership_row {
         Some((ts,)) => ts,
         None => {
-            return Err((
-                StatusCode::CONFLICT,
+            return Err(AppError::Conflict(
                 "User is already a member of this organization".into(),
             ));
         }
@@ -374,20 +349,19 @@ pub async fn remove_member(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, user_id)): Path<(String, Uuid)>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<StatusCode, AppError> {
     if auth.role != "owner" {
-        return Err((StatusCode::FORBIDDEN, "Requires owner role".into()));
+        return Err(AppError::Forbidden("Requires owner role".into()));
     }
     if auth.user_id == user_id {
-        return Err((StatusCode::BAD_REQUEST, "Cannot remove yourself".into()));
+        return Err(AppError::BadRequest("Cannot remove yourself".into()));
     }
 
     sqlx::query("DELETE FROM user_org_memberships WHERE user_id = $1 AND org_id = $2")
         .bind(user_id)
         .bind(auth.org_id)
         .execute(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
     Ok(StatusCode::OK)
 }
@@ -402,13 +376,12 @@ pub async fn change_role(
     auth: OrgAuth,
     Path((_slug, user_id)): Path<(String, Uuid)>,
     Json(req): Json<ChangeRoleRequest>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<StatusCode, AppError> {
     if auth.role != "owner" {
-        return Err((StatusCode::FORBIDDEN, "Requires owner role".into()));
+        return Err(AppError::Forbidden("Requires owner role".into()));
     }
     if !state.extensions.permissions.is_valid_role(&req.role) || req.role == "owner" {
-        return Err((
-            StatusCode::BAD_REQUEST,
+        return Err(AppError::BadRequest(
             "Role must be one of: admin, policy_admin, developer, auditor".into(),
         ));
     }
@@ -418,8 +391,7 @@ pub async fn change_role(
         .bind(user_id)
         .bind(auth.org_id)
         .execute(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
     crate::audit::log(
         &state.pool,
@@ -450,9 +422,9 @@ pub struct LlmSettingsResponse {
 pub async fn get_llm_settings(
     State(state): State<AppState>,
     auth: OrgAuth,
-) -> Result<Json<LlmSettingsResponse>, (StatusCode, String)> {
+) -> Result<Json<LlmSettingsResponse>, AppError> {
     if auth.role != "owner" && auth.role != "admin" {
-        return Err((StatusCode::FORBIDDEN, "Requires admin role".into()));
+        return Err(AppError::Forbidden("Requires admin role".into()));
     }
 
     let row = sqlx::query_as::<
@@ -469,8 +441,7 @@ pub async fn get_llm_settings(
     )
     .bind(auth.org_id)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     if let Some(r) = row {
         Ok(Json(LlmSettingsResponse {
@@ -501,15 +472,14 @@ pub async fn update_llm_settings(
     State(state): State<AppState>,
     auth: OrgAuth,
     Json(req): Json<UpdateLlmSettingsRequest>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<StatusCode, AppError> {
     if auth.role != "owner" && auth.role != "admin" {
-        return Err((StatusCode::FORBIDDEN, "Requires admin role".into()));
+        return Err(AppError::Forbidden("Requires admin role".into()));
     }
 
     if let Some(ref provider) = req.provider {
         if provider != "anthropic" && provider != "openai" {
-            return Err((
-                StatusCode::BAD_REQUEST,
+            return Err(AppError::BadRequest(
                 "Provider must be 'anthropic' or 'openai'".into(),
             ));
         }
@@ -517,12 +487,11 @@ pub async fn update_llm_settings(
 
     // Encrypt API key if provided
     let (encrypted_key, nonce) = if let Some(ref api_key) = req.api_key {
-        let (ct, n) = state.extensions.encryption.encrypt(api_key).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Encryption error: {e}"),
-            )
-        })?;
+        let (ct, n) = state
+            .extensions
+            .encryption
+            .encrypt(api_key)
+            .map_err(|e| AppError::Internal(format!("Encryption error: {e}")))?;
         (Some(ct), Some(n))
     } else {
         (None, None)
@@ -536,8 +505,7 @@ pub async fn update_llm_settings(
     )
     .bind(org_id)
     .execute(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Build dynamic UPDATE
     let mut set_clauses = vec!["updated_at = NOW()".to_string()];
@@ -582,10 +550,7 @@ pub async fn update_llm_settings(
         query = query.bind(base_url);
     }
 
-    query
-        .execute(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    query.execute(&state.pool).await?;
 
     crate::audit::log(
         &state.pool,
@@ -622,22 +587,15 @@ pub struct InvitationRequestItem {
 pub async fn list_invitation_requests(
     State(state): State<AppState>,
     auth: OrgAuth,
-) -> Result<Json<Vec<InvitationRequestItem>>, (StatusCode, String)> {
-    if !state
-        .extensions
-        .permissions
-        .has_permission(&auth.role, crate::permissions::Permission::UserManage)
-    {
-        return Err((StatusCode::FORBIDDEN, "Not authorized".into()));
-    }
+) -> Result<Json<Vec<InvitationRequestItem>>, AppError> {
+    error::require_permission(&state.extensions, &auth.role, Permission::UserManage)?;
 
     let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, String, chrono::DateTime<chrono::Utc>)>(
         "SELECT id, email, name, status, created_at FROM invitation_requests WHERE org_id = $1 ORDER BY created_at DESC",
     )
     .bind(auth.org_id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(Json(
         rows.into_iter()
@@ -658,14 +616,8 @@ pub async fn approve_invitation_request(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, request_id)): Path<(String, Uuid)>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    if !state
-        .extensions
-        .permissions
-        .has_permission(&auth.role, crate::permissions::Permission::UserManage)
-    {
-        return Err((StatusCode::FORBIDDEN, "Not authorized".into()));
-    }
+) -> Result<StatusCode, AppError> {
+    error::require_permission(&state.extensions, &auth.role, Permission::UserManage)?;
 
     let row = sqlx::query_as::<_, (String, Option<String>, String)>(
         "SELECT email, name, status FROM invitation_requests WHERE id = $1 AND org_id = $2",
@@ -673,31 +625,25 @@ pub async fn approve_invitation_request(
     .bind(request_id)
     .bind(auth.org_id)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, "Invitation request not found".into()))?;
+    .await?
+    .ok_or_else(|| AppError::NotFound("Invitation request not found".into()))?;
 
     let (email, name, status) = row;
     if status != "pending" {
-        return Err((StatusCode::CONFLICT, "Request already processed".into()));
+        return Err(AppError::Conflict("Request already processed".into()));
     }
 
     // Create user if doesn't exist
     let user_id: Uuid = match sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE email = $1")
         .bind(&email)
         .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .await?
     {
         Some(id) => id,
         None => {
             // Create user with a random password — they'll need to reset it
-            let temp_hash = hash_password(&uuid::Uuid::new_v4().to_string()).map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Hash error: {e}"),
-                )
-            })?;
+            let temp_hash = hash_password(&uuid::Uuid::new_v4().to_string())
+                .map_err(|e| AppError::Internal(format!("Hash error: {e}")))?;
             sqlx::query_scalar(
                 "INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id",
             )
@@ -705,8 +651,7 @@ pub async fn approve_invitation_request(
             .bind(&temp_hash)
             .bind(&name)
             .fetch_one(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .await?
         }
     };
 
@@ -717,8 +662,7 @@ pub async fn approve_invitation_request(
     .bind(user_id)
     .bind(auth.org_id)
     .execute(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Update request status
     sqlx::query(
@@ -727,8 +671,7 @@ pub async fn approve_invitation_request(
     .bind(auth.user_id)
     .bind(request_id)
     .execute(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(StatusCode::OK)
 }
@@ -737,14 +680,8 @@ pub async fn reject_invitation_request(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, request_id)): Path<(String, Uuid)>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    if !state
-        .extensions
-        .permissions
-        .has_permission(&auth.role, crate::permissions::Permission::UserManage)
-    {
-        return Err((StatusCode::FORBIDDEN, "Not authorized".into()));
-    }
+) -> Result<StatusCode, AppError> {
+    error::require_permission(&state.extensions, &auth.role, Permission::UserManage)?;
 
     let updated = sqlx::query(
         "UPDATE invitation_requests SET status = 'rejected', reviewed_by = $1 WHERE id = $2 AND org_id = $3 AND status = 'pending'",
@@ -753,12 +690,10 @@ pub async fn reject_invitation_request(
     .bind(request_id)
     .bind(auth.org_id)
     .execute(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     if updated.rows_affected() == 0 {
-        return Err((
-            StatusCode::NOT_FOUND,
+        return Err(AppError::NotFound(
             "Request not found or already processed".into(),
         ));
     }

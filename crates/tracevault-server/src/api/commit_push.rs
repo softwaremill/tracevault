@@ -1,11 +1,13 @@
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     Json,
 };
 use tracevault_core::streaming::{CommitPushRequest, CommitPushResponse};
 use uuid::Uuid;
 
+use crate::error::AppError;
+use crate::repo::commits::{CommitRepo, UpsertCommit};
+use crate::service::attribution::AttributionService;
 use crate::{extractors::OrgAuth, AppState};
 
 /// POST /api/v1/orgs/{slug}/repos/{repo_id}/commits
@@ -14,46 +16,36 @@ pub async fn handle_commit_push(
     _auth: OrgAuth,
     Path((_slug, repo_id)): Path<(String, Uuid)>,
     Json(req): Json<CommitPushRequest>,
-) -> Result<Json<CommitPushResponse>, (StatusCode, String)> {
+) -> Result<Json<CommitPushResponse>, AppError> {
     // 1. Upsert commit
-    let commit_db_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO commits (repo_id, commit_sha, branch, author, message, diff_data, committed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (repo_id, commit_sha)
-         DO UPDATE SET
-           branch = COALESCE(EXCLUDED.branch, commits.branch),
-           message = COALESCE(EXCLUDED.message, commits.message),
-           diff_data = COALESCE(EXCLUDED.diff_data, commits.diff_data)
-         RETURNING id",
+    let commit_db_id = CommitRepo::upsert(
+        &state.pool,
+        &UpsertCommit {
+            repo_id,
+            commit_sha: req.commit_sha.clone(),
+            branch: req.branch.clone(),
+            author: req.author.clone(),
+            message: req.message.clone(),
+            diff_data: req.diff_data.clone(),
+            committed_at: req.committed_at,
+        },
     )
-    .bind(repo_id)
-    .bind(&req.commit_sha)
-    .bind(&req.branch)
-    .bind(&req.author)
-    .bind(&req.message)
-    .bind(&req.diff_data)
-    .bind(req.committed_at)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // 2. Line-level attribution + summary
     let attributions_count = if let Some(diff_data) = &req.diff_data {
         let committed_at = req.committed_at.unwrap_or_else(chrono::Utc::now);
-        let count = crate::attribution::attribute_commit(
+        let count = AttributionService::attribute_commit(
             &state.pool,
             commit_db_id,
             repo_id,
             diff_data,
             committed_at,
         )
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        .await?;
 
         // Compute and store attribution summary from commit_attributions
-        crate::attribution::compute_attribution_summary(&state.pool, commit_db_id, diff_data)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        AttributionService::compute_summary(&state.pool, commit_db_id, diff_data).await?;
 
         count
     } else {
@@ -72,8 +64,7 @@ pub async fn handle_commit_push(
         .bind(branch)
         .bind(tracked_at)
         .execute(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
     }
 
     Ok(Json(CommitPushResponse {

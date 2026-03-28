@@ -7,7 +7,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::error::{self, AppError};
 use crate::permissions::Permission;
+use crate::repo::pricing::PricingRepo;
 use crate::{audit, extractors::OrgAuth, pricing_sync, AppState};
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -62,16 +64,24 @@ pub struct RecalculateResponse {
 pub async fn list_pricing(
     State(state): State<AppState>,
     _auth: OrgAuth,
-) -> Result<Json<Vec<PricingEntry>>, (StatusCode, String)> {
-    let entries = sqlx::query_as::<_, PricingEntry>(
-        "SELECT id, model, input_per_mtok, output_per_mtok, cache_read_per_mtok, cache_write_per_mtok,
-                effective_from, effective_until, created_at, source
-         FROM model_pricing
-         ORDER BY model, effective_from DESC",
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+) -> Result<Json<Vec<PricingEntry>>, AppError> {
+    let rows = PricingRepo::list(&state.pool).await?;
+
+    let entries = rows
+        .into_iter()
+        .map(|r| PricingEntry {
+            id: r.id,
+            model: r.model,
+            input_per_mtok: r.input_per_mtok,
+            output_per_mtok: r.output_per_mtok,
+            cache_read_per_mtok: r.cache_read_per_mtok,
+            cache_write_per_mtok: r.cache_write_per_mtok,
+            effective_from: r.effective_from,
+            effective_until: r.effective_until,
+            created_at: r.created_at,
+            source: r.source,
+        })
+        .collect();
 
     Ok(Json(entries))
 }
@@ -81,18 +91,8 @@ pub async fn list_pricing(
 pub async fn list_models(
     State(state): State<AppState>,
     auth: OrgAuth,
-) -> Result<Json<Vec<String>>, (StatusCode, String)> {
-    let models = sqlx::query_scalar::<_, String>(
-        "SELECT DISTINCT model FROM sessions s
-         JOIN repos r ON s.repo_id = r.id
-         WHERE r.org_id = $1 AND s.model IS NOT NULL
-         ORDER BY model",
-    )
-    .bind(auth.org_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
+) -> Result<Json<Vec<String>>, AppError> {
+    let models = PricingRepo::list_session_models(&state.pool, auth.org_id).await?;
     Ok(Json(models))
 }
 
@@ -101,32 +101,20 @@ pub async fn create_pricing(
     State(state): State<AppState>,
     auth: OrgAuth,
     Json(req): Json<CreatePricingRequest>,
-) -> Result<(StatusCode, Json<PricingEntry>), (StatusCode, String)> {
-    if !state
-        .extensions
-        .permissions
-        .has_permission(&auth.role, Permission::OrgSettingsManage)
-    {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
-    }
+) -> Result<(StatusCode, Json<PricingEntry>), AppError> {
+    error::require_permission(&state.extensions, &auth.role, Permission::OrgSettingsManage)?;
 
-    let row = sqlx::query_as::<_, (Uuid, DateTime<Utc>)>(
-        "INSERT INTO model_pricing (model, input_per_mtok, output_per_mtok, cache_read_per_mtok, cache_write_per_mtok, effective_from, effective_until)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING id, created_at",
+    let (id, created_at) = PricingRepo::create(
+        &state.pool,
+        &req.model,
+        req.input_per_mtok,
+        req.output_per_mtok,
+        req.cache_read_per_mtok,
+        req.cache_write_per_mtok,
+        req.effective_from,
+        req.effective_until,
     )
-    .bind(&req.model)
-    .bind(req.input_per_mtok)
-    .bind(req.output_per_mtok)
-    .bind(req.cache_read_per_mtok)
-    .bind(req.cache_write_per_mtok)
-    .bind(req.effective_from)
-    .bind(req.effective_until)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let (id, created_at) = row;
+    .await?;
 
     audit::log(
         &state.pool,
@@ -169,25 +157,12 @@ pub async fn update_pricing(
     auth: OrgAuth,
     Path((_slug, pricing_id)): Path<(String, Uuid)>,
     Json(req): Json<UpdatePricingRequest>,
-) -> Result<Json<PricingEntry>, (StatusCode, String)> {
-    if !state
-        .extensions
-        .permissions
-        .has_permission(&auth.role, Permission::OrgSettingsManage)
-    {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
-    }
+) -> Result<Json<PricingEntry>, AppError> {
+    error::require_permission(&state.extensions, &auth.role, Permission::OrgSettingsManage)?;
 
-    let existing = sqlx::query_as::<_, PricingEntry>(
-        "SELECT id, model, input_per_mtok, output_per_mtok, cache_read_per_mtok, cache_write_per_mtok,
-                effective_from, effective_until, created_at, source
-         FROM model_pricing WHERE id = $1",
-    )
-    .bind(pricing_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, "Pricing entry not found".into()))?;
+    let existing = PricingRepo::get_by_id(&state.pool, pricing_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Pricing entry not found".into()))?;
 
     let new_model = req.model.unwrap_or(existing.model);
     let new_input = req.input_per_mtok.unwrap_or(existing.input_per_mtok);
@@ -201,24 +176,18 @@ pub async fn update_pricing(
     let new_from = req.effective_from.unwrap_or(existing.effective_from);
     let new_until = req.effective_until.unwrap_or(existing.effective_until);
 
-    sqlx::query(
-        "UPDATE model_pricing
-         SET model = $1, input_per_mtok = $2, output_per_mtok = $3,
-             cache_read_per_mtok = $4, cache_write_per_mtok = $5,
-             effective_from = $6, effective_until = $7
-         WHERE id = $8",
+    PricingRepo::update(
+        &state.pool,
+        pricing_id,
+        &new_model,
+        new_input,
+        new_output,
+        new_cache_read,
+        new_cache_write,
+        new_from,
+        new_until,
     )
-    .bind(&new_model)
-    .bind(new_input)
-    .bind(new_output)
-    .bind(new_cache_read)
-    .bind(new_cache_write)
-    .bind(new_from)
-    .bind(new_until)
-    .bind(pricing_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     audit::log(
         &state.pool,
@@ -253,36 +222,12 @@ pub async fn recalculate(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, pricing_id)): Path<(String, Uuid)>,
-) -> Result<Json<RecalculateResponse>, (StatusCode, String)> {
-    if !state
-        .extensions
-        .permissions
-        .has_permission(&auth.role, Permission::OrgSettingsManage)
-    {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
-    }
+) -> Result<Json<RecalculateResponse>, AppError> {
+    error::require_permission(&state.extensions, &auth.role, Permission::OrgSettingsManage)?;
 
-    let pricing = sqlx::query_as::<
-        _,
-        (
-            String,
-            f64,
-            f64,
-            f64,
-            f64,
-            DateTime<Utc>,
-            Option<DateTime<Utc>>,
-        ),
-    >(
-        "SELECT model, input_per_mtok, output_per_mtok, cache_read_per_mtok, cache_write_per_mtok,
-                effective_from, effective_until
-         FROM model_pricing WHERE id = $1",
-    )
-    .bind(pricing_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, "Pricing entry not found".into()))?;
+    let pricing = PricingRepo::get_for_recalculate(&state.pool, pricing_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Pricing entry not found".into()))?;
 
     let (
         canonical_model,
@@ -311,7 +256,7 @@ pub async fn recalculate(
         Some(auth.org_id),
     )
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .map_err(AppError::internal)?;
 
     Ok(Json(RecalculateResponse {
         affected_sessions: result.affected_sessions,
@@ -337,14 +282,8 @@ pub struct SyncStatusResponse {
 pub async fn trigger_sync(
     State(state): State<AppState>,
     auth: OrgAuth,
-) -> Result<Json<SyncResponse>, (StatusCode, String)> {
-    if !state
-        .extensions
-        .permissions
-        .has_permission(&auth.role, Permission::OrgSettingsManage)
-    {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
-    }
+) -> Result<Json<SyncResponse>, AppError> {
+    error::require_permission(&state.extensions, &auth.role, Permission::OrgSettingsManage)?;
 
     // Rate limit: skip if last sync was <5 minutes ago
     if let Some(last) = pricing_sync::last_sync_time(&state.pool).await {
@@ -359,7 +298,7 @@ pub async fn trigger_sync(
 
     let result = pricing_sync::sync_pricing(&state.pool, &state.http_client)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        .map_err(AppError::internal)?;
 
     audit::log(
         &state.pool,
@@ -386,7 +325,7 @@ pub async fn trigger_sync(
 pub async fn sync_status(
     State(state): State<AppState>,
     _auth: OrgAuth,
-) -> Result<Json<SyncStatusResponse>, (StatusCode, String)> {
+) -> Result<Json<SyncStatusResponse>, AppError> {
     let last = pricing_sync::last_sync_time(&state.pool).await;
     Ok(Json(SyncStatusResponse {
         last_synced_at: last,

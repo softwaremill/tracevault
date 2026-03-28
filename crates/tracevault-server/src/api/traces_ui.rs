@@ -1,12 +1,12 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
     Json,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::error::AppError;
 use crate::{extractors::OrgAuth, AppState};
 
 // ── Query param types ───────────────────────────────────────────────
@@ -178,7 +178,7 @@ pub async fn get_stats(
     State(state): State<AppState>,
     auth: OrgAuth,
     Query(params): Query<StatsQuery>,
-) -> Result<Json<StatsResponse>, (StatusCode, String)> {
+) -> Result<Json<StatsResponse>, AppError> {
     let repo_filter = params.repo_id;
 
     let active_sessions: i64 = sqlx::query_scalar(
@@ -192,8 +192,7 @@ pub async fn get_stats(
     .bind(auth.org_id)
     .bind(repo_filter)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let total_sessions: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM sessions s
@@ -204,8 +203,7 @@ pub async fn get_stats(
     .bind(auth.org_id)
     .bind(repo_filter)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let total_commits: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM commits c
@@ -216,8 +214,7 @@ pub async fn get_stats(
     .bind(auth.org_id)
     .bind(repo_filter)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let total_events: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM events e
@@ -229,8 +226,7 @@ pub async fn get_stats(
     .bind(auth.org_id)
     .bind(repo_filter)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(Json(StatsResponse {
         active_sessions,
@@ -245,7 +241,7 @@ pub async fn list_sessions(
     State(state): State<AppState>,
     auth: OrgAuth,
     Query(params): Query<SessionListQuery>,
-) -> Result<Json<Vec<SessionListItem>>, (StatusCode, String)> {
+) -> Result<Json<Vec<SessionListItem>>, AppError> {
     let limit = params.limit.unwrap_or(50).min(200);
     let offset = params.offset.unwrap_or(0);
 
@@ -281,8 +277,7 @@ pub async fn list_sessions(
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(Json(rows))
 }
@@ -292,7 +287,7 @@ pub async fn get_session(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, session_id)): Path<(String, Uuid)>,
-) -> Result<Json<SessionDetailResponse>, (StatusCode, String)> {
+) -> Result<Json<SessionDetailResponse>, AppError> {
     let session = sqlx::query_as::<_, SessionDetail>(
         "SELECT s.id, s.session_id, r.name AS repo_name, u.email AS user_email,
                 s.status, s.model, s.tool, s.total_tool_calls, s.total_tokens,
@@ -305,9 +300,8 @@ pub async fn get_session(
     .bind(session_id)
     .bind(auth.org_id)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, "Session not found".into()))?;
+    .await?
+    .ok_or_else(|| AppError::NotFound("Session not found".into()))?;
 
     let events = sqlx::query_as::<_, EventRow>(
         "SELECT id, event_index, event_type, tool_name, tool_input, tool_response, timestamp
@@ -317,8 +311,7 @@ pub async fn get_session(
     )
     .bind(session_id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let file_changes = sqlx::query_as::<_, FileChangeRow>(
         "SELECT DISTINCT ON (file_path, change_type, COALESCE(diff_text, ''))
@@ -329,8 +322,7 @@ pub async fn get_session(
     )
     .bind(session_id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let transcript_chunks = sqlx::query_as::<_, TranscriptChunkRow>(
         "SELECT chunk_index, data
@@ -340,8 +332,7 @@ pub async fn get_session(
     )
     .bind(session_id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let linked_commits = sqlx::query_as::<_, LinkedCommitRow>(
         "SELECT ca.commit_id, c.commit_sha, c.branch, MAX(ca.confidence) AS confidence
@@ -353,8 +344,7 @@ pub async fn get_session(
     )
     .bind(session_id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(Json(SessionDetailResponse {
         session,
@@ -370,7 +360,7 @@ pub async fn list_commits(
     State(state): State<AppState>,
     auth: OrgAuth,
     Query(params): Query<CommitListQuery>,
-) -> Result<Json<Vec<CommitListItem>>, (StatusCode, String)> {
+) -> Result<Json<Vec<CommitListItem>>, AppError> {
     let limit = params.limit.unwrap_or(50).min(200);
     let offset = params.offset.unwrap_or(0);
 
@@ -399,8 +389,7 @@ pub async fn list_commits(
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(Json(rows))
 }
@@ -410,7 +399,7 @@ pub async fn get_commit(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, commit_id)): Path<(String, Uuid)>,
-) -> Result<Json<CommitDetailResponse>, (StatusCode, String)> {
+) -> Result<Json<CommitDetailResponse>, AppError> {
     let commit = sqlx::query_as::<_, CommitDetail>(
         "SELECT c.id, c.commit_sha, c.branch, c.author, c.message, c.committed_at
          FROM commits c
@@ -420,16 +409,14 @@ pub async fn get_commit(
     .bind(commit_id)
     .bind(auth.org_id)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, "Commit not found".into()))?;
+    .await?
+    .ok_or_else(|| AppError::NotFound("Commit not found".into()))?;
 
     let diff_data: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT diff_data FROM commits WHERE id = $1")
             .bind(commit_id)
             .fetch_one(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .await?;
 
     // Fetch attributions grouped by file
     let attributions = sqlx::query_as::<_, (String, Uuid, String, f32, Option<i32>, Option<i32>)>(
@@ -445,8 +432,7 @@ pub async fn get_commit(
     )
     .bind(commit_id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Group attributions by file_path
     let mut by_file: Vec<AttributionByFile> = Vec::new();
@@ -513,7 +499,7 @@ pub async fn get_timeline(
     State(state): State<AppState>,
     auth: OrgAuth,
     Query(q): Query<TimelineQuery>,
-) -> Result<Json<Vec<TimelineItem>>, (StatusCode, String)> {
+) -> Result<Json<Vec<TimelineItem>>, AppError> {
     let limit = q.limit.unwrap_or(100).min(500);
     let offset = q.offset.unwrap_or(0);
 
@@ -590,8 +576,7 @@ pub async fn get_timeline(
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let items: Vec<TimelineItem> = rows
         .into_iter()
@@ -637,7 +622,7 @@ pub async fn get_attribution(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, commit_id, file_path)): Path<(String, Uuid, String)>,
-) -> Result<Json<AttributionResponse>, (StatusCode, String)> {
+) -> Result<Json<AttributionResponse>, AppError> {
     // Get commit + repo info
     let row = sqlx::query_as::<_, (String, Uuid)>(
         "SELECT c.commit_sha, c.repo_id
@@ -648,9 +633,8 @@ pub async fn get_attribution(
     .bind(commit_id)
     .bind(auth.org_id)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, "Commit not found".to_string()))?;
+    .await?
+    .ok_or_else(|| AppError::NotFound("Commit not found".into()))?;
 
     let (commit_sha, repo_id) = row;
 
@@ -659,22 +643,18 @@ pub async fn get_attribution(
         sqlx::query_scalar::<_, Option<String>>("SELECT clone_path FROM repos WHERE id = $1")
             .bind(repo_id)
             .fetch_one(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-            .ok_or((StatusCode::BAD_REQUEST, "Repo not cloned".to_string()))?;
+            .await?
+            .ok_or_else(|| AppError::BadRequest("Repo not cloned".into()))?;
 
     // git show {sha}:{path} for file content
     let file_content = std::process::Command::new("git")
         .args(["show", &format!("{commit_sha}:{file_path}")])
         .current_dir(&clone_path)
         .output()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| AppError::Internal(e.to_string()))?;
 
     if !file_content.status.success() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            "File not found at this commit".to_string(),
-        ));
+        return Err(AppError::NotFound("File not found at this commit".into()));
     }
 
     let content = String::from_utf8_lossy(&file_content.stdout);
@@ -685,7 +665,7 @@ pub async fn get_attribution(
         .args(["blame", "--porcelain", &commit_sha, "--", &file_path])
         .current_dir(&clone_path)
         .output()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| AppError::Internal(e.to_string()))?;
 
     let blame_text = String::from_utf8_lossy(&blame_output.stdout);
     let blame_map = parse_porcelain_blame(&blame_text);
@@ -708,8 +688,7 @@ pub async fn get_attribution(
         .bind(repo_id)
         .bind(&blame_shas)
         .fetch_all(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .await?
         .into_iter()
         .collect()
     } else {
@@ -728,8 +707,7 @@ pub async fn get_attribution(
     .bind(&all_commit_ids)
     .bind(&file_path)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Load session short IDs
     let session_ids: Vec<Uuid> = attributions.iter().filter_map(|a| a.1).collect();
@@ -739,8 +717,7 @@ pub async fn get_attribution(
         )
         .bind(&session_ids)
         .fetch_all(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .await?
         .into_iter()
         .collect()
     } else {
@@ -879,7 +856,7 @@ pub async fn get_branches(
     State(state): State<AppState>,
     auth: OrgAuth,
     Query(q): Query<BranchesQuery>,
-) -> Result<Json<Vec<BranchItem>>, (StatusCode, String)> {
+) -> Result<Json<Vec<BranchItem>>, AppError> {
     let rows = sqlx::query_as::<
         _,
         (
@@ -913,8 +890,7 @@ pub async fn get_branches(
     .bind(auth.org_id)
     .bind(q.repo_id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let items: Vec<BranchItem> = rows
         .into_iter()

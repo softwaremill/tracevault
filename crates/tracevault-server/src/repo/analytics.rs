@@ -1697,7 +1697,7 @@ impl AnalyticsRepo {
     }
 
     /// Timeline query (events + commits UNION ALL).
-    #[allow(clippy::type_complexity)]
+    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
     pub async fn get_timeline(
         pool: &PgPool,
         org_id: Uuid,

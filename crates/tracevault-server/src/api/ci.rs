@@ -1,13 +1,14 @@
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     Json,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::api::policies::{evaluate_condition, EvalOutcome};
+use crate::error::AppError;
 use crate::extractors::OrgAuth;
+use crate::repo::policies::PolicyRepo;
 use crate::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -52,32 +53,14 @@ pub async fn verify_commits(
     auth: OrgAuth,
     Path((_slug, repo_id)): Path<(String, Uuid)>,
     Json(req): Json<CiVerifyRequest>,
-) -> Result<Json<CiVerifyResponse>, (StatusCode, String)> {
+) -> Result<Json<CiVerifyResponse>, AppError> {
     // Verify repo belongs to org
-    let repo_exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM repos WHERE id = $1 AND org_id = $2)")
-            .bind(repo_id)
-            .bind(auth.org_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    if !repo_exists {
-        return Err((StatusCode::NOT_FOUND, "Repo not found".into()));
+    if !PolicyRepo::repo_belongs_to_org(&state.pool, repo_id, auth.org_id).await? {
+        return Err(AppError::NotFound("Repo not found".into()));
     }
 
     // Fetch all enabled policies for this repo
-    let policies = sqlx::query_as::<_, (String, serde_json::Value, String, String)>(
-        "SELECT name, condition, action, severity
-         FROM policies
-         WHERE org_id = $1 AND (repo_id = $2 OR repo_id IS NULL) AND enabled = true
-         ORDER BY created_at",
-    )
-    .bind(auth.org_id)
-    .bind(repo_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let policies = PolicyRepo::list_enabled_for_check(&state.pool, auth.org_id, repo_id).await?;
 
     let mut results = Vec::new();
     let mut registered_count = 0usize;
@@ -105,8 +88,7 @@ pub async fn verify_commits(
         .bind(repo_id)
         .bind(commit_sha)
         .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
         let Some((commit_id, record_hash, chain_hash, prev_chain_hash, signature, sealed_at)) =
             commit
@@ -146,7 +128,7 @@ pub async fn verify_commits(
             if let Some(ek) = encryption_key {
                 crate::org_signing::load_at_time(&state.pool, auth.org_id, sat, ek)
                     .await
-                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+                    .map_err(AppError::internal)?
             } else {
                 None
             }
@@ -175,8 +157,7 @@ pub async fn verify_commits(
         )
         .bind(commit_id)
         .fetch_all(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
         let sids: Vec<Uuid> = session_ids.into_iter().map(|(id,)| id).collect();
 
@@ -192,8 +173,7 @@ pub async fn verify_commits(
             )
             .bind(&sids)
             .fetch_all(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .await?;
 
             for (name, count) in tool_counts {
                 *all_tool_calls.entry(name).or_insert(0) += count;
@@ -208,8 +188,7 @@ pub async fn verify_commits(
             )
             .bind(&sids)
             .fetch_all(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .await?
         } else {
             vec![]
         };

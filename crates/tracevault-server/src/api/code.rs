@@ -1,31 +1,26 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
     Json,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::error::AppError;
 use crate::{extractors::OrgAuth, permissions::Permission, AppState};
 
 // --- Helpers ---
 
-async fn verify_repo_access(
-    state: &AppState,
-    org_id: Uuid,
-    repo_id: Uuid,
-) -> Result<(), (StatusCode, String)> {
+async fn verify_repo_access(state: &AppState, org_id: Uuid, repo_id: Uuid) -> Result<(), AppError> {
     let exists = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM repos WHERE id = $1 AND org_id = $2 AND clone_status = 'ready')",
     )
     .bind(repo_id)
     .bind(org_id)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     if !exists {
-        return Err((StatusCode::NOT_FOUND, "Repo not found or not ready".into()));
+        return Err(AppError::NotFound("Repo not found or not ready".into()));
     }
     Ok(())
 }
@@ -178,20 +173,20 @@ pub async fn list_branches(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, repo_id)): Path<(String, Uuid)>,
-) -> Result<Json<Vec<BranchInfo>>, (StatusCode, String)> {
+) -> Result<Json<Vec<BranchInfo>>, AppError> {
     if !state
         .extensions
         .permissions
         .has_permission(&auth.role, Permission::CodeBrowse)
     {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
+        return Err(AppError::Forbidden("Insufficient permissions".into()));
     }
     verify_repo_access(&state, auth.org_id, repo_id).await?;
 
     let repo = state
         .repo_manager
         .open_repo(repo_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(AppError::internal)?;
 
     let mut branches = Vec::new();
     let head_ref = repo
@@ -199,12 +194,8 @@ pub async fn list_branches(
         .ok()
         .and_then(|h| h.shorthand().map(String::from));
 
-    for branch in repo
-        .branches(None)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    {
-        let (branch, _branch_type) =
-            branch.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    for branch in repo.branches(None)? {
+        let (branch, _branch_type) = branch?;
         if let Some(name) = branch.name().ok().flatten() {
             let is_default = head_ref.as_deref() == Some(name);
             branches.push(BranchInfo {
@@ -235,42 +226,38 @@ pub async fn get_tree(
     auth: OrgAuth,
     Path((_slug, repo_id)): Path<(String, Uuid)>,
     Query(query): Query<TreeQuery>,
-) -> Result<Json<Vec<TreeEntry>>, (StatusCode, String)> {
+) -> Result<Json<Vec<TreeEntry>>, AppError> {
     if !state
         .extensions
         .permissions
         .has_permission(&auth.role, Permission::CodeBrowse)
     {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
+        return Err(AppError::Forbidden("Insufficient permissions".into()));
     }
     verify_repo_access(&state, auth.org_id, repo_id).await?;
 
     let repo = state
         .repo_manager
         .open_repo(repo_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(AppError::internal)?;
 
     let obj = repo
         .revparse_single(&query.git_ref)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid ref: {e}")))?;
+        .map_err(|e| AppError::BadRequest(format!("Invalid ref: {e}")))?;
     let commit = obj
         .peel_to_commit()
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Ref is not a commit: {e}")))?;
-    let tree = commit
-        .tree()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| AppError::BadRequest(format!("Ref is not a commit: {e}")))?;
+    let tree = commit.tree()?;
 
     let target_tree = if query.path.is_empty() || query.path == "/" {
         tree
     } else {
         let entry = tree
             .get_path(std::path::Path::new(&query.path))
-            .map_err(|e| (StatusCode::NOT_FOUND, format!("Path not found: {e}")))?;
-        let obj = entry
-            .to_object(&repo)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(|e| AppError::NotFound(format!("Path not found: {e}")))?;
+        let obj = entry.to_object(&repo)?;
         obj.into_tree()
-            .map_err(|_| (StatusCode::BAD_REQUEST, "Path is not a directory".into()))?
+            .map_err(|_| AppError::BadRequest("Path is not a directory".into()))?
     };
 
     let mut entries = Vec::new();
@@ -317,40 +304,36 @@ pub async fn get_blob(
     auth: OrgAuth,
     Path((_slug, repo_id)): Path<(String, Uuid)>,
     Query(query): Query<BlobQuery>,
-) -> Result<Json<BlobResponse>, (StatusCode, String)> {
+) -> Result<Json<BlobResponse>, AppError> {
     if !state
         .extensions
         .permissions
         .has_permission(&auth.role, Permission::CodeBrowse)
     {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
+        return Err(AppError::Forbidden("Insufficient permissions".into()));
     }
     verify_repo_access(&state, auth.org_id, repo_id).await?;
 
     let repo = state
         .repo_manager
         .open_repo(repo_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(AppError::internal)?;
 
     let obj = repo
         .revparse_single(&query.git_ref)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid ref: {e}")))?;
+        .map_err(|e| AppError::BadRequest(format!("Invalid ref: {e}")))?;
     let commit = obj
         .peel_to_commit()
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Ref is not a commit: {e}")))?;
-    let tree = commit
-        .tree()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| AppError::BadRequest(format!("Ref is not a commit: {e}")))?;
+    let tree = commit.tree()?;
 
     let entry = tree
         .get_path(std::path::Path::new(&query.path))
-        .map_err(|e| (StatusCode::NOT_FOUND, format!("File not found: {e}")))?;
-    let blob_obj = entry
-        .to_object(&repo)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| AppError::NotFound(format!("File not found: {e}")))?;
+    let blob_obj = entry.to_object(&repo)?;
     let blob = blob_obj
         .as_blob()
-        .ok_or((StatusCode::BAD_REQUEST, "Path is not a file".into()))?;
+        .ok_or_else(|| AppError::BadRequest("Path is not a file".into()))?;
 
     let size = blob.size() as u64;
     let max_size = 1_048_576; // 1MB
@@ -382,39 +365,34 @@ pub async fn get_blame(
     auth: OrgAuth,
     Path((_slug, repo_id)): Path<(String, Uuid)>,
     Query(query): Query<BlobQuery>,
-) -> Result<Json<Vec<BlameHunk>>, (StatusCode, String)> {
+) -> Result<Json<Vec<BlameHunk>>, AppError> {
     if !state
         .extensions
         .permissions
         .has_permission(&auth.role, Permission::CodeBrowse)
     {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
+        return Err(AppError::Forbidden("Insufficient permissions".into()));
     }
     verify_repo_access(&state, auth.org_id, repo_id).await?;
 
     let repo = state
         .repo_manager
         .open_repo(repo_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(AppError::internal)?;
 
     let obj = repo
         .revparse_single(&query.git_ref)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid ref: {e}")))?;
+        .map_err(|e| AppError::BadRequest(format!("Invalid ref: {e}")))?;
     let commit = obj
         .peel_to_commit()
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Ref is not a commit: {e}")))?;
+        .map_err(|e| AppError::BadRequest(format!("Ref is not a commit: {e}")))?;
 
     let blame = repo
         .blame_file(
             std::path::Path::new(&query.path),
             Some(git2::BlameOptions::new().newest_commit(commit.id())),
         )
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Blame failed: {e}"),
-            )
-        })?;
+        .map_err(|e| AppError::Internal(format!("Blame failed: {e}")))?;
 
     let mut hunks = Vec::new();
     for i in 0..blame.len() {
@@ -444,44 +422,36 @@ pub async fn list_file_commits(
     auth: OrgAuth,
     Path((_slug, repo_id)): Path<(String, Uuid)>,
     Query(query): Query<BlobQuery>,
-) -> Result<Json<Vec<FileCommit>>, (StatusCode, String)> {
+) -> Result<Json<Vec<FileCommit>>, AppError> {
     if !state
         .extensions
         .permissions
         .has_permission(&auth.role, Permission::CodeBrowse)
     {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
+        return Err(AppError::Forbidden("Insufficient permissions".into()));
     }
     verify_repo_access(&state, auth.org_id, repo_id).await?;
 
     let repo = state
         .repo_manager
         .open_repo(repo_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(AppError::internal)?;
 
     let obj = repo
         .revparse_single(&query.git_ref)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid ref: {e}")))?;
+        .map_err(|e| AppError::BadRequest(format!("Invalid ref: {e}")))?;
     let commit = obj
         .peel_to_commit()
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Ref is not a commit: {e}")))?;
+        .map_err(|e| AppError::BadRequest(format!("Ref is not a commit: {e}")))?;
 
-    let mut revwalk = repo
-        .revwalk()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    revwalk
-        .push(commit.id())
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    revwalk
-        .set_sorting(git2::Sort::TIME)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut revwalk = repo.revwalk()?;
+    revwalk.push(commit.id())?;
+    revwalk.set_sorting(git2::Sort::TIME)?;
 
     let mut commits = Vec::new();
     for oid in revwalk.take(100) {
-        let oid = oid.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        let c = repo
-            .find_commit(oid)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let oid = oid?;
+        let c = repo.find_commit(oid)?;
 
         let touches_file = c
             .parent(0)
@@ -523,27 +493,27 @@ pub async fn get_ref_info(
     auth: OrgAuth,
     Path((_slug, repo_id)): Path<(String, Uuid)>,
     Query(query): Query<RefQuery>,
-) -> Result<Json<RefInfo>, (StatusCode, String)> {
+) -> Result<Json<RefInfo>, AppError> {
     if !state
         .extensions
         .permissions
         .has_permission(&auth.role, Permission::CodeBrowse)
     {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
+        return Err(AppError::Forbidden("Insufficient permissions".into()));
     }
     verify_repo_access(&state, auth.org_id, repo_id).await?;
 
     let repo = state
         .repo_manager
         .open_repo(repo_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(AppError::internal)?;
 
     let obj = repo
         .revparse_single(&query.git_ref)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid ref: {e}")))?;
+        .map_err(|e| AppError::BadRequest(format!("Invalid ref: {e}")))?;
     let commit = obj
         .peel_to_commit()
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Ref is not a commit: {e}")))?;
+        .map_err(|e| AppError::BadRequest(format!("Ref is not a commit: {e}")))?;
 
     let info = RefInfo {
         sha: commit.id().to_string(),
@@ -561,13 +531,13 @@ pub async fn generate_story(
     auth: OrgAuth,
     Path((_slug, repo_id)): Path<(String, Uuid)>,
     Json(req): Json<StoryRequest>,
-) -> Result<Json<StoryResponse>, (StatusCode, String)> {
+) -> Result<Json<StoryResponse>, AppError> {
     if !state
         .extensions
         .permissions
         .has_permission(&auth.role, Permission::CodeBrowse)
     {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
+        return Err(AppError::Forbidden("Insufficient permissions".into()));
     }
 
     let force = req.force;
@@ -580,28 +550,24 @@ pub async fn generate_story(
         let repo = state
             .repo_manager
             .open_repo(repo_id)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(AppError::internal)?;
 
         let ext = req.path.rsplit('.').next().unwrap_or("");
 
         let obj = repo
             .revparse_single(&req.git_ref)
-            .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid ref: {e}")))?;
+            .map_err(|e| AppError::BadRequest(format!("Invalid ref: {e}")))?;
         let commit = obj
             .peel_to_commit()
-            .map_err(|e| (StatusCode::BAD_REQUEST, format!("Ref is not a commit: {e}")))?;
-        let tree = commit
-            .tree()
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(|e| AppError::BadRequest(format!("Ref is not a commit: {e}")))?;
+        let tree = commit.tree()?;
         let entry = tree
             .get_path(std::path::Path::new(&req.path))
-            .map_err(|e| (StatusCode::NOT_FOUND, format!("File not found: {e}")))?;
-        let blob_obj = entry
-            .to_object(&repo)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(|e| AppError::NotFound(format!("File not found: {e}")))?;
+        let blob_obj = entry.to_object(&repo)?;
         let blob = blob_obj
             .as_blob()
-            .ok_or((StatusCode::BAD_REQUEST, "Path is not a file".into()))?;
+            .ok_or_else(|| AppError::BadRequest("Path is not a file".into()))?;
         let source = String::from_utf8_lossy(blob.content()).to_string();
 
         let scope = tracevault_core::code_nav::find_enclosing_scope(&source, ext, req.line)
@@ -640,8 +606,7 @@ pub async fn generate_story(
         .permissions
         .has_permission(&auth.role, Permission::StoryGenerate)
     {
-        return Err((
-            StatusCode::FORBIDDEN,
+        return Err(AppError::Forbidden(
             "Insufficient permissions to generate stories".into(),
         ));
     }
@@ -653,8 +618,7 @@ pub async fn generate_story(
     let story_provider: &dyn crate::extensions::StoryProvider = if let Some(ref org) = org_story {
         org
     } else {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
+        return Err(AppError::Internal(
             "No LLM configured for this organization".into(),
         ));
     };
@@ -669,13 +633,13 @@ pub async fn generate_story(
         &scope,
     )
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    .map_err(AppError::internal)?;
 
     let prompt = crate::story::build_story_prompt(&ctx);
     let story_md = story_provider
         .generate_story(&prompt, 4096)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("LLM error: {e}")))?;
+        .map_err(|e| AppError::Internal(format!("LLM error: {e}")))?;
 
     // Build structured references from context
     let references: Vec<CommitRef> = ctx

@@ -6,7 +6,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::error::AppError;
 use crate::extractors::OrgAuth;
+use crate::repo::policies::PolicyRepo;
 use crate::AppState;
 
 #[derive(Debug, Serialize)]
@@ -50,46 +52,28 @@ pub async fn list_repo_policies(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, repo_id)): Path<(String, Uuid)>,
-) -> Result<Json<Vec<PolicyResponse>>, (StatusCode, String)> {
+) -> Result<Json<Vec<PolicyResponse>>, AppError> {
     // Verify repo belongs to org
-    let repo_exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM repos WHERE id = $1 AND org_id = $2)")
-            .bind(repo_id)
-            .bind(auth.org_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    if !repo_exists {
-        return Err((StatusCode::NOT_FOUND, "Repo not found".into()));
+    if !PolicyRepo::repo_belongs_to_org(&state.pool, repo_id, auth.org_id).await? {
+        return Err(AppError::NotFound("Repo not found".into()));
     }
 
-    let rows = sqlx::query_as::<_, (Uuid, Uuid, Option<Uuid>, String, String, serde_json::Value, String, String, bool, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>(
-        "SELECT id, org_id, repo_id, name, description, condition, action, severity, enabled, created_at, updated_at
-         FROM policies
-         WHERE org_id = $1 AND (repo_id = $2 OR repo_id IS NULL)
-         ORDER BY created_at",
-    )
-    .bind(auth.org_id)
-    .bind(repo_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let rows = PolicyRepo::list_for_repo(&state.pool, auth.org_id, repo_id).await?;
 
     let policies = rows
         .into_iter()
         .map(|r| PolicyResponse {
-            id: r.0,
-            org_id: r.1,
-            repo_id: r.2,
-            name: r.3,
-            description: r.4,
-            condition: r.5,
-            action: r.6,
-            severity: r.7,
-            enabled: r.8,
-            created_at: r.9,
-            updated_at: r.10,
+            id: r.id,
+            org_id: r.org_id,
+            repo_id: r.repo_id,
+            name: r.name,
+            description: r.description,
+            condition: r.condition,
+            action: r.action,
+            severity: r.severity,
+            enabled: r.enabled,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
         })
         .collect();
 
@@ -103,38 +87,28 @@ pub async fn create_repo_policy(
     auth: OrgAuth,
     Path((_slug, repo_id)): Path<(String, Uuid)>,
     Json(req): Json<CreatePolicyRequest>,
-) -> Result<(StatusCode, Json<PolicyResponse>), (StatusCode, String)> {
+) -> Result<(StatusCode, Json<PolicyResponse>), AppError> {
     // Verify repo belongs to org
-    let repo_exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM repos WHERE id = $1 AND org_id = $2)")
-            .bind(repo_id)
-            .bind(auth.org_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    if !repo_exists {
-        return Err((StatusCode::NOT_FOUND, "Repo not found".into()));
+    if !PolicyRepo::repo_belongs_to_org(&state.pool, repo_id, auth.org_id).await? {
+        return Err(AppError::NotFound("Repo not found".into()));
     }
 
-    let row = sqlx::query_as::<_, (Uuid, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>(
-        "INSERT INTO policies (org_id, repo_id, name, description, condition, action, severity, enabled)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         RETURNING id, created_at, updated_at",
-    )
-    .bind(auth.org_id)
-    .bind(repo_id)
-    .bind(&req.name)
-    .bind(req.description.as_deref().unwrap_or(""))
-    .bind(&req.condition)
-    .bind(&req.action)
-    .bind(req.severity.as_deref().unwrap_or("medium"))
-    .bind(req.enabled.unwrap_or(true))
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let description = req.description.as_deref().unwrap_or("");
+    let severity = req.severity.as_deref().unwrap_or("medium");
+    let enabled = req.enabled.unwrap_or(true);
 
-    let policy_id = row.0;
+    let (policy_id, created_at, updated_at) = PolicyRepo::create(
+        &state.pool,
+        auth.org_id,
+        repo_id,
+        &req.name,
+        description,
+        &req.condition,
+        &req.action,
+        severity,
+        enabled,
+    )
+    .await?;
 
     crate::audit::log(
         &state.pool,
@@ -160,9 +134,9 @@ pub async fn create_repo_policy(
             condition: req.condition,
             action: req.action,
             severity: req.severity.unwrap_or_else(|| "medium".into()),
-            enabled: req.enabled.unwrap_or(true),
-            created_at: row.1,
-            updated_at: row.2,
+            enabled,
+            created_at,
+            updated_at,
         }),
     ))
 }
@@ -174,30 +148,19 @@ pub async fn update_policy(
     auth: OrgAuth,
     Path((_slug, id)): Path<(String, Uuid)>,
     Json(req): Json<UpdatePolicyRequest>,
-) -> Result<Json<PolicyResponse>, (StatusCode, String)> {
-    let row = sqlx::query_as::<_, (Uuid, Option<Uuid>, String, String, serde_json::Value, String, String, bool, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>(
-        "UPDATE policies SET
-            name = COALESCE($3, name),
-            description = COALESCE($4, description),
-            condition = COALESCE($5, condition),
-            action = COALESCE($6, action),
-            severity = COALESCE($7, severity),
-            enabled = COALESCE($8, enabled),
-            updated_at = NOW()
-         WHERE id = $1 AND org_id = $2
-         RETURNING org_id, repo_id, name, description, condition, action, severity, enabled, created_at, updated_at",
+) -> Result<Json<PolicyResponse>, AppError> {
+    let row = PolicyRepo::update(
+        &state.pool,
+        id,
+        auth.org_id,
+        &req.name,
+        &req.description,
+        &req.condition,
+        &req.action,
+        &req.severity,
+        req.enabled,
     )
-    .bind(id)
-    .bind(auth.org_id)
-    .bind(&req.name)
-    .bind(&req.description)
-    .bind(&req.condition)
-    .bind(&req.action)
-    .bind(&req.severity)
-    .bind(req.enabled)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     match row {
         Some(r) => {
@@ -216,19 +179,19 @@ pub async fn update_policy(
 
             Ok(Json(PolicyResponse {
                 id,
-                org_id: r.0,
-                repo_id: r.1,
-                name: r.2,
-                description: r.3,
-                condition: r.4,
-                action: r.5,
-                severity: r.6,
-                enabled: r.7,
-                created_at: r.8,
-                updated_at: r.9,
+                org_id: r.org_id,
+                repo_id: r.repo_id,
+                name: r.name,
+                description: r.description,
+                condition: r.condition,
+                action: r.action,
+                severity: r.severity,
+                enabled: r.enabled,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
             }))
         }
-        None => Err((StatusCode::NOT_FOUND, "Policy not found".into())),
+        None => Err(AppError::NotFound("Policy not found".into())),
     }
 }
 
@@ -238,16 +201,11 @@ pub async fn delete_policy(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, id)): Path<(String, Uuid)>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    let result = sqlx::query("DELETE FROM policies WHERE id = $1 AND org_id = $2")
-        .bind(id)
-        .bind(auth.org_id)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+) -> Result<StatusCode, AppError> {
+    let rows_affected = PolicyRepo::delete(&state.pool, id, auth.org_id).await?;
 
-    if result.rows_affected() == 0 {
-        return Err((StatusCode::NOT_FOUND, "Policy not found".into()));
+    if rows_affected == 0 {
+        return Err(AppError::NotFound("Policy not found".into()));
     }
 
     crate::audit::log(
@@ -306,32 +264,14 @@ pub async fn check_policies(
     auth: OrgAuth,
     Path((_slug, repo_id)): Path<(String, Uuid)>,
     Json(req): Json<CheckRequest>,
-) -> Result<Json<CheckResponse>, (StatusCode, String)> {
+) -> Result<Json<CheckResponse>, AppError> {
     // Verify repo belongs to org
-    let repo_exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM repos WHERE id = $1 AND org_id = $2)")
-            .bind(repo_id)
-            .bind(auth.org_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    if !repo_exists {
-        return Err((StatusCode::NOT_FOUND, "Repo not found".into()));
+    if !PolicyRepo::repo_belongs_to_org(&state.pool, repo_id, auth.org_id).await? {
+        return Err(AppError::NotFound("Repo not found".into()));
     }
 
     // Fetch all enabled policies for this repo (repo-specific + org-wide)
-    let rows = sqlx::query_as::<_, (String, serde_json::Value, String, String)>(
-        "SELECT name, condition, action, severity
-         FROM policies
-         WHERE org_id = $1 AND (repo_id = $2 OR repo_id IS NULL) AND enabled = true
-         ORDER BY created_at",
-    )
-    .bind(auth.org_id)
-    .bind(repo_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let rows = PolicyRepo::list_enabled_for_check(&state.pool, auth.org_id, repo_id).await?;
 
     // Aggregate session data: merge tool_calls across all sessions, union files_modified
     let mut all_tool_calls: std::collections::HashMap<String, i64> =

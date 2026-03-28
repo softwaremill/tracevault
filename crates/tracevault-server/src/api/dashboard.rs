@@ -2,13 +2,13 @@ use std::collections::HashMap;
 
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
     Json,
 };
 use chrono::{Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::error::AppError;
 use crate::extractors::OrgAuth;
 use crate::AppState;
 
@@ -116,7 +116,7 @@ async fn query_kpi_totals(
     org_id: Uuid,
     from: chrono::DateTime<Utc>,
     to: chrono::DateTime<Utc>,
-) -> Result<KpiTotals, (StatusCode, String)> {
+) -> Result<KpiTotals, AppError> {
     let row: (f64, i64, i64, i64, i64, f64, f64, i64) = sqlx::query_as(
         "SELECT
             COALESCE(SUM(s.estimated_cost_usd), 0)::float8,
@@ -138,8 +138,7 @@ async fn query_kpi_totals(
     .bind(from)
     .bind(to)
     .fetch_one(pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(KpiTotals {
         total_cost: row.0,
@@ -166,7 +165,7 @@ async fn query_sparklines(
     org_id: Uuid,
     from: chrono::DateTime<Utc>,
     to: chrono::DateTime<Utc>,
-) -> Result<Vec<SparklineDay>, (StatusCode, String)> {
+) -> Result<Vec<SparklineDay>, AppError> {
     let rows: Vec<(String, f64, i64, i64, i64)> = sqlx::query_as(
         "SELECT
             TO_CHAR(s.started_at::date, 'YYYY-MM-DD'),
@@ -187,8 +186,7 @@ async fn query_sparklines(
     .bind(from)
     .bind(to)
     .fetch_all(pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(rows
         .into_iter()
@@ -213,7 +211,7 @@ async fn query_compliance(
     org_id: Uuid,
     from: chrono::DateTime<Utc>,
     to: chrono::DateTime<Utc>,
-) -> Result<ComplianceData, (StatusCode, String)> {
+) -> Result<ComplianceData, AppError> {
     let (sealed, unsigned): (i64, i64) = sqlx::query_as(
         "SELECT
             COUNT(*) FILTER (WHERE ss.sealed_at IS NOT NULL),
@@ -229,8 +227,7 @@ async fn query_compliance(
     .bind(from)
     .bind(to)
     .fetch_one(pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let chain_status: Option<(String,)> = sqlx::query_as(
         "SELECT status FROM chain_verifications
@@ -240,8 +237,7 @@ async fn query_compliance(
     )
     .bind(org_id)
     .fetch_optional(pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let chain_verified = chain_status.map(|(s,)| s == "pass");
 
@@ -257,7 +253,7 @@ async fn query_top_authors(
     org_id: Uuid,
     from: chrono::DateTime<Utc>,
     to: chrono::DateTime<Utc>,
-) -> Result<Vec<TopAuthor>, (StatusCode, String)> {
+) -> Result<Vec<TopAuthor>, AppError> {
     let rows: Vec<(String, i64, i64, f64)> = sqlx::query_as(
         "SELECT
             u.email,
@@ -278,8 +274,7 @@ async fn query_top_authors(
     .bind(from)
     .bind(to)
     .fetch_all(pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(rows
         .into_iter()
@@ -296,7 +291,7 @@ pub async fn get_dashboard(
     State(state): State<AppState>,
     auth: OrgAuth,
     Query(q): Query<DashboardQuery>,
-) -> Result<Json<DashboardResponse>, (StatusCode, String)> {
+) -> Result<Json<DashboardResponse>, AppError> {
     let period = q.period.as_deref().unwrap_or("7d");
     let (cur_start, cur_end, prev_start, prev_end) = period_ranges(period);
 

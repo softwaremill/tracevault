@@ -87,6 +87,7 @@ impl PolicyRepo {
     }
 
     /// Create a policy bound to a specific repo.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create(
         pool: &PgPool,
         org_id: Uuid,
@@ -118,6 +119,7 @@ impl PolicyRepo {
     }
 
     /// Update a policy (COALESCE for partial updates). Returns None if not found.
+    #[allow(clippy::too_many_arguments)]
     pub async fn update(
         pool: &PgPool,
         id: Uuid,

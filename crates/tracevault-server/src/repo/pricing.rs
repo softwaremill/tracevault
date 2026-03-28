@@ -51,6 +51,7 @@ impl PricingRepo {
     }
 
     /// Create a new pricing entry.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create(
         pool: &PgPool,
         model: &str,

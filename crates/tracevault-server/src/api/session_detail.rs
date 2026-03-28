@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::error::AppError;
 use crate::extractors::OrgAuth;
 use crate::pricing::{self, ModelPricing};
 use crate::AppState;
@@ -431,7 +432,7 @@ pub async fn get_session_detail(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, session_uuid)): Path<(String, Uuid)>,
-) -> Result<Json<SessionDetailResponse>, axum::http::StatusCode> {
+) -> Result<Json<SessionDetailResponse>, AppError> {
     let org_id = auth.org_id;
 
     let row = sqlx::query_as::<_, SessionRow>(
@@ -448,9 +449,8 @@ pub async fn get_session_detail(
     .bind(session_uuid)
     .bind(org_id)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(axum::http::StatusCode::NOT_FOUND)?;
+    .await?
+    .ok_or_else(|| AppError::NotFound("Session not found".into()))?;
 
     let pricing = pricing::fetch_pricing_for_model(
         &state.pool,
@@ -467,8 +467,7 @@ pub async fn get_session_detail(
     )
     .bind(session_uuid)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    .await?;
 
     let transcript_array: Vec<serde_json::Value> = chunks.into_iter().map(|(d,)| d).collect();
     let transcript_val = serde_json::Value::Array(transcript_array);

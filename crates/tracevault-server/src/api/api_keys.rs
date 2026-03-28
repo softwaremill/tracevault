@@ -8,7 +8,9 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::auth::generate_api_key;
+use crate::error::AppError;
 use crate::extractors::OrgAuth;
+use crate::repo::api_keys::ApiKeyRepo;
 
 #[derive(Serialize)]
 pub struct ApiKeyResponse {
@@ -34,18 +36,10 @@ pub async fn create_api_key(
     State(state): State<AppState>,
     auth: OrgAuth,
     Json(req): Json<CreateApiKeyRequest>,
-) -> Result<(StatusCode, Json<CreateApiKeyResponse>), (StatusCode, String)> {
+) -> Result<(StatusCode, Json<CreateApiKeyResponse>), AppError> {
     let (raw_key, key_hash) = generate_api_key();
 
-    let id: Uuid = sqlx::query_scalar(
-        "INSERT INTO api_keys (org_id, key_hash, name) VALUES ($1, $2, $3) RETURNING id",
-    )
-    .bind(auth.org_id)
-    .bind(&key_hash)
-    .bind(&req.name)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let id = ApiKeyRepo::create(&state.pool, auth.org_id, &key_hash, &req.name).await?;
 
     Ok((
         StatusCode::CREATED,
@@ -60,22 +54,16 @@ pub async fn create_api_key(
 pub async fn list_api_keys(
     State(state): State<AppState>,
     auth: OrgAuth,
-) -> Result<Json<Vec<ApiKeyResponse>>, (StatusCode, String)> {
-    let rows = sqlx::query_as::<_, (Uuid, String, String, chrono::DateTime<chrono::Utc>)>(
-        "SELECT id, name, LEFT(key_hash, 8), created_at FROM api_keys WHERE org_id = $1 ORDER BY created_at",
-    )
-    .bind(auth.org_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+) -> Result<Json<Vec<ApiKeyResponse>>, AppError> {
+    let rows = ApiKeyRepo::list(&state.pool, auth.org_id).await?;
 
     let keys = rows
         .into_iter()
         .map(|r| ApiKeyResponse {
-            id: r.0,
-            name: r.1,
-            key_prefix: format!("tvk_...{}", r.2),
-            created_at: r.3,
+            id: r.id,
+            name: r.name,
+            key_prefix: format!("tvk_...{}", r.key_prefix),
+            created_at: r.created_at,
         })
         .collect();
 
@@ -86,13 +74,8 @@ pub async fn delete_api_key(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, id)): Path<(String, Uuid)>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    sqlx::query("DELETE FROM api_keys WHERE id = $1 AND org_id = $2")
-        .bind(id)
-        .bind(auth.org_id)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+) -> Result<StatusCode, AppError> {
+    ApiKeyRepo::delete(&state.pool, id, auth.org_id).await?;
 
     Ok(StatusCode::OK)
 }
