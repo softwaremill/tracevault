@@ -1,6 +1,6 @@
-import { PUBLIC_DATE_LOCALE } from '$env/static/public';
+import { env } from '$env/dynamic/public';
 
-const locale = PUBLIC_DATE_LOCALE || 'en-US';
+const locale = env.PUBLIC_DATE_LOCALE || 'en-US';
 
 const dateFormatter = new Intl.DateTimeFormat(locale, {
 	year: 'numeric',
