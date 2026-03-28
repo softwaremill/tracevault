@@ -29,6 +29,7 @@ mod story;
 
 mod error;
 pub mod repo;
+pub mod service;
 pub use error::AppError;
 
 #[derive(Clone)]
