@@ -11,6 +11,7 @@
 	import UsersIcon from '@lucide/svelte/icons/users';
 	import PercentIcon from '@lucide/svelte/icons/percent';
 	import DollarSignIcon from '@lucide/svelte/icons/dollar-sign';
+	import { formatDate } from '$lib/utils/date';
 	import ClockIcon from '@lucide/svelte/icons/clock';
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
 	import PiggyBankIcon from '@lucide/svelte/icons/piggy-bank';
@@ -127,10 +128,6 @@
 
 	function fmtCost(n: number): string {
 		return `$${n.toFixed(2)}`;
-	}
-
-	function fmtDate(iso: string): string {
-		return new Date(iso).toLocaleDateString();
 	}
 
 	function fmtDuration(ms: number | null): string {
@@ -378,7 +375,7 @@
 						{:else if col.key === 'total_tokens'}
 							<span class="font-mono">{fmtNum(row.total_tokens as number)}</span>
 						{:else if col.key === 'created_at'}
-							{fmtDate(row.created_at as string)}
+							{formatDate(row.created_at as string)}
 						{:else}
 							{row[col.key] ?? '-'}
 						{/if}

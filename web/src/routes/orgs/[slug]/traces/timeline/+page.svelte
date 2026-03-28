@@ -2,6 +2,7 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api';
+	import { formatDateTime } from '$lib/utils/date';
 	import * as Select from '$lib/components/ui/select/index.js';
 
 	const TOOL_COLORS: Record<string, string> = {
@@ -72,10 +73,6 @@
 	function toolColor(name: string | undefined): string {
 		if (!name) return '#94a3b8';
 		return TOOL_COLORS[name] ?? '#94a3b8';
-	}
-
-	function fmtTime(iso: string): string {
-		return new Date(iso).toLocaleString();
 	}
 
 	const uniqueSessions = $derived(
@@ -160,7 +157,7 @@
 							>
 						{/if}
 						<span class="text-muted-foreground text-xs">{item.author}</span>
-						<span class="text-muted-foreground ml-auto text-[10px]">{fmtTime(item.timestamp)}</span
+						<span class="text-muted-foreground ml-auto text-[10px]">{formatDateTime(item.timestamp)}</span
 						>
 					</div>
 				{:else}
@@ -188,7 +185,7 @@
 							{item.file_path ?? ''}
 						</span>
 						<span class="text-muted-foreground ml-auto shrink-0 text-[10px]"
-							>{fmtTime(item.timestamp)}</span
+							>{formatDateTime(item.timestamp)}</span
 						>
 					</div>
 				{/if}

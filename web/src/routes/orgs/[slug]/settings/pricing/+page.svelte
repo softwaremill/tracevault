@@ -10,6 +10,7 @@
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
+	import { formatDate } from '$lib/utils/date';
 
 	interface PricingEntry {
 		id: string;
@@ -109,10 +110,6 @@
 
 	function isActive(entry: PricingEntry): boolean {
 		return !entry.effective_until || new Date(entry.effective_until) > new Date();
-	}
-
-	function formatDate(iso: string): string {
-		return new Date(iso).toLocaleDateString();
 	}
 
 	function formatPrice(val: number): string {

@@ -8,6 +8,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
+	import { formatDate } from '$lib/utils/date';
 
 	interface CommitListItem {
 		id: string;
@@ -245,10 +246,6 @@
 			return s;
 		}
 		return JSON.stringify(condition);
-	}
-
-	function formatDate(iso: string): string {
-		return new Date(iso).toLocaleDateString();
 	}
 
 	function fmtTokens(n: number | null): string {

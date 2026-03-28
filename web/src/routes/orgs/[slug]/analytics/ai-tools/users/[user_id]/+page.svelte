@@ -6,6 +6,7 @@
 	import DataTable from '$lib/components/DataTable.svelte';
 	import Chart from '$lib/components/chart.svelte';
 	import SessionDetailPanel from '$lib/components/session-detail/SessionDetailPanel.svelte';
+	import { formatDate } from '$lib/utils/date';
 	import BotIcon from '@lucide/svelte/icons/bot';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import {
@@ -78,10 +79,6 @@
 		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
 		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
 		return String(n);
-	}
-
-	function fmtDate(iso: string): string {
-		return new Date(iso).toLocaleDateString();
 	}
 
 	function fmtDuration(ms: number | null): string {
@@ -213,9 +210,9 @@
 							{:else if col.key === 'session_count'}
 								<span class="font-mono">{row.session_count}</span>
 							{:else if col.key === 'first_seen'}
-								{fmtDate(row.first_seen as string)}
+								{formatDate(row.first_seen as string)}
 							{:else if col.key === 'last_seen'}
-								{fmtDate(row.last_seen as string)}
+								{formatDate(row.last_seen as string)}
 							{:else}
 								{row[col.key] ?? '-'}
 							{/if}
@@ -254,9 +251,9 @@
 							{:else if col.key === 'session_count'}
 								<span class="font-mono">{row.session_count}</span>
 							{:else if col.key === 'first_seen'}
-								{fmtDate(row.first_seen as string)}
+								{formatDate(row.first_seen as string)}
 							{:else if col.key === 'last_seen'}
-								{fmtDate(row.last_seen as string)}
+								{formatDate(row.last_seen as string)}
 							{:else}
 								{row[col.key] ?? '-'}
 							{/if}

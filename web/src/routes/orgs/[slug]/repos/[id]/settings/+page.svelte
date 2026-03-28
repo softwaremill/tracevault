@@ -5,6 +5,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
+	import { formatDateTime } from '$lib/utils/date';
 
 	interface RepoSettings {
 		github_url: string | null;
@@ -123,10 +124,6 @@
 		}
 	}
 
-	function formatDate(iso: string | null): string {
-		if (!iso) return 'Never';
-		return new Date(iso).toLocaleString();
-	}
 </script>
 
 <svelte:head>
@@ -249,7 +246,7 @@
 				</div>
 				<div class="flex items-center justify-between py-1.5 text-sm">
 					<span class="text-muted-foreground text-xs">Last fetched</span>
-					<span class="text-xs">{formatDate(settings.last_fetched_at)}</span>
+					<span class="text-xs">{formatDateTime(settings.last_fetched_at)}</span>
 				</div>
 				<div class="flex items-center gap-3">
 					{#if settings.clone_status === 'ready'}

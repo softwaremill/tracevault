@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
+	import { formatDateTime } from '$lib/utils/date';
 
 	interface SessionAttribution {
 		session_id: string;
@@ -49,11 +50,6 @@
 		} finally {
 			loading = false;
 		}
-	}
-
-	function formatDate(iso: string | null): string {
-		if (!iso) return '-';
-		return new Date(iso).toLocaleString();
 	}
 
 	function diffFiles(diffData: Record<string, unknown> | null): string[] {
@@ -117,7 +113,7 @@
 			{/if}
 			<div class="text-muted-foreground mt-1 flex gap-4 text-sm">
 				<span>{data.commit.author}</span>
-				<span>{formatDate(data.commit.committed_at)}</span>
+				<span>{formatDateTime(data.commit.committed_at)}</span>
 			</div>
 		</div>
 
