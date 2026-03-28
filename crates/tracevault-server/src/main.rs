@@ -8,37 +8,7 @@ use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
-mod api;
-mod audit;
-mod auth;
-mod branch_tracking;
-mod config;
-mod db;
-mod encryption;
-pub mod extensions;
-mod extractors;
-mod llm;
-mod org_signing;
-pub mod permissions;
-pub mod pricing;
-pub mod pricing_sync;
-mod repo_manager;
-mod signing;
-mod story;
-
-mod error;
-pub mod repo;
-pub mod service;
-pub use error::AppError;
-
-#[derive(Clone)]
-pub struct AppState {
-    pub pool: sqlx::PgPool,
-    pub repo_manager: repo_manager::RepoManager,
-    pub extensions: extensions::ExtensionRegistry,
-    pub encryption_key: Option<String>,
-    pub http_client: reqwest::Client,
-}
+use tracevault_server::{api, config, db, extensions, pricing_sync, repo_manager, AppState};
 
 #[tokio::main]
 async fn main() {
