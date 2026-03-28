@@ -1,7 +1,7 @@
 <script lang="ts">
 	type SessionDisplayStatus = 'active' | 'completed' | 'stale';
 
-	let { status }: { status: SessionDisplayStatus } = $props();
+	let { status }: { status: string } = $props();
 
 	const styles: Record<SessionDisplayStatus, { bg: string; text: string; label: string }> = {
 		active: { bg: 'bg-green-500/10', text: 'text-green-600', label: 'Active' },
@@ -9,7 +9,7 @@
 		stale: { bg: 'bg-yellow-500/10', text: 'text-yellow-600', label: 'Stale' }
 	};
 
-	const style = $derived(styles[status] || styles.active);
+	const style = $derived(styles[status as SessionDisplayStatus] || styles.active);
 </script>
 
 <span

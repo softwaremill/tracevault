@@ -1,9 +1,13 @@
 use std::path::Path;
 use tracevault_core::streaming::StreamEventRequest;
 
+// Adapter modules contain stubs for future stream command integration.
+#[allow(dead_code)]
 pub mod claude_code;
+#[allow(dead_code)]
 pub mod cursor;
 
+#[allow(dead_code)]
 pub trait HookAdapter: Send + Sync {
     fn tool_name(&self) -> &str;
     fn parse_event(&self, raw: &str) -> Result<StreamEventRequest, String>;
@@ -24,6 +28,7 @@ impl DetectedTool {
         }
     }
 
+    #[allow(dead_code)]
     pub fn adapter(&self) -> Box<dyn HookAdapter> {
         match self {
             DetectedTool::ClaudeCode => Box::new(claude_code::ClaudeCodeAdapter),
