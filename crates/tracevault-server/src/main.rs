@@ -27,6 +27,9 @@ mod repo_manager;
 mod signing;
 mod story;
 
+mod error;
+pub use error::AppError;
+
 #[derive(Clone)]
 pub struct AppState {
     pub pool: sqlx::PgPool,

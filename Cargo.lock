@@ -2758,6 +2758,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sqlx",
+ "thiserror",
  "tokio",
  "tower-http",
  "tracevault-core",
