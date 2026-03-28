@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
 	import * as Table from '$lib/components/ui/table/index.js';
+	import { formatDate } from '$lib/utils/date';
 
 	interface Repo {
 		id: string;
@@ -27,9 +28,6 @@
 		}
 	});
 
-	function formatDate(iso: string): string {
-		return new Date(iso).toLocaleDateString();
-	}
 </script>
 
 <svelte:head>

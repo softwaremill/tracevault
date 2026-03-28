@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
 	import { features } from '$lib/stores/features';
+	import { formatDateTime } from '$lib/utils/date';
 	import EnterpriseUpgrade from '$lib/components/enterprise-upgrade.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -97,10 +98,6 @@
 		}
 	}
 
-	function formatDate(iso: string): string {
-		return new Date(iso).toLocaleString();
-	}
-
 	function roleCounts(): Record<string, number> {
 		const counts: Record<string, number> = {};
 		for (const m of members) {
@@ -159,7 +156,7 @@
 						{/if}
 						{#if chainStatus.last_verified_at}
 							<p class="text-xs text-muted-foreground">
-								Last: {formatDate(chainStatus.last_verified_at)}
+								Last: {formatDateTime(chainStatus.last_verified_at)}
 							</p>
 						{/if}
 						<Button
@@ -256,7 +253,7 @@
 			>
 				{#snippet children({ row, col })}
 					{#if col.key === 'created_at'}
-						{formatDate(String(row.created_at))}
+						{formatDateTime(String(row.created_at))}
 					{:else if col.key === 'action'}
 						<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(79,110,247,0.12); color: #4f6ef7; border: 1px solid rgba(79,110,247,0.25)">{row.action}</span>
 					{:else if col.key === 'resource_type'}

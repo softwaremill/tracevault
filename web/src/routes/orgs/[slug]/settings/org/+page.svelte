@@ -7,6 +7,7 @@
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
+	import { formatDate } from '$lib/utils/date';
 
 	interface OrgDetail {
 		id: string;
@@ -139,7 +140,7 @@
 				<div class="border-t pt-4">
 					<div class="flex items-center justify-between py-1.5 text-sm">
 						<span class="text-muted-foreground text-xs">Created</span>
-						<span class="text-xs">{new Date(org.created_at).toLocaleDateString()}</span>
+						<span class="text-xs">{formatDate(org.created_at)}</span>
 					</div>
 				</div>
 			</div>

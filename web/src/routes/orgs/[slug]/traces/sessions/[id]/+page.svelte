@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
+	import { formatDateTime } from '$lib/utils/date';
 	import * as Table from '$lib/components/ui/table/index.js';
 
 	interface SessionInfo {
@@ -153,11 +154,6 @@
 	function fmtCost(n: number | null): string {
 		if (n == null) return '-';
 		return `$${n.toFixed(2)}`;
-	}
-
-	function fmtTime(iso: string | null): string {
-		if (!iso) return '-';
-		return new Date(iso).toLocaleString();
 	}
 
 	function fmtRelativeTime(iso: string): string {
@@ -386,7 +382,7 @@
 				{/if}
 				<div class="flex items-center gap-2">
 					<span class="text-muted-foreground text-xs uppercase tracking-wide">Started</span>
-					<span class="text-xs">{fmtTime(session.started_at)}</span>
+					<span class="text-xs">{formatDateTime(session.started_at)}</span>
 				</div>
 			</div>
 

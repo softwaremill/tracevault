@@ -2,6 +2,7 @@
 	import type { StoryResponse } from '$lib/types/code';
 	import { page } from '$app/stores';
 	import { marked } from 'marked';
+	import { formatDateTime } from '$lib/utils/date';
 
 	let {
 		story,
@@ -159,7 +160,7 @@
 
 				<div class="mt-4 space-y-1 border-t pt-4 text-xs text-muted-foreground">
 					<p>Commits analyzed: {story.commits_analyzed.length}</p>
-					<p>Generated: {new Date(story.generated_at).toLocaleString()}</p>
+					<p>Generated: {formatDateTime(story.generated_at)}</p>
 				</div>
 			{/if}
 		</div>

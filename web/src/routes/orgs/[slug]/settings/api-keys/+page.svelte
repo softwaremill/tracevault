@@ -8,6 +8,7 @@
 	import { Label } from '$lib/components/ui/label/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
+	import { formatDate } from '$lib/utils/date';
 
 	interface ApiKey {
 		id: string;
@@ -76,9 +77,6 @@
 		createName = '';
 	}
 
-	function formatDate(iso: string): string {
-		return new Date(iso).toLocaleDateString();
-	}
 </script>
 
 <svelte:head>

@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
 	import { features } from '$lib/stores/features';
+	import { formatDateTime } from '$lib/utils/date';
 	import EnterpriseUpgrade from '$lib/components/enterprise-upgrade.svelte';
 	import * as Table from '$lib/components/ui/table/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -67,10 +68,6 @@
 		} finally {
 			loading = false;
 		}
-	}
-
-	function formatDate(iso: string): string {
-		return new Date(iso).toLocaleString();
 	}
 
 	const totalPages = $derived(Math.ceil(total / perPage));
@@ -154,7 +151,7 @@
 								}}
 							>
 								<Table.Cell class="text-xs whitespace-nowrap"
-									>{formatDate(entry.created_at)}</Table.Cell
+									>{formatDateTime(entry.created_at)}</Table.Cell
 								>
 								<Table.Cell>
 									<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(79,110,247,0.12); color: #4f6ef7; border: 1px solid rgba(79,110,247,0.25)">{entry.action}</span>

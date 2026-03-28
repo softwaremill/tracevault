@@ -11,6 +11,7 @@
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
+	import { formatDate } from '$lib/utils/date';
 
 	interface Member {
 		id: string;
@@ -139,10 +140,6 @@
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to reject request';
 		}
-	}
-
-	function formatDate(iso: string): string {
-		return new Date(iso).toLocaleDateString();
 	}
 
 	function roleColor(role: string): { bg: string; color: string; border: string } {
