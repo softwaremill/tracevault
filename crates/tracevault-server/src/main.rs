@@ -113,6 +113,24 @@ async fn main() {
         });
     }
 
+    // Background materialized view refresh (every 5 minutes)
+    {
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                if let Err(e) =
+                    sqlx::query("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_daily_session_stats")
+                        .execute(&pool)
+                        .await
+                {
+                    tracing::warn!("Failed to refresh materialized view: {e}");
+                }
+            }
+        });
+    }
+
     let bind_addr = cfg.bind_addr();
 
     let app = Router::new()
