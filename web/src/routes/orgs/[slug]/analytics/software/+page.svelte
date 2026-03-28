@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { api } from '$lib/api';
+	import { useFetch } from '$lib/hooks/use-fetch.svelte';
+	import { fmtNum } from '$lib/utils/format';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import HelpTip from '$lib/components/HelpTip.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
 	import TrophyIcon from '@lucide/svelte/icons/trophy';
 	import BotIcon from '@lucide/svelte/icons/bot';
@@ -32,50 +35,26 @@
 		ai_tools_summary: AiToolsSummary;
 	}
 
-	let data: SoftwareResponse | null = $state(null);
-	let loading = $state(true);
-	let error = $state('');
-
 	const slug = $derived($page.params.slug);
+	const search = $derived($page.url.search.replace(/^\?/, ''));
 
-	async function fetchData(search: string) {
-		loading = true;
-		error = '';
-		try {
-			data = await api.get<SoftwareResponse>(
-				`/api/v1/orgs/${slug}/analytics/software` + (search ? '?' + search : '')
-			);
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load';
-		} finally {
-			loading = false;
-		}
-	}
-
-	$effect(() => {
-		const search = $page.url.search.replace(/^\?/, '');
-		fetchData(search);
-	});
-
-	function fmtNum(n: number): string {
-		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-		return String(n);
-	}
+	const softwareQuery = useFetch<SoftwareResponse>(
+		() => `/api/v1/orgs/${slug}/analytics/software` + (search ? '?' + search : '')
+	);
 
 	const totalUniqueTools = $derived.by(() => {
-		if (!data) return 0;
-		return data.org_top_tools.length;
+		if (!softwareQuery.data) return 0;
+		return softwareQuery.data.org_top_tools.length;
 	});
 
 	const mostPopularTool = $derived.by(() => {
-		if (!data || data.org_top_tools.length === 0) return '-';
-		return `${data.org_top_tools[0].name} (${fmtNum(data.org_top_tools[0].count)})`;
+		if (!softwareQuery.data || softwareQuery.data.org_top_tools.length === 0) return '-';
+		return `${softwareQuery.data.org_top_tools[0].name} (${fmtNum(softwareQuery.data.org_top_tools[0].count)})`;
 	});
 
 	const topToolEntries = $derived.by(() => {
-		if (!data) return [];
-		return data.org_top_tools.slice(0, 12).map((t, i) => ({
+		if (!softwareQuery.data) return [];
+		return softwareQuery.data.org_top_tools.slice(0, 12).map((t, i) => ({
 			name: t.name,
 			count: t.count,
 			users: t.users,
@@ -99,14 +78,12 @@
 <div class="space-y-6">
 	<h1 class="text-xl font-semibold">Software Analytics</h1>
 
-	{#if loading}
-		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
-			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-			Loading...
-		</div>
-	{:else if error}
-		<p class="text-destructive">{error}</p>
-	{:else if data}
+	{#if softwareQuery.loading}
+		<LoadingState />
+	{:else if softwareQuery.error}
+		<ErrorState message={softwareQuery.error} onRetry={softwareQuery.refetch} />
+	{:else if softwareQuery.data}
+		{@const data = softwareQuery.data}
 		<div class="grid grid-cols-2 gap-3">
 			<StatCard
 				label="Total Unique Tools"

@@ -1,97 +1,33 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { api } from '$lib/api';
+	import { useFetch } from '$lib/hooks/use-fetch.svelte';
+	import { fmtNum, fmtRelativeTime } from '$lib/utils/format';
+	import { sessionStatus } from '$lib/utils/status';
+	import type { SessionItem } from '$lib/types';
 	import DataTable from '$lib/components/DataTable.svelte';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
+	import EmptyState from '$lib/components/EmptyState.svelte';
 
-	interface SessionItem {
-		id: string;
-		session_id: string;
-		repo_id: string;
-		repo_name: string;
-		user_id: string | null;
-		user_email: string | null;
-		status: string;
-		model: string | null;
-		tool: string | null;
-		total_tool_calls: number | null;
-		total_tokens: number | null;
-		estimated_cost_usd: number | null;
-		cwd: string | null;
-		started_at: string | null;
-		updated_at: string | null;
-	}
-
-	let sessions: SessionItem[] = $state([]);
-	let loading = $state(true);
-	let error = $state('');
 	let statusFilter = $state<'all' | 'active' | 'completed' | 'stale'>('all');
 
 	const slug = $derived($page.params.slug);
 
-	function displayStatus(session: SessionItem): 'active' | 'completed' | 'stale' {
-		if (session.status === 'completed') return 'completed';
-		if (session.status === 'active' && session.updated_at) {
-			const updatedAt = new Date(session.updated_at).getTime();
-			const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
-			if (updatedAt < thirtyMinAgo) return 'stale';
-		}
-		return 'active';
-	}
-
-	const statusColors: Record<string, { bg: string; text: string; label: string }> = {
-		active: { bg: 'bg-green-500/15', text: 'text-green-600 dark:text-green-400', label: 'Active' },
-		completed: { bg: 'bg-zinc-500/15', text: 'text-zinc-500 dark:text-zinc-400', label: 'Completed' },
-		stale: { bg: 'bg-yellow-500/15', text: 'text-yellow-600 dark:text-yellow-400', label: 'Stale' }
-	};
-
-	async function fetchSessions() {
-		loading = true;
-		error = '';
-		try {
-			const params = new URLSearchParams();
-			const repoId = $page.url.searchParams.get('repo_id');
-			const from = $page.url.searchParams.get('from');
-			const to = $page.url.searchParams.get('to');
-			if (repoId) params.set('repo_id', repoId);
-			if (from) params.set('from', from);
-			if (to) params.set('to', to);
-			if (statusFilter !== 'all') params.set('status', statusFilter);
-			const qs = params.toString();
-			sessions = await api.get<SessionItem[]>(
-				`/api/v1/orgs/${slug}/traces/sessions${qs ? '?' + qs : ''}`
-			);
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load sessions';
-		} finally {
-			loading = false;
-		}
-	}
-
-	$effect(() => {
-		void slug;
-		void $page.url.search;
-		void statusFilter;
-		fetchSessions();
+	const sessionsUrl = $derived.by(() => {
+		const params = new URLSearchParams();
+		const repoId = $page.url.searchParams.get('repo_id');
+		const from = $page.url.searchParams.get('from');
+		const to = $page.url.searchParams.get('to');
+		if (repoId) params.set('repo_id', repoId);
+		if (from) params.set('from', from);
+		if (to) params.set('to', to);
+		if (statusFilter !== 'all') params.set('status', statusFilter);
+		const qs = params.toString();
+		return `/api/v1/orgs/${slug}/traces/sessions${qs ? '?' + qs : ''}`;
 	});
 
-	function fmtNum(n: number | null): string {
-		if (n == null) return '-';
-		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-		return String(n);
-	}
-
-	function fmtRelativeTime(iso: string | null): string {
-		if (!iso) return '-';
-		const diff = Date.now() - new Date(iso).getTime();
-		const minutes = Math.floor(diff / 60000);
-		const hours = Math.floor(minutes / 60);
-		const days = Math.floor(hours / 24);
-		if (days > 0) return `${days}d ago`;
-		if (hours > 0) return `${hours}h ago`;
-		if (minutes > 0) return `${minutes}m ago`;
-		return 'just now';
-	}
+	const sessionsQuery = useFetch<SessionItem[]>(() => sessionsUrl, { initial: [] });
 
 	const filterButtons: { value: typeof statusFilter; label: string }[] = [
 		{ value: 'all', label: 'All' },
@@ -109,8 +45,9 @@
 		{ key: 'started_at', label: 'Started', sortable: true }
 	];
 
+	const sessions = $derived(sessionsQuery.data ?? []);
 	const tableRows = $derived(
-		sessions.map((s) => ({ ...s, _status: displayStatus(s) }) as Record<string, unknown>)
+		sessions.map((s) => ({ ...s, _status: sessionStatus(s.status, s.updated_at) }) as Record<string, unknown>)
 	);
 </script>
 
@@ -134,17 +71,12 @@
 		{/each}
 	</div>
 
-	{#if loading}
-		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
-			<span
-				class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
-			></span>
-			Loading sessions...
-		</div>
-	{:else if error}
-		<p class="text-destructive">{error}</p>
+	{#if sessionsQuery.loading}
+		<LoadingState />
+	{:else if sessionsQuery.error}
+		<ErrorState message={sessionsQuery.error} onRetry={sessionsQuery.refetch} />
 	{:else if sessions.length === 0}
-		<p class="text-muted-foreground py-8 text-center text-sm">No sessions found.</p>
+		<EmptyState message="No sessions found." />
 	{:else}
 		<DataTable
 			{columns}
@@ -155,10 +87,7 @@
 		>
 			{#snippet children({ row, col })}
 				{#if col.key === '_status'}
-					{@const sc = statusColors[String(row._status)]}
-					<span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium {sc.bg} {sc.text}">
-						{sc.label}
-					</span>
+					<StatusBadge status={String(row._status)} />
 				{:else if col.key === 'session_id'}
 					<a href="/orgs/{slug}/traces/sessions/{row.id}" class="font-mono text-sm underline">
 						{String(row.session_id).slice(0, 8)}

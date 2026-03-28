@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { api } from '$lib/api';
+	import { useFetch } from '$lib/hooks/use-fetch.svelte';
+	import { fmtCost } from '$lib/utils/format';
 	import { features } from '$lib/stores/features';
 	import EnterpriseUpgrade from '$lib/components/enterprise-upgrade.svelte';
 	import Chart from '$lib/components/chart.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import HelpTip from '$lib/components/HelpTip.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import DollarSign from '@lucide/svelte/icons/dollar-sign';
 	import PiggyBank from '@lucide/svelte/icons/piggy-bank';
 	import Calculator from '@lucide/svelte/icons/calculator';
@@ -66,32 +69,12 @@
 		cost_by_author: AuthorCost[];
 	}
 
-	let data: CostResponse | null = $state(null);
-	let loading = $state(true);
-	let error = $state('');
-
 	const slug = $derived($page.params.slug);
+	const search = $derived($page.url.search.replace(/^\?/, ''));
 
-	async function fetchData(search: string) {
-		loading = true;
-		error = '';
-		try {
-			data = await api.get<CostResponse>(`/api/v1/orgs/${slug}/analytics/cost` + (search ? '?' + search : ''));
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load';
-		} finally {
-			loading = false;
-		}
-	}
-
-	$effect(() => {
-		const search = $page.url.search.replace(/^\?/, '');
-		fetchData(search);
-	});
-
-	function fmtCost(n: number): string {
-		return `$${n.toFixed(2)}`;
-	}
+	const costQuery = useFetch<CostResponse>(
+		() => `/api/v1/orgs/${slug}/analytics/cost` + (search ? '?' + search : '')
+	);
 
 	function costOverTimeChartData(d: CostResponse) {
 		return {
@@ -153,22 +136,17 @@
 </svelte:head>
 
 {#if !$features.loaded}
-	<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
-		<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-		Loading...
-	</div>
+	<LoadingState />
 {:else if $features.advanced_analytics}
 <div class="space-y-6">
 	<h1 class="text-2xl font-bold">Cost Analytics</h1>
 
-	{#if loading}
-		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
-			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-			Loading...
-		</div>
-	{:else if error}
-		<p class="text-destructive">{error}</p>
-	{:else if data}
+	{#if costQuery.loading}
+		<LoadingState />
+	{:else if costQuery.error}
+		<ErrorState message={costQuery.error} onRetry={costQuery.refetch} />
+	{:else if costQuery.data}
+		{@const data = costQuery.data}
 		<div class="grid grid-cols-1 gap-4 md:grid-cols-3">
 			<StatCard label="Total Cost" value={fmtCost(data.total_cost)} icon={DollarSign} color="#dc2626" tooltip="Total estimated cost based on token usage and model pricing rates." />
 			<StatCard label="Cache Savings" value={fmtCost(data.cache_savings_usd)} icon={PiggyBank} color="#10b981" tooltip="Net savings from prompt caching — tokens served from cache at reduced rates." />

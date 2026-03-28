@@ -1,68 +1,15 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { api } from '$lib/api';
+	import { useFetch } from '$lib/hooks/use-fetch.svelte';
+	import { fmtNum, fmtCost, fmtRelativeTime } from '$lib/utils/format';
+	import { sessionStatus } from '$lib/utils/status';
+	import { getToolColor } from '$lib/utils/colors';
+	import type { SessionDetailResponse, EventItem, TranscriptChunk } from '$lib/types';
 	import { formatDateTime } from '$lib/utils/date';
 	import * as Table from '$lib/components/ui/table/index.js';
-
-	interface SessionInfo {
-		id: string;
-		session_id: string;
-		repo_name: string;
-		user_email: string | null;
-		status: string;
-		model: string | null;
-		tool: string | null;
-		total_tool_calls: number | null;
-		total_tokens: number | null;
-		estimated_cost_usd: number | null;
-		cwd: string | null;
-		started_at: string | null;
-		ended_at: string | null;
-		updated_at: string | null;
-	}
-
-	interface EventItem {
-		id: string;
-		event_index: number;
-		event_type: string;
-		tool_name: string | null;
-		tool_input: unknown | null;
-		tool_response: unknown | null;
-		timestamp: string;
-	}
-
-	interface FileChange {
-		id: string;
-		file_path: string;
-		change_type: string;
-		diff_text: string | null;
-		content_hash: string | null;
-		timestamp: string;
-	}
-
-	interface TranscriptChunk {
-		chunk_index: number;
-		data: unknown;
-	}
-
-	interface LinkedCommit {
-		commit_id: string;
-		commit_sha: string;
-		branch: string | null;
-		confidence: number | null;
-	}
-
-	interface SessionDetailResponse {
-		session: SessionInfo;
-		events: EventItem[];
-		file_changes: FileChange[];
-		transcript_chunks: TranscriptChunk[];
-		linked_commits: LinkedCommit[];
-	}
-
-	let data: SessionDetailResponse | null = $state(null);
-	let loading = $state(true);
-	let error = $state('');
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 
 	let expandedEvents = $state(new Set<string>());
 	let expandedFiles = $state(new Set<string>());
@@ -78,38 +25,9 @@
 	const slug = $derived($page.params.slug);
 	const sessionId = $derived($page.params.id);
 
-	function displayStatus(session: SessionInfo): 'active' | 'completed' | 'stale' {
-		if (session.status === 'completed') return 'completed';
-		if (session.status === 'active' && session.updated_at) {
-			const updatedAt = new Date(session.updated_at).getTime();
-			const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
-			if (updatedAt < thirtyMinAgo) return 'stale';
-		}
-		return 'active';
-	}
-
-	const statusStyles: Record<string, { bg: string; text: string; label: string }> = {
-		active: { bg: 'bg-green-500/15', text: 'text-green-600 dark:text-green-400', label: 'Active' },
-		completed: { bg: 'bg-zinc-500/15', text: 'text-zinc-500 dark:text-zinc-400', label: 'Completed' },
-		stale: { bg: 'bg-yellow-500/15', text: 'text-yellow-600 dark:text-yellow-400', label: 'Stale' }
-	};
-
-	const toolColors: Record<string, string> = {
-		Edit: 'bg-amber-500',
-		Bash: 'bg-cyan-500',
-		Read: 'bg-purple-500',
-		Grep: 'bg-green-500',
-		Agent: 'bg-blue-500',
-		Glob: 'bg-indigo-500'
-	};
-
-	function getToolColor(toolName: string | null): string {
-		if (!toolName) return 'bg-zinc-400';
-		for (const [key, color] of Object.entries(toolColors)) {
-			if (toolName.toLowerCase().includes(key.toLowerCase())) return color;
-		}
-		return 'bg-zinc-400';
-	}
+	const detailQuery = useFetch<SessionDetailResponse>(
+		() => `/api/v1/orgs/${slug}/traces/sessions/${sessionId}`
+	);
 
 	function eventSummary(event: EventItem): string {
 		if (!event.tool_input) return '';
@@ -122,49 +40,6 @@
 		}
 		if (input.pattern) return String(input.pattern);
 		return '';
-	}
-
-	async function fetchDetail() {
-		loading = true;
-		error = '';
-		try {
-			data = await api.get<SessionDetailResponse>(
-				`/api/v1/orgs/${slug}/traces/sessions/${sessionId}`
-			);
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load session';
-		} finally {
-			loading = false;
-		}
-	}
-
-	$effect(() => {
-		void slug;
-		void sessionId;
-		fetchDetail();
-	});
-
-	function fmtNum(n: number | null): string {
-		if (n == null) return '-';
-		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-		return String(n);
-	}
-
-	function fmtCost(n: number | null): string {
-		if (n == null) return '-';
-		return `$${n.toFixed(2)}`;
-	}
-
-	function fmtRelativeTime(iso: string): string {
-		const diff = Date.now() - new Date(iso).getTime();
-		const minutes = Math.floor(diff / 60000);
-		const hours = Math.floor(minutes / 60);
-		const days = Math.floor(hours / 24);
-		if (days > 0) return `${days}d ago`;
-		if (hours > 0) return `${hours}h ago`;
-		if (minutes > 0) return `${minutes}m ago`;
-		return 'just now';
 	}
 
 	function formatJson(obj: unknown): string {
@@ -321,19 +196,14 @@
 </svelte:head>
 
 <div class="space-y-5">
-	{#if loading}
-		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
-			<span
-				class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
-			></span>
-			Loading session...
-		</div>
-	{:else if error}
-		<p class="text-destructive">{error}</p>
-	{:else if data}
+	{#if detailQuery.loading}
+		<LoadingState />
+	{:else if detailQuery.error}
+		<ErrorState message={detailQuery.error} onRetry={detailQuery.refetch} />
+	{:else if detailQuery.data}
+		{@const data = detailQuery.data}
 		{@const session = data.session}
-		{@const status = displayStatus(session)}
-		{@const sc = statusStyles[status]}
+		{@const status = sessionStatus(session.status, session.updated_at)}
 
 		<!-- Breadcrumb + header -->
 		<div class="flex items-center gap-3">
@@ -352,9 +222,7 @@
 			</a>
 			<span class="text-muted-foreground/40">/</span>
 			<span class="font-mono text-sm font-semibold">{session.session_id.slice(0, 8)}</span>
-			<span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium {sc.bg} {sc.text}">
-				{sc.label}
-			</span>
+			<StatusBadge {status} />
 		</div>
 
 		<!-- Session metadata -->

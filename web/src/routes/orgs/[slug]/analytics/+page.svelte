@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { api } from '$lib/api';
+	import { useFetch } from '$lib/hooks/use-fetch.svelte';
+	import { fmtNum, fmtCost, fmtDuration } from '$lib/utils/format';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import HelpTip from '$lib/components/HelpTip.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
 	import Chart from '$lib/components/chart.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import GitCommitHorizontalIcon from '@lucide/svelte/icons/git-commit-horizontal';
 	import MonitorPlayIcon from '@lucide/svelte/icons/monitor-play';
 	import CoinsIcon from '@lucide/svelte/icons/coins';
@@ -97,49 +100,12 @@
 		recent_commits: RecentCommit[];
 	}
 
-	let data: OverviewResponse | null = $state(null);
-	let loading = $state(true);
-	let error = $state('');
-
 	const slug = $derived($page.params.slug);
+	const search = $derived($page.url.search.replace(/^\?/, ''));
 
-	async function fetchData(search: string) {
-		loading = true;
-		error = '';
-		try {
-			data = await api.get<OverviewResponse>(`/api/v1/orgs/${slug}/analytics/overview` + (search ? '?' + search : ''));
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load analytics';
-		} finally {
-			loading = false;
-		}
-	}
-
-	$effect(() => {
-		const search = $page.url.search.replace(/^\?/, '');
-		fetchData(search);
-	});
-
-	function fmtNum(n: number): string {
-		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-		return String(n);
-	}
-
-	function fmtCost(n: number): string {
-		return `$${n.toFixed(2)}`;
-	}
-
-	function fmtDuration(ms: number | null): string {
-		if (ms == null) return '-';
-		const totalSeconds = Math.floor(ms / 1000);
-		const hours = Math.floor(totalSeconds / 3600);
-		const minutes = Math.floor((totalSeconds % 3600) / 60);
-		const seconds = totalSeconds % 60;
-		if (hours >= 1) return `${hours}h ${minutes}m`;
-		if (minutes >= 1) return `${minutes}m ${seconds}s`;
-		return `${seconds}s`;
-	}
+	const overview = useFetch<OverviewResponse>(
+		() => `/api/v1/orgs/${slug}/analytics/overview` + (search ? '?' + search : '')
+	);
 
 	function tokensChartData(d: OverviewResponse) {
 		return {
@@ -222,13 +188,15 @@
 	}
 
 	const tokensSecondary = $derived.by(() => {
-		if (!data || data.total_sessions === 0) return undefined;
-		return `${fmtNum(Math.round(data.total_tokens / data.total_sessions))} avg/session`;
+		const d = overview.data;
+		if (!d || d.total_sessions === 0) return undefined;
+		return `${fmtNum(Math.round(d.total_tokens / d.total_sessions))} avg/session`;
 	});
 
 	const costSecondary = $derived.by(() => {
-		if (!data || data.total_commits === 0) return undefined;
-		return `$${(data.estimated_cost_usd / data.total_commits).toFixed(2)} avg/commit`;
+		const d = overview.data;
+		if (!d || d.total_commits === 0) return undefined;
+		return `$${(d.estimated_cost_usd / d.total_commits).toFixed(2)} avg/commit`;
 	});
 
 	const commitColumns = [
@@ -247,14 +215,12 @@
 <div class="space-y-6">
 	<h1 class="text-xl font-semibold">Analytics Overview</h1>
 
-	{#if loading}
-		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
-			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-			Loading...
-		</div>
-	{:else if error}
-		<p class="text-destructive">{error}</p>
-	{:else if data}
+	{#if overview.loading}
+		<LoadingState />
+	{:else if overview.error}
+		<ErrorState message={overview.error} onRetry={overview.refetch} />
+	{:else if overview.data}
+		{@const data = overview.data}
 		<div class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3">
 			<StatCard label="Total Commits" value={fmtNum(data.total_commits)} icon={GitCommitHorizontalIcon} color="#3b82f6" tooltip="Total git commits linked to AI sessions in the selected period." />
 			<StatCard label="Sessions" value={fmtNum(data.total_sessions)} icon={MonitorPlayIcon} color="#10b981" tooltip="Total AI coding sessions in the selected period." />

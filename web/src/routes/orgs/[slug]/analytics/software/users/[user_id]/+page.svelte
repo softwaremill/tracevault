@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
+	import { fmtNum, fmtDuration, fmtRelativeTime } from '$lib/utils/format';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import HelpTip from '$lib/components/HelpTip.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
 	import Chart from '$lib/components/chart.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import SessionDetailPanel from '$lib/components/session-detail/SessionDetailPanel.svelte';
 	import { formatDate } from '$lib/utils/date';
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
@@ -94,35 +97,6 @@
 		fetchData(search);
 	});
 
-	function fmtNum(n: number): string {
-		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-		return String(n);
-	}
-
-	function fmtDuration(ms: number | null): string {
-		if (ms == null) return '-';
-		const totalSeconds = Math.floor(ms / 1000);
-		const hours = Math.floor(totalSeconds / 3600);
-		const minutes = Math.floor((totalSeconds % 3600) / 60);
-		const seconds = totalSeconds % 60;
-		if (hours >= 1) return `${hours}h ${minutes}m`;
-		if (minutes >= 1) return `${minutes}m ${seconds}s`;
-		return `${seconds}s`;
-	}
-
-	function fmtRelativeTime(iso: string | null): string {
-		if (!iso) return '-';
-		const diff = Date.now() - new Date(iso).getTime();
-		const minutes = Math.floor(diff / 60000);
-		const hours = Math.floor(minutes / 60);
-		const days = Math.floor(hours / 24);
-		if (days > 0) return `${days}d ago`;
-		if (hours > 0) return `${hours}h ago`;
-		if (minutes > 0) return `${minutes}m ago`;
-		return 'just now';
-	}
-
 	const uniqueTools = $derived.by(() => {
 		if (!data) return 0;
 		return data.software.length;
@@ -183,12 +157,9 @@
 
 <div class="space-y-6">
 	{#if loading}
-		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
-			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-			Loading...
-		</div>
+		<LoadingState />
 	{:else if error}
-		<p class="text-destructive">{error}</p>
+		<ErrorState message={error} />
 	{:else if data}
 		<div class="flex items-center gap-3">
 			<a href="/orgs/{slug}/analytics/authors/{userId}" class="text-muted-foreground hover:text-foreground text-sm">&larr; Back</a>

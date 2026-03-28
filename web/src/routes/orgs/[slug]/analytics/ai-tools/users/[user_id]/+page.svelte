@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { api } from '$lib/api';
+	import { useFetch } from '$lib/hooks/use-fetch.svelte';
+	import { fmtNum, fmtDuration, fmtRelativeTime } from '$lib/utils/format';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import HelpTip from '$lib/components/HelpTip.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
 	import Chart from '$lib/components/chart.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import SessionDetailPanel from '$lib/components/session-detail/SessionDetailPanel.svelte';
 	import { formatDate } from '$lib/utils/date';
 	import BotIcon from '@lucide/svelte/icons/bot';
@@ -48,61 +51,15 @@
 		recent_sessions: RecentSession[];
 	}
 
-	let data: AiToolsUserDetailResponse | null = $state(null);
-	let loading = $state(true);
-	let error = $state('');
 	let expandedSessionId = $state<string | null>(null);
 
 	const slug = $derived($page.params.slug);
 	const userId = $derived($page.params.user_id);
+	const search = $derived($page.url.search.replace(/^\?/, ''));
 
-	async function fetchData(search: string) {
-		loading = true;
-		error = '';
-		try {
-			data = await api.get<AiToolsUserDetailResponse>(
-				`/api/v1/orgs/${slug}/analytics/ai-tools/users/${userId}` + (search ? '?' + search : '')
-			);
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load';
-		} finally {
-			loading = false;
-		}
-	}
-
-	$effect(() => {
-		const search = $page.url.search.replace(/^\?/, '');
-		fetchData(search);
-	});
-
-	function fmtNum(n: number): string {
-		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-		return String(n);
-	}
-
-	function fmtDuration(ms: number | null): string {
-		if (ms == null) return '-';
-		const totalSeconds = Math.floor(ms / 1000);
-		const hours = Math.floor(totalSeconds / 3600);
-		const minutes = Math.floor((totalSeconds % 3600) / 60);
-		const seconds = totalSeconds % 60;
-		if (hours >= 1) return `${hours}h ${minutes}m`;
-		if (minutes >= 1) return `${minutes}m ${seconds}s`;
-		return `${seconds}s`;
-	}
-
-	function fmtRelativeTime(iso: string | null): string {
-		if (!iso) return '-';
-		const diff = Date.now() - new Date(iso).getTime();
-		const minutes = Math.floor(diff / 60000);
-		const hours = Math.floor(minutes / 60);
-		const days = Math.floor(hours / 24);
-		if (days > 0) return `${days}d ago`;
-		if (hours > 0) return `${hours}h ago`;
-		if (minutes > 0) return `${minutes}m ago`;
-		return 'just now';
-	}
+	const aiToolsUserQuery = useFetch<AiToolsUserDetailResponse>(
+		() => `/api/v1/orgs/${slug}/analytics/ai-tools/users/${userId}` + (search ? '?' + search : '')
+	);
 
 	const toolColumns = [
 		{ key: 'name', label: 'Name' },
@@ -121,8 +78,8 @@
 	];
 
 	const sessionRows = $derived.by(() => {
-		if (!data) return [] as Record<string, unknown>[];
-		return data.recent_sessions.map((s) => ({
+		if (!aiToolsUserQuery.data) return [] as Record<string, unknown>[];
+		return aiToolsUserQuery.data.recent_sessions.map((s) => ({
 			...s,
 			_tools: s.ai_tools_used.join(', ')
 		}));
@@ -144,18 +101,16 @@
 </script>
 
 <svelte:head>
-	<title>{data ? (data.user.name ?? data.user.email) : 'User'} - AI Tools - TraceVault</title>
+	<title>{aiToolsUserQuery.data ? (aiToolsUserQuery.data.user.name ?? aiToolsUserQuery.data.user.email) : 'User'} - AI Tools - TraceVault</title>
 </svelte:head>
 
 <div class="space-y-6">
-	{#if loading}
-		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
-			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-			Loading...
-		</div>
-	{:else if error}
-		<p class="text-destructive">{error}</p>
-	{:else if data}
+	{#if aiToolsUserQuery.loading}
+		<LoadingState />
+	{:else if aiToolsUserQuery.error}
+		<ErrorState message={aiToolsUserQuery.error} onRetry={aiToolsUserQuery.refetch} />
+	{:else if aiToolsUserQuery.data}
+		{@const data = aiToolsUserQuery.data}
 		<div class="flex items-center gap-3">
 			<a href="/orgs/{slug}/analytics/ai-tools" class="text-muted-foreground hover:text-foreground text-sm">&larr; Back</a>
 			<h1 class="text-xl font-semibold">{data.user.name ?? data.user.email}</h1>
