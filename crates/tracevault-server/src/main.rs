@@ -388,6 +388,14 @@ async fn main() {
             "/api/v1/orgs/{slug}/analytics/software/users/{user_id}",
             get(api::analytics::get_software_user_detail),
         )
+        .route(
+            "/api/v1/orgs/{slug}/analytics/ai-tools",
+            get(api::analytics::get_ai_tools),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/analytics/ai-tools/users/{user_id}",
+            get(api::analytics::get_ai_tools_user_detail),
+        )
         // Org-scoped: CI
         .route(
             "/api/v1/orgs/{slug}/repos/{repo_id}/ci/verify",

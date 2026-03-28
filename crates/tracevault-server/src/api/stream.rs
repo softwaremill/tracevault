@@ -240,6 +240,28 @@ pub async fn handle_stream(
                         }
                     }
                 }
+
+                // Extract AI tool usage (MCP servers and skill groups)
+                if let Some(ai_tool) = extract_ai_tool(tool_name, req.tool_input.as_ref()) {
+                    if let Err(e) = sqlx::query(
+                        "INSERT INTO user_ai_tool_usage (org_id, user_id, session_id, tool_category, tool_name, first_seen_at, last_seen_at)
+                         VALUES ($1, $2, $3, $4, $5, $6, $6)
+                         ON CONFLICT (session_id, tool_category, tool_name) DO UPDATE SET
+                             usage_count = user_ai_tool_usage.usage_count + 1,
+                             last_seen_at = EXCLUDED.last_seen_at",
+                    )
+                    .bind(auth.org_id)
+                    .bind(auth.user_id)
+                    .bind(session_db_id)
+                    .bind(&ai_tool.0)
+                    .bind(&ai_tool.1)
+                    .bind(req.timestamp)
+                    .execute(&state.pool)
+                    .await
+                    {
+                        tracing::warn!("Failed to upsert AI tool usage for '{}/{}': {}", ai_tool.0, ai_tool.1, e);
+                    }
+                }
             }
         }
 
@@ -300,4 +322,37 @@ pub async fn handle_stream(
         event_db_id,
         status: "ok".to_string(),
     }))
+}
+
+/// Extract AI tool category and name from a tool call.
+/// Returns Some(("mcp_server", "server_name")) or Some(("skill_group", "namespace")).
+/// Returns None if the tool is not an MCP tool or skill.
+fn extract_ai_tool(
+    tool_name: &str,
+    tool_input: Option<&serde_json::Value>,
+) -> Option<(String, String)> {
+    // MCP tools: tool_name starts with "mcp__", second segment is server name
+    if let Some(rest) = tool_name.strip_prefix("mcp__") {
+        if let Some(server_name) = rest.split("__").next() {
+            if !server_name.is_empty() {
+                return Some(("mcp_server".to_string(), server_name.to_string()));
+            }
+        }
+        return None;
+    }
+
+    // Skills: tool_name is "Skill", skill name is in tool_input.skill
+    if tool_name == "Skill" {
+        if let Some(input) = tool_input {
+            if let Some(skill) = input.get("skill").and_then(|v| v.as_str()) {
+                let group = skill.split(':').next().unwrap_or(skill);
+                if !group.is_empty() {
+                    return Some(("skill_group".to_string(), group.to_string()));
+                }
+            }
+        }
+        return None;
+    }
+
+    None
 }

@@ -6,7 +6,6 @@
 	import DataTable from '$lib/components/DataTable.svelte';
 	import Chart from '$lib/components/chart.svelte';
 	import SessionDetailPanel from '$lib/components/session-detail/SessionDetailPanel.svelte';
-	import WrenchIcon from '@lucide/svelte/icons/wrench';
 	import BotIcon from '@lucide/svelte/icons/bot';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import {
@@ -26,7 +25,7 @@
 		'#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'
 	];
 
-	interface SoftwareItem {
+	interface AiToolItem {
 		name: string;
 		usage_count: number;
 		first_seen: string;
@@ -39,30 +38,16 @@
 		repo_name: string;
 		started_at: string | null;
 		duration_ms: number | null;
-		tools_used: string[];
-	}
-	interface UserDetailResponse {
-		user: { user_id: string; email: string; name: string | null };
-		software: SoftwareItem[];
-		recent_sessions: RecentSession[];
-	}
-
-	interface AiToolItem {
-		name: string;
-		usage_count: number;
-		first_seen: string;
-		last_seen: string;
-		session_count: number;
+		ai_tools_used: string[];
 	}
 	interface AiToolsUserDetailResponse {
 		user: { user_id: string; email: string; name: string | null };
 		mcp_servers: AiToolItem[];
 		skill_groups: AiToolItem[];
-		recent_sessions: { id: string; session_id: string; repo_name: string; started_at: string | null; duration_ms: number | null; ai_tools_used: string[] }[];
+		recent_sessions: RecentSession[];
 	}
 
-	let data: UserDetailResponse | null = $state(null);
-	let aiData: AiToolsUserDetailResponse | null = $state(null);
+	let data: AiToolsUserDetailResponse | null = $state(null);
 	let loading = $state(true);
 	let error = $state('');
 	let expandedSessionId = $state<string | null>(null);
@@ -74,13 +59,9 @@
 		loading = true;
 		error = '';
 		try {
-			const qs = search ? '?' + search : '';
-			const [softwareRes, aiRes] = await Promise.all([
-				api.get<UserDetailResponse>(`/api/v1/orgs/${slug}/analytics/software/users/${userId}${qs}`),
-				api.get<AiToolsUserDetailResponse>(`/api/v1/orgs/${slug}/analytics/ai-tools/users/${userId}${qs}`)
-			]);
-			data = softwareRes;
-			aiData = aiRes;
+			data = await api.get<AiToolsUserDetailResponse>(
+				`/api/v1/orgs/${slug}/analytics/ai-tools/users/${userId}` + (search ? '?' + search : '')
+			);
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load';
 		} finally {
@@ -126,21 +107,6 @@
 		return 'just now';
 	}
 
-	const uniqueTools = $derived.by(() => {
-		if (!data) return 0;
-		return data.software.length;
-	});
-
-	const mcpServerCount = $derived.by(() => {
-		if (!aiData) return 0;
-		return aiData.mcp_servers.length;
-	});
-
-	const skillGroupCount = $derived.by(() => {
-		if (!aiData) return 0;
-		return aiData.skill_groups.length;
-	});
-
 	const toolColumns = [
 		{ key: 'name', label: 'Name' },
 		{ key: 'usage_count', label: 'Usage Count', sortable: true },
@@ -153,7 +119,7 @@
 		{ key: 'session_id', label: 'Session ID' },
 		{ key: 'repo_name', label: 'Repo', sortable: true },
 		{ key: 'duration_ms', label: 'Duration', sortable: true },
-		{ key: '_tools', label: 'Tools Used' },
+		{ key: '_tools', label: 'AI Tools Used' },
 		{ key: 'started_at', label: 'Started', sortable: true }
 	];
 
@@ -161,11 +127,11 @@
 		if (!data) return [] as Record<string, unknown>[];
 		return data.recent_sessions.map((s) => ({
 			...s,
-			_tools: s.tools_used.join(', ')
+			_tools: s.ai_tools_used.join(', ')
 		}));
 	});
 
-	function chartData(items: { name: string; usage_count: number }[]) {
+	function chartData(items: AiToolItem[]) {
 		const top = items.slice(0, 10);
 		return {
 			labels: top.map((s) => s.name),
@@ -181,7 +147,7 @@
 </script>
 
 <svelte:head>
-	<title>{data ? (data.user.name ?? data.user.email) : 'User'} - Software & AI Tools - TraceVault</title>
+	<title>{data ? (data.user.name ?? data.user.email) : 'User'} - AI Tools - TraceVault</title>
 </svelte:head>
 
 <div class="space-y-6">
@@ -194,89 +160,38 @@
 		<p class="text-destructive">{error}</p>
 	{:else if data}
 		<div class="flex items-center gap-3">
-			<a href="/orgs/{slug}/analytics/authors/{userId}" class="text-muted-foreground hover:text-foreground text-sm">&larr; Back</a>
+			<a href="/orgs/{slug}/analytics/ai-tools" class="text-muted-foreground hover:text-foreground text-sm">&larr; Back</a>
 			<h1 class="text-xl font-semibold">{data.user.name ?? data.user.email}</h1>
 			{#if data.user.name}
 				<span class="text-muted-foreground text-sm">{data.user.email}</span>
 			{/if}
 		</div>
 
-		<div class="grid grid-cols-3 gap-3">
-			<StatCard
-				label="CLI Tools"
-				value={String(uniqueTools)}
-				icon={WrenchIcon}
-				color="#10b981"
-				tooltip="Number of distinct CLI tools this user has used."
-			/>
+		<div class="grid grid-cols-2 gap-3">
 			<StatCard
 				label="MCP Servers"
-				value={String(mcpServerCount)}
+				value={String(data.mcp_servers.length)}
 				icon={BotIcon}
 				color="#3b82f6"
 				tooltip="Number of distinct MCP servers this user has used."
 			/>
 			<StatCard
 				label="Skill Groups"
-				value={String(skillGroupCount)}
+				value={String(data.skill_groups.length)}
 				icon={SparklesIcon}
 				color="#8b5cf6"
 				tooltip="Number of distinct skill groups this user has used."
 			/>
 		</div>
 
-		<!-- CLI Software -->
-		<div class="grid gap-6 lg:grid-cols-2">
-			<div class="border-border rounded-lg border p-3">
-				<h4 class="mb-2 text-sm font-semibold">Top CLI Tools <HelpTip text="Most frequently used CLI tools by this user." /></h4>
-				{#if data.software.length > 0}
-					<Chart
-						type="bar"
-						data={chartData(data.software)}
-						options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
-					/>
-				{:else}
-					<p class="text-muted-foreground text-sm">No data</p>
-				{/if}
-			</div>
-
-			<div>
-				<h4 class="mb-2 text-sm font-semibold">All CLI Tools <HelpTip text="Complete list of CLI tools detected." /></h4>
-				<DataTable
-					columns={toolColumns}
-					rows={data.software}
-					searchKeys={['name']}
-					defaultSort="usage_count"
-					defaultSortDir="desc"
-					rowIdKey="name"
-				>
-					{#snippet children({ row, col })}
-						{#if col.key === 'name'}
-							<span class="font-mono font-medium">{row.name}</span>
-						{:else if col.key === 'usage_count'}
-							<span class="font-mono">{fmtNum(row.usage_count as number)}</span>
-						{:else if col.key === 'session_count'}
-							<span class="font-mono">{row.session_count}</span>
-						{:else if col.key === 'first_seen'}
-							{fmtDate(row.first_seen as string)}
-						{:else if col.key === 'last_seen'}
-							{fmtDate(row.last_seen as string)}
-						{:else}
-							{row[col.key] ?? '-'}
-						{/if}
-					{/snippet}
-				</DataTable>
-			</div>
-		</div>
-
 		<!-- MCP Servers -->
-		{#if aiData && aiData.mcp_servers.length > 0}
+		{#if data.mcp_servers.length > 0}
 			<div class="grid gap-6 lg:grid-cols-2">
 				<div class="border-border rounded-lg border p-3">
 					<h4 class="mb-2 text-sm font-semibold">Top MCP Servers <HelpTip text="Most frequently used MCP servers by this user." /></h4>
 					<Chart
 						type="bar"
-						data={chartData(aiData.mcp_servers)}
+						data={chartData(data.mcp_servers)}
 						options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
 					/>
 				</div>
@@ -284,7 +199,7 @@
 					<h4 class="mb-2 text-sm font-semibold">All MCP Servers <HelpTip text="Complete list of MCP servers detected." /></h4>
 					<DataTable
 						columns={toolColumns}
-						rows={aiData.mcp_servers}
+						rows={data.mcp_servers}
 						searchKeys={['name']}
 						defaultSort="usage_count"
 						defaultSortDir="desc"
@@ -311,13 +226,13 @@
 		{/if}
 
 		<!-- Skill Groups -->
-		{#if aiData && aiData.skill_groups.length > 0}
+		{#if data.skill_groups.length > 0}
 			<div class="grid gap-6 lg:grid-cols-2">
 				<div class="border-border rounded-lg border p-3">
 					<h4 class="mb-2 text-sm font-semibold">Top Skill Groups <HelpTip text="Most frequently used skill groups by this user." /></h4>
 					<Chart
 						type="bar"
-						data={chartData(aiData.skill_groups)}
+						data={chartData(data.skill_groups)}
 						options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
 					/>
 				</div>
@@ -325,7 +240,7 @@
 					<h4 class="mb-2 text-sm font-semibold">All Skill Groups <HelpTip text="Complete list of skill groups detected." /></h4>
 					<DataTable
 						columns={toolColumns}
-						rows={aiData.skill_groups}
+						rows={data.skill_groups}
 						searchKeys={['name']}
 						defaultSort="usage_count"
 						defaultSortDir="desc"
@@ -353,7 +268,7 @@
 
 		<!-- Recent Sessions -->
 		<div>
-			<h4 class="mb-2 text-sm font-semibold">Recent Sessions <HelpTip text="Latest sessions with tools detected." /></h4>
+			<h4 class="mb-2 text-sm font-semibold">Recent Sessions <HelpTip text="Latest sessions with AI tools detected." /></h4>
 			<DataTable
 				columns={sessionColumns}
 				rows={sessionRows}
@@ -374,8 +289,8 @@
 						<span class="font-mono">{fmtDuration(row.duration_ms as number | null)}</span>
 					{:else if col.key === '_tools'}
 						<div class="flex flex-wrap gap-1">
-							{#each (row.tools_used as string[]) as tool}
-								<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.25)">{tool}</span>
+							{#each (row.ai_tools_used as string[]) as tool}
+								<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(139,92,246,0.12); color: #8b5cf6; border: 1px solid rgba(139,92,246,0.25)">{tool}</span>
 							{/each}
 						</div>
 					{:else if col.key === 'started_at'}

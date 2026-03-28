@@ -1499,8 +1499,17 @@ pub struct OrgTopTool {
 }
 
 #[derive(Debug, Serialize)]
+pub struct AiToolsSummary {
+    pub total_mcp_servers: i64,
+    pub total_skill_groups: i64,
+    pub top_mcp_server: Option<String>,
+    pub top_skill_group: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct SoftwareResponse {
     pub org_top_tools: Vec<OrgTopTool>,
+    pub ai_tools_summary: AiToolsSummary,
 }
 
 pub async fn get_software(
@@ -1533,11 +1542,62 @@ pub async fn get_software(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    let ai_summary_rows = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT atu.tool_category, atu.tool_name, SUM(atu.usage_count) AS count
+         FROM user_ai_tool_usage atu
+         JOIN sessions s ON atu.session_id = s.id
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON atu.user_id = u.id
+         WHERE atu.org_id = $1
+           AND ($2::TEXT IS NULL OR r.name = $2)
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR atu.last_seen_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR atu.first_seen_at <= $5)
+         GROUP BY atu.tool_category, atu.tool_name
+         ORDER BY count DESC",
+    )
+    .bind(org_id)
+    .bind(&q.repo)
+    .bind(&q.author)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let mut total_mcp_servers: i64 = 0;
+    let mut total_skill_groups: i64 = 0;
+    let mut top_mcp_server: Option<String> = None;
+    let mut top_skill_group: Option<String> = None;
+    for (category, name, _count) in &ai_summary_rows {
+        match category.as_str() {
+            "mcp_server" => {
+                total_mcp_servers += 1;
+                if top_mcp_server.is_none() {
+                    top_mcp_server = Some(name.clone());
+                }
+            }
+            "skill_group" => {
+                total_skill_groups += 1;
+                if top_skill_group.is_none() {
+                    top_skill_group = Some(name.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+
     Ok(Json(SoftwareResponse {
         org_top_tools: org_tools
             .into_iter()
             .map(|(name, count, users)| OrgTopTool { name, count, users })
             .collect(),
+        ai_tools_summary: AiToolsSummary {
+            total_mcp_servers,
+            total_skill_groups,
+            top_mcp_server,
+            top_skill_group,
+        },
     }))
 }
 
@@ -1702,6 +1762,232 @@ pub async fn get_software_user_detail(
     }))
 }
 
+// --- AI Tools analytics endpoint ---
+
+#[derive(Debug, Serialize)]
+pub struct AiToolEntry {
+    pub name: String,
+    pub count: i64,
+    pub users: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AiToolsResponse {
+    pub mcp_servers: Vec<AiToolEntry>,
+    pub skill_groups: Vec<AiToolEntry>,
+}
+
+pub async fn get_ai_tools(
+    State(state): State<AppState>,
+    auth: OrgAuth,
+    Query(q): Query<AnalyticsQuery>,
+) -> Result<Json<AiToolsResponse>, (StatusCode, String)> {
+    let org_id = q.effective_org_id(&auth);
+
+    let rows = sqlx::query_as::<_, (String, String, i64, i64)>(
+        "SELECT atu.tool_category, atu.tool_name, SUM(atu.usage_count) AS count, COUNT(DISTINCT atu.user_id) AS users
+         FROM user_ai_tool_usage atu
+         JOIN sessions s ON atu.session_id = s.id
+         JOIN repos r ON s.repo_id = r.id
+         LEFT JOIN users u ON atu.user_id = u.id
+         WHERE atu.org_id = $1
+           AND ($2::TEXT IS NULL OR r.name = $2)
+           AND ($3::TEXT IS NULL OR u.email = $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR atu.last_seen_at >= $4)
+           AND ($5::TIMESTAMPTZ IS NULL OR atu.first_seen_at <= $5)
+         GROUP BY atu.tool_category, atu.tool_name
+         ORDER BY count DESC",
+    )
+    .bind(org_id)
+    .bind(&q.repo)
+    .bind(&q.author)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let mut mcp_servers = Vec::new();
+    let mut skill_groups = Vec::new();
+    for (category, name, count, users) in rows {
+        let entry = AiToolEntry { name, count, users };
+        match category.as_str() {
+            "mcp_server" => mcp_servers.push(entry),
+            "skill_group" => skill_groups.push(entry),
+            _ => {}
+        }
+    }
+
+    Ok(Json(AiToolsResponse {
+        mcp_servers,
+        skill_groups,
+    }))
+}
+
+// --- AI Tools user detail endpoint ---
+
+#[derive(Debug, Serialize)]
+pub struct AiToolItem {
+    pub name: String,
+    pub usage_count: i64,
+    pub first_seen: chrono::DateTime<chrono::Utc>,
+    pub last_seen: chrono::DateTime<chrono::Utc>,
+    pub session_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AiToolRecentSession {
+    pub id: Uuid,
+    pub session_id: String,
+    pub repo_name: String,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub duration_ms: Option<i64>,
+    pub ai_tools_used: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AiToolsUserDetailResponse {
+    pub user: SoftwareUserInfo,
+    pub mcp_servers: Vec<AiToolItem>,
+    pub skill_groups: Vec<AiToolItem>,
+    pub recent_sessions: Vec<AiToolRecentSession>,
+}
+
+pub async fn get_ai_tools_user_detail(
+    State(state): State<AppState>,
+    auth: OrgAuth,
+    Path((_slug, user_id)): Path<(String, Uuid)>,
+    Query(q): Query<AnalyticsQuery>,
+) -> Result<Json<AiToolsUserDetailResponse>, (StatusCode, String)> {
+    let org_id = q.effective_org_id(&auth);
+
+    let user = sqlx::query_as::<_, (Uuid, String, Option<String>)>(
+        "SELECT id, email, name FROM users WHERE id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::NOT_FOUND, format!("User not found: {}", e)))?;
+
+    let tools = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            i64,
+            chrono::DateTime<chrono::Utc>,
+            chrono::DateTime<chrono::Utc>,
+            i64,
+        ),
+    >(
+        "SELECT tool_category, tool_name,
+                SUM(usage_count) AS usage_count,
+                MIN(first_seen_at) AS first_seen,
+                MAX(last_seen_at) AS last_seen,
+                COUNT(DISTINCT session_id) AS session_count
+         FROM user_ai_tool_usage
+         WHERE org_id = $1 AND user_id = $2
+           AND ($3::TIMESTAMPTZ IS NULL OR last_seen_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR first_seen_at <= $4)
+         GROUP BY tool_category, tool_name
+         ORDER BY usage_count DESC",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let mut mcp_servers = Vec::new();
+    let mut skill_groups = Vec::new();
+    for (category, name, usage_count, first_seen, last_seen, session_count) in tools {
+        let item = AiToolItem {
+            name,
+            usage_count,
+            first_seen,
+            last_seen,
+            session_count,
+        };
+        match category.as_str() {
+            "mcp_server" => mcp_servers.push(item),
+            "skill_group" => skill_groups.push(item),
+            _ => {}
+        }
+    }
+
+    let recent = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            String,
+            Option<chrono::DateTime<chrono::Utc>>,
+            Option<i64>,
+        ),
+    >(
+        "SELECT s.id, s.session_id, r.name,
+                s.started_at, s.duration_ms
+         FROM sessions s
+         JOIN repos r ON s.repo_id = r.id
+         WHERE s.org_id = $1 AND s.user_id = $2
+           AND EXISTS (SELECT 1 FROM user_ai_tool_usage WHERE session_id = s.id)
+           AND ($3::TIMESTAMPTZ IS NULL OR s.created_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR s.created_at <= $4)
+         ORDER BY s.created_at DESC
+         LIMIT 20",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let session_ids: Vec<Uuid> = recent.iter().map(|r| r.0).collect();
+    let session_tools = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT session_id, tool_name
+         FROM user_ai_tool_usage
+         WHERE session_id = ANY($1)
+         ORDER BY session_id, usage_count DESC",
+    )
+    .bind(&session_ids)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let mut session_tools_map: std::collections::HashMap<Uuid, Vec<String>> =
+        std::collections::HashMap::new();
+    for (sid, name) in session_tools {
+        session_tools_map.entry(sid).or_default().push(name);
+    }
+
+    Ok(Json(AiToolsUserDetailResponse {
+        user: SoftwareUserInfo {
+            user_id: user.0,
+            email: user.1,
+            name: user.2,
+        },
+        mcp_servers,
+        skill_groups,
+        recent_sessions: recent
+            .into_iter()
+            .map(
+                |(id, session_id, repo_name, started_at, duration_ms)| AiToolRecentSession {
+                    id,
+                    session_id,
+                    repo_name,
+                    started_at,
+                    duration_ms,
+                    ai_tools_used: session_tools_map.remove(&id).unwrap_or_default(),
+                },
+            )
+            .collect(),
+    }))
+}
+
 // --- Author detail endpoint ---
 
 #[derive(Debug, Serialize)]
@@ -1738,7 +2024,15 @@ pub struct AuthorDetailResponse {
     pub total_tool_calls: i64,
     pub model_preferences: Vec<AuthorModelPref>,
     pub top_software: Vec<String>,
+    pub top_ai_tools: Vec<AuthorAiToolEntry>,
     pub recent_sessions: Vec<AuthorRecentSession>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthorAiToolEntry {
+    pub category: String,
+    pub name: String,
+    pub count: i64,
 }
 
 pub async fn get_author_detail(
@@ -1817,6 +2111,24 @@ pub async fn get_author_detail(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    let top_ai = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT tool_category, tool_name, SUM(usage_count)::BIGINT
+         FROM user_ai_tool_usage
+         WHERE org_id = $1 AND user_id = $2
+           AND ($3::TIMESTAMPTZ IS NULL OR last_seen_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR first_seen_at <= $4)
+         GROUP BY tool_category, tool_name
+         ORDER BY SUM(usage_count) DESC
+         LIMIT 10",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
     let recent = sqlx::query_as::<
         _,
         (
@@ -1865,6 +2177,14 @@ pub async fn get_author_detail(
             .map(|(model, sessions)| AuthorModelPref { model, sessions })
             .collect(),
         top_software: top_sw.into_iter().map(|(name,)| name).collect(),
+        top_ai_tools: top_ai
+            .into_iter()
+            .map(|(category, name, count)| AuthorAiToolEntry {
+                category,
+                name,
+                count,
+            })
+            .collect(),
         recent_sessions: recent
             .into_iter()
             .map(
