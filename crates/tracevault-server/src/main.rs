@@ -28,6 +28,7 @@ mod signing;
 mod story;
 
 mod error;
+pub mod repo;
 pub use error::AppError;
 
 #[derive(Clone)]
