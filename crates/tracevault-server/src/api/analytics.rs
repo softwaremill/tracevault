@@ -2024,7 +2024,15 @@ pub struct AuthorDetailResponse {
     pub total_tool_calls: i64,
     pub model_preferences: Vec<AuthorModelPref>,
     pub top_software: Vec<String>,
+    pub top_ai_tools: Vec<AuthorAiToolEntry>,
     pub recent_sessions: Vec<AuthorRecentSession>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthorAiToolEntry {
+    pub category: String,
+    pub name: String,
+    pub count: i64,
 }
 
 pub async fn get_author_detail(
@@ -2103,6 +2111,24 @@ pub async fn get_author_detail(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    let top_ai = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT tool_category, tool_name, SUM(usage_count)::BIGINT
+         FROM user_ai_tool_usage
+         WHERE org_id = $1 AND user_id = $2
+           AND ($3::TIMESTAMPTZ IS NULL OR last_seen_at >= $3)
+           AND ($4::TIMESTAMPTZ IS NULL OR first_seen_at <= $4)
+         GROUP BY tool_category, tool_name
+         ORDER BY SUM(usage_count) DESC
+         LIMIT 10",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(q.from)
+    .bind(q.to)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
     let recent = sqlx::query_as::<
         _,
         (
@@ -2151,6 +2177,14 @@ pub async fn get_author_detail(
             .map(|(model, sessions)| AuthorModelPref { model, sessions })
             .collect(),
         top_software: top_sw.into_iter().map(|(name,)| name).collect(),
+        top_ai_tools: top_ai
+            .into_iter()
+            .map(|(category, name, count)| AuthorAiToolEntry {
+                category,
+                name,
+                count,
+            })
+            .collect(),
         recent_sessions: recent
             .into_iter()
             .map(

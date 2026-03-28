@@ -155,7 +155,7 @@
 		<Table.Body>
 			{#each paged as row (row[rowIdKey] ?? JSON.stringify(row))}
 				<Table.Row
-					class="cursor-pointer border-l-[3px] transition-colors hover:border-l-primary {activeRowId !=
+					class="{onRowClick ? 'cursor-pointer hover:border-l-primary' : ''} border-l-[3px] transition-colors {activeRowId !=
 						null && row[rowIdKey] === activeRowId
 						? 'border-l-primary bg-muted/20'
 						: 'border-l-transparent'}"

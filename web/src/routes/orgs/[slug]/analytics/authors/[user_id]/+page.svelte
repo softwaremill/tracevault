@@ -26,6 +26,11 @@
 		cost_usd: number | null;
 		model: string | null;
 	}
+	interface AiToolEntry {
+		category: string;
+		name: string;
+		count: number;
+	}
 	interface AuthorDetailResponse {
 		user: { user_id: string; email: string; name: string | null };
 		sessions: number;
@@ -35,6 +40,7 @@
 		total_tool_calls: number;
 		model_preferences: ModelPref[];
 		top_software: string[];
+		top_ai_tools: AiToolEntry[];
 		recent_sessions: RecentSession[];
 	}
 
@@ -149,16 +155,32 @@
 			</div>
 		{/if}
 
-		{#if data.top_software.length > 0}
-			<div class="border-border rounded-lg border p-3">
-				<div class="flex items-center justify-between mb-2">
-					<h4 class="text-sm font-semibold">Top Software <HelpTip text="Most frequently used CLI tools." /></h4>
+		{#if data.top_software.length > 0 || (data.top_ai_tools ?? []).length > 0}
+			<div class="border-border rounded-lg border p-3 space-y-3">
+				{#if data.top_software.length > 0}
+					<div>
+						<h4 class="text-sm font-semibold mb-2">Top Software <HelpTip text="Most frequently used CLI tools." /></h4>
+						<div class="flex flex-wrap gap-2">
+							{#each data.top_software as tool, i}
+								<span class="rounded-full px-3 py-1 text-xs font-medium" style="background: {COLORS[i % COLORS.length]}22; color: {COLORS[i % COLORS.length]}; border: 1px solid {COLORS[i % COLORS.length]}40">{tool}</span>
+							{/each}
+						</div>
+					</div>
+				{/if}
+				{#if (data.top_ai_tools ?? []).length > 0}
+					<div>
+						<h4 class="text-sm font-semibold mb-2">Top AI Tools <HelpTip text="Most frequently used MCP servers and skill groups." /></h4>
+						<div class="flex flex-wrap gap-2">
+							{#each data.top_ai_tools as tool, i}
+								<span class="rounded-full px-3 py-1 text-xs font-medium" style="background: {COLORS[i % COLORS.length]}22; color: {COLORS[i % COLORS.length]}; border: 1px solid {COLORS[i % COLORS.length]}40">
+									<span class="text-muted-foreground">{tool.category === 'mcp_server' ? 'MCP' : 'Skill'}:</span> {tool.name} ({tool.count})
+								</span>
+							{/each}
+						</div>
+					</div>
+				{/if}
+				<div class="flex justify-end">
 					<a href="/orgs/{slug}/analytics/software/users/{userId}" class="text-xs text-primary hover:underline">View all software & AI tools &rarr;</a>
-				</div>
-				<div class="flex flex-wrap gap-2">
-					{#each data.top_software as tool, i}
-						<span class="rounded-full px-3 py-1 text-xs font-medium" style="background: {COLORS[i % COLORS.length]}22; color: {COLORS[i % COLORS.length]}; border: 1px solid {COLORS[i % COLORS.length]}40">{tool}</span>
-					{/each}
 				</div>
 			</div>
 		{/if}
