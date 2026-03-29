@@ -70,3 +70,44 @@ pub fn require_permission(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn not_found_is_404() {
+        let resp = AppError::NotFound("x".into()).into_response();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn forbidden_is_403() {
+        let resp = AppError::Forbidden("x".into()).into_response();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn bad_request_is_400() {
+        let resp = AppError::BadRequest("x".into()).into_response();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn unauthorized_is_401() {
+        let resp = AppError::Unauthorized.into_response();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn conflict_is_409() {
+        let resp = AppError::Conflict("x".into()).into_response();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn internal_is_500() {
+        let resp = AppError::Internal("x".into()).into_response();
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+}

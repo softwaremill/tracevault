@@ -322,3 +322,49 @@ pub fn extract_ai_tool(
 
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_ai_tool_mcp_valid() {
+        let result = extract_ai_tool("mcp__postgres__query", None);
+        assert_eq!(result, Some(("mcp_server".into(), "postgres".into())));
+    }
+
+    #[test]
+    fn extract_ai_tool_mcp_empty_server() {
+        let result = extract_ai_tool("mcp____query", None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn extract_ai_tool_skill_with_namespace() {
+        let input = serde_json::json!({"skill": "superpowers:brainstorm"});
+        let result = extract_ai_tool("Skill", Some(&input));
+        assert_eq!(result, Some(("skill_group".into(), "superpowers".into())));
+    }
+
+    #[test]
+    fn extract_ai_tool_skill_no_colon() {
+        let input = serde_json::json!({"skill": "commit"});
+        let result = extract_ai_tool("Skill", Some(&input));
+        assert_eq!(result, Some(("skill_group".into(), "commit".into())));
+    }
+
+    #[test]
+    fn extract_ai_tool_skill_no_input() {
+        assert!(extract_ai_tool("Skill", None).is_none());
+    }
+
+    #[test]
+    fn extract_ai_tool_read_returns_none() {
+        assert!(extract_ai_tool("Read", None).is_none());
+    }
+
+    #[test]
+    fn extract_ai_tool_bash_returns_none() {
+        assert!(extract_ai_tool("Bash", None).is_none());
+    }
+}

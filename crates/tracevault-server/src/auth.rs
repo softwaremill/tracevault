@@ -59,3 +59,56 @@ pub fn sha256_hex(input: &str) -> String {
     hasher.update(input.as_bytes());
     hex::encode(hasher.finalize())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hash_and_verify_roundtrip() {
+        let hash = hash_password("test-password-123").unwrap();
+        assert!(verify_password("test-password-123", &hash));
+    }
+
+    #[test]
+    fn verify_wrong_password() {
+        let hash = hash_password("correct-password").unwrap();
+        assert!(!verify_password("wrong-password", &hash));
+    }
+
+    #[test]
+    fn verify_invalid_hash() {
+        assert!(!verify_password("anything", "not-a-valid-hash"));
+    }
+
+    #[test]
+    fn session_token_format() {
+        let (raw, hash) = generate_session_token();
+        assert!(raw.starts_with("tvs_"));
+        assert_eq!(hash.len(), 64);
+        assert_eq!(sha256_hex(&raw), hash);
+    }
+
+    #[test]
+    fn api_key_format() {
+        let (raw, hash) = generate_api_key();
+        assert!(raw.starts_with("tvk_"));
+        assert_eq!(hash.len(), 64);
+        assert_eq!(sha256_hex(&raw), hash);
+    }
+
+    #[test]
+    fn device_token_length() {
+        let token = generate_device_token();
+        assert_eq!(token.len(), 64);
+        assert!(token.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn sha256_hex_deterministic() {
+        let a = sha256_hex("hello");
+        let b = sha256_hex("hello");
+        assert_eq!(a, b);
+        assert_ne!(sha256_hex("hello"), sha256_hex("world"));
+    }
+}
