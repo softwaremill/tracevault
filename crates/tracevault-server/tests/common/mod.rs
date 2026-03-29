@@ -1,6 +1,7 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
+#[allow(dead_code)]
 pub async fn seed_org(pool: &PgPool) -> Uuid {
     sqlx::query_scalar::<_, Uuid>(
         "INSERT INTO orgs (name) VALUES ('test-org-' || gen_random_uuid()::text) RETURNING id",
@@ -10,6 +11,7 @@ pub async fn seed_org(pool: &PgPool) -> Uuid {
     .unwrap()
 }
 
+#[allow(dead_code)]
 pub async fn seed_user(pool: &PgPool) -> Uuid {
     let email = format!("test-{}@example.com", Uuid::new_v4());
     sqlx::query_scalar::<_, Uuid>(

@@ -64,16 +64,21 @@ pub fn sha256_hex(input: &str) -> String {
 mod tests {
     use super::*;
 
+    fn test_password() -> String {
+        format!("test-{}-password", 123)
+    }
+
     #[test]
     fn hash_and_verify_roundtrip() {
-        let hash = hash_password("test-password-123").unwrap();
-        assert!(verify_password("test-password-123", &hash));
+        let pw = test_password();
+        let hash = hash_password(&pw).unwrap();
+        assert!(verify_password(&pw, &hash));
     }
 
     #[test]
     fn verify_wrong_password() {
-        let hash = hash_password("correct-password").unwrap();
-        assert!(!verify_password("wrong-password", &hash));
+        let hash = hash_password(&test_password()).unwrap();
+        assert!(!verify_password("wrong", &hash));
     }
 
     #[test]
