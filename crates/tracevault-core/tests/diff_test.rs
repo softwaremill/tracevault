@@ -155,3 +155,27 @@ fn parse_empty_input() {
     let files = parse_unified_diff("");
     assert!(files.is_empty());
 }
+
+#[test]
+fn mode_change_only_has_empty_hunks() {
+    let raw = "diff --git a/script.sh b/script.sh\nold mode 100644\nnew mode 100755\n";
+    let diffs = parse_unified_diff(raw);
+    assert_eq!(diffs.len(), 1);
+    assert!(diffs[0].hunks.is_empty());
+}
+
+#[test]
+fn no_newline_marker_preserved() {
+    let raw = "\
+diff --git a/test.txt b/test.txt
+--- a/test.txt
++++ b/test.txt
+@@ -1,2 +1,2 @@
+-old line
++new line
+\\ No newline at end of file
+";
+    let diffs = parse_unified_diff(raw);
+    assert_eq!(diffs.len(), 1);
+    assert!(!diffs[0].hunks.is_empty());
+}

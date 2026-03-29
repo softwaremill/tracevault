@@ -62,3 +62,57 @@ impl HookEvent {
         matches!(self.tool_name.as_deref(), Some("Write") | Some("Edit"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_event(tool_name: Option<&str>) -> HookEvent {
+        HookEvent {
+            session_id: "s".into(),
+            transcript_path: "t".into(),
+            cwd: ".".into(),
+            permission_mode: None,
+            hook_event_name: "PostToolUse".into(),
+            tool_name: tool_name.map(String::from),
+            tool_input: None,
+            tool_response: None,
+            tool_use_id: None,
+        }
+    }
+
+    #[test]
+    fn is_file_modification_write() {
+        assert!(make_event(Some("Write")).is_file_modification());
+    }
+
+    #[test]
+    fn is_file_modification_edit() {
+        assert!(make_event(Some("Edit")).is_file_modification());
+    }
+
+    #[test]
+    fn is_file_modification_bash_false() {
+        assert!(!make_event(Some("Bash")).is_file_modification());
+    }
+
+    #[test]
+    fn file_path_returns_none_when_no_input() {
+        assert!(make_event(Some("Write")).file_path().is_none());
+    }
+
+    #[test]
+    fn file_path_returns_none_when_no_file_path_key() {
+        let mut e = make_event(Some("Write"));
+        e.tool_input = Some(serde_json::json!({"content": "hello"}));
+        assert!(e.file_path().is_none());
+    }
+
+    #[test]
+    fn hook_response_allow_serializes() {
+        let resp = HookResponse::allow();
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json.get("suppress_output").unwrap(), true);
+        assert!(json.get("continue").is_none());
+    }
+}

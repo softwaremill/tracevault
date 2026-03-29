@@ -40,3 +40,60 @@ fn preserves_short_alphanumeric() {
     let output = r.redact_string(input);
     assert_eq!(input, output);
 }
+
+#[test]
+fn redacts_jwt_token() {
+    let r = Redactor::new();
+    let input = "token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc123def456";
+    let result = r.redact_string(input);
+    assert!(result.contains("[REDACTED]"));
+    assert!(!result.contains("eyJhbGciOiJIUzI1NiJ9"));
+}
+
+#[test]
+fn redacts_rsa_private_key() {
+    let r = Redactor::new();
+    let input = "-----BEGIN RSA PRIVATE KEY-----\nMIIEow...";
+    let result = r.redact_string(input);
+    assert!(result.contains("[REDACTED]"));
+}
+
+#[test]
+fn redacts_slack_token() {
+    let r = Redactor::new();
+    let input = "SLACK_TOKEN=xoxb-1234567890-abcdefghij";
+    let result = r.redact_string(input);
+    assert!(result.contains("[REDACTED]"));
+    assert!(!result.contains("xoxb-"));
+}
+
+#[test]
+fn redacts_bearer_token() {
+    let r = Redactor::new();
+    let input = "Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9";
+    let result = r.redact_string(input);
+    assert!(result.contains("[REDACTED]"));
+}
+
+#[test]
+fn redacts_generic_api_key() {
+    let r = Redactor::new();
+    let input = "api_key=ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcd";
+    let result = r.redact_string(input);
+    assert!(result.contains("[REDACTED]"));
+}
+
+#[test]
+fn redacts_multiple_patterns() {
+    let r = Redactor::new();
+    let input = "key=AKIAIOSFODNN7EXAMPLE and token=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij";
+    let result = r.redact_string(input);
+    assert!(!result.contains("AKIA"));
+    assert!(!result.contains("ghp_"));
+}
+
+#[test]
+fn empty_string_returns_empty() {
+    let r = Redactor::new();
+    assert_eq!(r.redact_string(""), "");
+}
