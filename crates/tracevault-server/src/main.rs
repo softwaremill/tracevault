@@ -24,20 +24,20 @@ async fn main() {
         .await
         .expect("Failed to run migrations");
 
-    let cors = if let Some(origin) = &cfg.cors_origin {
-        CorsLayer::new()
-            .allow_origin(origin.parse::<http::HeaderValue>().unwrap())
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::DELETE,
-                Method::OPTIONS,
-            ])
-            .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
-    } else {
-        CorsLayer::permissive()
-    };
+    let cors = CorsLayer::new()
+        .allow_origin(
+            cfg.cors_origin
+                .parse::<http::HeaderValue>()
+                .expect("CORS_ORIGIN must be a valid header value"),
+        )
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION]);
 
     let repo_manager = repo_manager::RepoManager::new(&cfg.repos_dir);
     let extensions = build_extensions(&cfg);
@@ -403,6 +403,7 @@ async fn main() {
             extensions,
             encryption_key: cfg.encryption_key.clone(),
             http_client: http_client.clone(),
+            github_webhook_secret: cfg.github_webhook_secret.clone(),
         });
 
     let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();
