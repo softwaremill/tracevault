@@ -67,7 +67,7 @@ impl StreamService {
 
                 for (i, line) in lines.iter().enumerate() {
                     let chunk_index = offset as i32 + i as i32;
-                    EventRepo::insert_transcript_chunk(
+                    let was_inserted = EventRepo::insert_transcript_chunk(
                         &state.pool,
                         &InsertTranscriptChunk {
                             session_id: session_db_id,
@@ -76,6 +76,12 @@ impl StreamService {
                         },
                     )
                     .await?;
+
+                    // Only count tokens from newly inserted chunks to avoid
+                    // double-counting when overlapping batches are sent
+                    if !was_inserted {
+                        continue;
+                    }
 
                     // Extract token usage from assistant messages
                     if let Some(msg) = line.get("message") {
@@ -114,8 +120,11 @@ impl StreamService {
                     // input_tokens from the API includes cache_read and cache_write,
                     // subtract to get fresh (non-cached) input only
                     let fresh_input = (batch_input - batch_cache_read - batch_cache_write).max(0);
-                    let batch_cost = crate::pricing::estimate_cost(
-                        model_name,
+                    let pricing =
+                        crate::pricing::fetch_pricing_for_model(&state.pool, model_name, None)
+                            .await;
+                    let batch_cost = crate::pricing::estimate_cost_with_pricing(
+                        &pricing,
                         fresh_input,
                         batch_output,
                         batch_cache_read,

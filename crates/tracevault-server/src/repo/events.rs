@@ -92,11 +92,12 @@ impl EventRepo {
     }
 
     /// INSERT INTO transcript_chunks ... ON CONFLICT DO NOTHING.
+    /// Returns true if the row was actually inserted (not a duplicate).
     pub async fn insert_transcript_chunk(
         pool: &PgPool,
         req: &InsertTranscriptChunk,
-    ) -> Result<(), AppError> {
-        sqlx::query(
+    ) -> Result<bool, AppError> {
+        let result = sqlx::query(
             "INSERT INTO transcript_chunks (session_id, chunk_index, data)
              VALUES ($1, $2, $3)
              ON CONFLICT (session_id, chunk_index) DO NOTHING",
@@ -106,7 +107,7 @@ impl EventRepo {
         .bind(&req.data)
         .execute(pool)
         .await?;
-        Ok(())
+        Ok(result.rows_affected() > 0)
     }
 
     /// INSERT INTO user_software_usage ... ON CONFLICT DO UPDATE.
