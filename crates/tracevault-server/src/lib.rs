@@ -10,6 +10,7 @@ pub mod extensions;
 pub mod extractors;
 pub mod llm;
 pub mod org_signing;
+pub mod password_policy;
 pub mod permissions;
 pub mod pricing;
 pub mod pricing_sync;

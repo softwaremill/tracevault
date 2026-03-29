@@ -49,10 +49,8 @@ pub async fn register(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<(StatusCode, Json<RegisterResponse>), AppError> {
-    if req.password.len() < 10 {
-        return Err(AppError::BadRequest(
-            "Password must be at least 10 characters".into(),
-        ));
+    if let Err(reason) = crate::password_policy::validate(&req.password) {
+        return Err(AppError::BadRequest(reason.into()));
     }
 
     if !is_valid_email(&req.email) {
