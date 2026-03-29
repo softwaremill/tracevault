@@ -3,8 +3,9 @@ use axum::{
     Router,
 };
 use http::Method;
-#[cfg(not(feature = "enterprise"))]
+use std::net::SocketAddr;
 use std::sync::Arc;
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
@@ -38,6 +39,18 @@ async fn main() {
             Method::OPTIONS,
         ])
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION]);
+
+    let auth_rate_limit = GovernorConfigBuilder::default()
+        .per_second(6)
+        .burst_size(10)
+        .finish()
+        .expect("Failed to build auth rate limiter");
+
+    let public_rate_limit = GovernorConfigBuilder::default()
+        .per_second(1)
+        .burst_size(60)
+        .finish()
+        .expect("Failed to build public rate limiter");
 
     let repo_manager = repo_manager::RepoManager::new(&cfg.repos_dir);
     let extensions = build_extensions(&cfg);
@@ -103,10 +116,8 @@ async fn main() {
 
     let bind_addr = cfg.bind_addr();
 
-    let app = Router::new()
-        .route("/health", get(|| async { "ok" }))
-        .route("/api/v1/features", get(api::features::get_features))
-        // Auth (public)
+    // Auth routes (strict: 10 req/min per IP)
+    let auth_routes = Router::new()
         .route("/api/v1/auth/register", post(api::auth::register))
         .route("/api/v1/auth/login", post(api::auth::login))
         .route("/api/v1/auth/device", post(api::auth::device_start))
@@ -114,18 +125,32 @@ async fn main() {
             "/api/v1/auth/device/{token}/status",
             get(api::auth::device_status),
         )
+        .layer(GovernorLayer {
+            config: Arc::new(auth_rate_limit),
+        });
+
+    // Public routes (moderate: 60 req/min per IP)
+    let public_routes = Router::new()
+        .route("/health", get(|| async { "ok" }))
+        .route("/api/v1/features", get(api::features::get_features))
+        .route("/api/v1/orgs/public", get(api::auth::list_public_orgs))
+        .route(
+            "/api/v1/invitation-requests",
+            post(api::auth::request_invitation),
+        )
+        .route("/api/v1/github/webhook", post(api::github::webhook))
+        .layer(GovernorLayer {
+            config: Arc::new(public_rate_limit),
+        });
+
+    // Authenticated routes (no rate limiting)
+    let authenticated_routes = Router::new()
         .route(
             "/api/v1/auth/device/{token}/approve",
             post(api::auth::device_approve),
         )
         .route("/api/v1/auth/logout", post(api::auth::logout))
         .route("/api/v1/auth/me", get(api::auth::me))
-        // Public (no auth) — for invitation request form
-        .route("/api/v1/orgs/public", get(api::auth::list_public_orgs))
-        .route(
-            "/api/v1/invitation-requests",
-            post(api::auth::request_invitation),
-        )
         // User endpoints
         .route("/api/v1/me/orgs", get(api::auth::list_my_orgs))
         // Org management (create is org-agnostic)
@@ -392,9 +417,12 @@ async fn main() {
         .route(
             "/api/v1/orgs/{slug}/repos/{repo_id}/ci/verify",
             post(api::ci::verify_commits),
-        )
-        // GitHub webhook (org-agnostic)
-        .route("/api/v1/github/webhook", post(api::github::webhook))
+        );
+
+    let app = Router::new()
+        .merge(auth_routes)
+        .merge(public_routes)
+        .merge(authenticated_routes)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(AppState {
@@ -408,7 +436,12 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();
     tracing::info!("TraceVault server listening on {}", bind_addr);
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }
 
 async fn sync_repos_on_startup(
