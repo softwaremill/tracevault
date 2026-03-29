@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth::{generate_device_token, generate_session_token, hash_password, verify_password};
+use crate::error::AppError;
 use crate::extractors::AuthUser;
 
 // --- Register ---
@@ -29,18 +30,16 @@ pub struct RegisterResponse {
 pub async fn register(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
-) -> Result<(StatusCode, Json<RegisterResponse>), (StatusCode, String)> {
+) -> Result<(StatusCode, Json<RegisterResponse>), AppError> {
     if req.password.len() < 10 {
-        return Err((
-            StatusCode::BAD_REQUEST,
+        return Err(AppError::BadRequest(
             "Password must be at least 10 characters".into(),
         ));
     }
 
     let org_slug = req.org_name.trim().to_lowercase();
     if org_slug.is_empty() || org_slug.len() > 100 {
-        return Err((
-            StatusCode::BAD_REQUEST,
+        return Err(AppError::BadRequest(
             "Organization name must be 1-100 characters".into(),
         ));
     }
@@ -50,15 +49,13 @@ pub async fn register(
         || org_slug.starts_with('-')
         || org_slug.ends_with('-')
     {
-        return Err((
-            StatusCode::BAD_REQUEST,
+        return Err(AppError::BadRequest(
             "Organization name must be lowercase alphanumeric with hyphens, no leading/trailing hyphens".into(),
         ));
     }
     let reserved = ["api", "admin", "settings", "auth", "health", "me"];
     if reserved.contains(&org_slug.as_str()) {
-        return Err((
-            StatusCode::BAD_REQUEST,
+        return Err(AppError::BadRequest(
             "This organization name is reserved".into(),
         ));
     }
@@ -67,45 +64,37 @@ pub async fn register(
     let org_exists: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM orgs WHERE name = $1")
         .bind(&org_slug)
         .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
     if org_exists.is_some() {
-        return Err((
-            StatusCode::CONFLICT,
+        return Err(AppError::Conflict(
             "Organization already exists. Ask the admin to invite you.".into(),
         ));
     }
 
-    let password_hash = hash_password(&req.password).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to hash password: {e}"),
-        )
-    })?;
+    let password_hash = hash_password(&req.password)
+        .map_err(|e| AppError::Internal(format!("Failed to hash password: {e}")))?;
 
     // Check if email already taken
     let existing: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE email = $1")
         .bind(&req.email)
         .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
     if existing.is_some() {
-        return Err((StatusCode::CONFLICT, "Email already registered".into()));
+        return Err(AppError::Conflict("Email already registered".into()));
     }
 
     // Create org
     let org_id: Uuid = sqlx::query_scalar("INSERT INTO orgs (name) VALUES ($1) RETURNING id")
         .bind(&org_slug)
         .fetch_one(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
     // Validate provided signing key if any
     if let Some(ref seed) = req.signing_key_seed {
         if let Err(e) = crate::org_signing::validate_seed(seed) {
-            return Err((StatusCode::BAD_REQUEST, format!("Invalid signing key: {e}")));
+            return Err(AppError::BadRequest(format!("Invalid signing key: {e}")));
         }
     }
 
@@ -143,8 +132,7 @@ pub async fn register(
     .bind(&password_hash)
     .bind(&req.name)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Create owner membership
     sqlx::query(
@@ -153,8 +141,7 @@ pub async fn register(
     .bind(user_id)
     .bind(org_id)
     .execute(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Create session
     let (raw_token, token_hash) = generate_session_token();
@@ -165,8 +152,7 @@ pub async fn register(
         .bind(&token_hash)
         .bind(expires_at)
         .execute(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
     crate::audit::log(
         &state.pool,
@@ -211,19 +197,18 @@ pub struct LoginResponse {
 pub async fn login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
-) -> Result<Json<LoginResponse>, (StatusCode, String)> {
+) -> Result<Json<LoginResponse>, AppError> {
     let row =
         sqlx::query_as::<_, (Uuid, String)>("SELECT id, password_hash FROM users WHERE email = $1")
             .bind(&req.email)
             .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-            .ok_or((StatusCode::UNAUTHORIZED, "Invalid email or password".into()))?;
+            .await?
+            .ok_or(AppError::Unauthorized)?;
 
     let (user_id, password_hash) = row;
 
     if !verify_password(&req.password, &password_hash) {
-        return Err((StatusCode::UNAUTHORIZED, "Invalid email or password".into()));
+        return Err(AppError::Unauthorized);
     }
 
     let (raw_token, token_hash) = generate_session_token();
@@ -234,10 +219,7 @@ pub async fn login(
         .bind(&token_hash)
         .bind(expires_at)
         .execute(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    // Login is org-agnostic — skip audit log (audit_log requires a valid org_id)
+        .await?;
 
     Ok(Json(LoginResponse {
         token: raw_token,
@@ -257,7 +239,7 @@ pub struct DeviceAuthResponse {
 
 pub async fn device_start(
     State(state): State<AppState>,
-) -> Result<Json<DeviceAuthResponse>, (StatusCode, String)> {
+) -> Result<Json<DeviceAuthResponse>, AppError> {
     let token = generate_device_token();
     let expires_at = chrono::Utc::now() + chrono::Duration::minutes(10);
 
@@ -267,8 +249,7 @@ pub async fn device_start(
     .bind(&token)
     .bind(expires_at)
     .execute(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let verification_url = format!("/auth/device?token={token}");
 
@@ -291,18 +272,16 @@ pub struct DeviceStatusResponse {
 pub async fn device_status(
     State(state): State<AppState>,
     axum::extract::Path(token): axum::extract::Path<String>,
-) -> Result<Json<DeviceStatusResponse>, (StatusCode, String)> {
+) -> Result<Json<DeviceStatusResponse>, AppError> {
     let row = sqlx::query_as::<_, (String, Option<Uuid>)>(
         "SELECT status, session_id FROM device_auth_requests WHERE token = $1 AND expires_at > NOW()",
     )
     .bind(&token)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((
-        StatusCode::NOT_FOUND,
-        "Device auth request not found or expired".into(),
-    ))?;
+    .await?
+    .ok_or_else(|| {
+        AppError::NotFound("Device auth request not found or expired".into())
+    })?;
 
     let (status, session_id) = row;
 
@@ -315,8 +294,7 @@ pub async fn device_status(
             )
             .bind(sid)
             .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .await?;
 
             if let Some((email,)) = info {
                 let raw_token: Option<String> = sqlx::query_scalar(
@@ -324,8 +302,7 @@ pub async fn device_status(
                 )
                 .bind(&token)
                 .fetch_optional(&state.pool)
-                .await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+                .await?
                 .flatten();
 
                 return Ok(Json(DeviceStatusResponse {
@@ -348,23 +325,18 @@ pub async fn device_approve(
     State(state): State<AppState>,
     auth: AuthUser,
     axum::extract::Path(token): axum::extract::Path<String>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<StatusCode, AppError> {
     let row = sqlx::query_as::<_, (Uuid, String)>(
         "SELECT id, status FROM device_auth_requests WHERE token = $1 AND expires_at > NOW()",
     )
     .bind(&token)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((
-        StatusCode::NOT_FOUND,
-        "Device auth request not found or expired".into(),
-    ))?;
+    .await?
+    .ok_or_else(|| AppError::NotFound("Device auth request not found or expired".into()))?;
 
     let (request_id, status) = row;
     if status != "pending" {
-        return Err((
-            StatusCode::CONFLICT,
+        return Err(AppError::Conflict(
             "Device auth request already processed".into(),
         ));
     }
@@ -380,8 +352,7 @@ pub async fn device_approve(
     .bind(&token_hash)
     .bind(expires_at)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Update device request with approval + session reference + raw token
     sqlx::query(
@@ -392,8 +363,7 @@ pub async fn device_approve(
     .bind(&raw_token)
     .bind(request_id)
     .execute(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(StatusCode::OK)
 }
@@ -404,12 +374,12 @@ pub async fn logout(
     State(state): State<AppState>,
     auth: AuthUser,
     headers: axum::http::HeaderMap,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<StatusCode, AppError> {
     let raw_token = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
-        .ok_or((StatusCode::BAD_REQUEST, "Missing token".into()))?;
+        .ok_or_else(|| AppError::BadRequest("Missing token".into()))?;
 
     let token_hash = crate::auth::sha256_hex(raw_token);
 
@@ -417,8 +387,7 @@ pub async fn logout(
         .bind(&token_hash)
         .bind(auth.user_id)
         .execute(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
     Ok(StatusCode::OK)
 }
@@ -435,14 +404,13 @@ pub struct MeResponse {
 pub async fn me(
     State(state): State<AppState>,
     auth: AuthUser,
-) -> Result<Json<MeResponse>, (StatusCode, String)> {
+) -> Result<Json<MeResponse>, AppError> {
     let row = sqlx::query_as::<_, (String, Option<String>)>(
         "SELECT email, name FROM users WHERE id = $1",
     )
     .bind(auth.user_id)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(Json(MeResponse {
         user_id: auth.user_id,
@@ -464,7 +432,7 @@ pub struct OrgMembership {
 pub async fn list_my_orgs(
     State(state): State<AppState>,
     auth: AuthUser,
-) -> Result<Json<Vec<OrgMembership>>, (StatusCode, String)> {
+) -> Result<Json<Vec<OrgMembership>>, AppError> {
     let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, String)>(
         "SELECT o.id, o.name, o.display_name, m.role
          FROM user_org_memberships m
@@ -474,8 +442,7 @@ pub async fn list_my_orgs(
     )
     .bind(auth.user_id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(Json(
         rows.into_iter()
@@ -499,13 +466,12 @@ pub struct PublicOrg {
 
 pub async fn list_public_orgs(
     State(state): State<AppState>,
-) -> Result<Json<Vec<PublicOrg>>, (StatusCode, String)> {
+) -> Result<Json<Vec<PublicOrg>>, AppError> {
     let rows = sqlx::query_as::<_, (String, Option<String>)>(
         "SELECT name, display_name FROM orgs ORDER BY name",
     )
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(Json(
         rows.into_iter()
@@ -526,13 +492,12 @@ pub struct InvitationRequestInput {
 pub async fn request_invitation(
     State(state): State<AppState>,
     Json(req): Json<InvitationRequestInput>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<StatusCode, AppError> {
     let org_id: Uuid = sqlx::query_scalar("SELECT id FROM orgs WHERE name = $1")
         .bind(&req.org_name)
         .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or((StatusCode::NOT_FOUND, "Organization not found".into()))?;
+        .await?
+        .ok_or_else(|| AppError::NotFound("Organization not found".into()))?;
 
     // Check for duplicate pending request
     let existing: Option<(Uuid,)> = sqlx::query_as(
@@ -541,12 +506,10 @@ pub async fn request_invitation(
     .bind(org_id)
     .bind(&req.email)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     if existing.is_some() {
-        return Err((
-            StatusCode::CONFLICT,
+        return Err(AppError::Conflict(
             "An invitation request is already pending for this email".into(),
         ));
     }
@@ -556,8 +519,7 @@ pub async fn request_invitation(
         .bind(&req.email)
         .bind(&req.name)
         .execute(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
     Ok(StatusCode::CREATED)
 }

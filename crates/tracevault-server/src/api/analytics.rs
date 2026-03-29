@@ -1,8 +1,8 @@
+use crate::error::AppError;
 use crate::extractors::OrgAuth;
 use crate::AppState;
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -49,13 +49,12 @@ pub struct RepoOption {
 pub async fn get_filters(
     State(state): State<AppState>,
     auth: OrgAuth,
-) -> Result<Json<FiltersResponse>, (StatusCode, String)> {
+) -> Result<Json<FiltersResponse>, AppError> {
     // Get orgs the user belongs to
     let orgs = sqlx::query_as::<_, (Uuid, String)>("SELECT id, name FROM orgs WHERE id = $1")
         .bind(auth.org_id)
         .fetch_all(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
     let org_id = auth.org_id;
 
@@ -65,8 +64,7 @@ pub async fn get_filters(
     )
     .bind(org_id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Get distinct authors via users
     let authors = sqlx::query_as::<_, (String,)>(
@@ -77,8 +75,7 @@ pub async fn get_filters(
     )
     .bind(org_id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(Json(FiltersResponse {
         orgs: orgs
@@ -165,7 +162,7 @@ pub async fn get_overview(
     State(state): State<AppState>,
     auth: OrgAuth,
     Query(q): Query<AnalyticsQuery>,
-) -> Result<Json<OverviewResponse>, (StatusCode, String)> {
+) -> Result<Json<OverviewResponse>, AppError> {
     let org_id = q.effective_org_id(&auth);
 
     // KPI: total sessions, tokens, authors, cost, duration, tool_calls, cache tokens
@@ -212,8 +209,7 @@ pub async fn get_overview(
     .bind(q.from)
     .bind(q.to)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Total commits count (commits are decoupled from sessions)
     let commit_count = sqlx::query_as::<_, (i64,)>(
@@ -235,8 +231,7 @@ pub async fn get_overview(
     .bind(q.from)
     .bind(q.to)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // AI percentage (avg across commits that have attribution) - stays on commits table
     let ai_pct = sqlx::query_as::<_, (Option<f64>,)>(
@@ -257,8 +252,7 @@ pub async fn get_overview(
     .bind(q.from)
     .bind(q.to)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Tokens over time (daily buckets)
     let tokens_time = sqlx::query_as::<_, (String, i64, i64)>(
@@ -282,8 +276,7 @@ pub async fn get_overview(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Top 5 repos by tokens
     let top_repos = sqlx::query_as::<_, (String, i64)>(
@@ -304,8 +297,7 @@ pub async fn get_overview(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Model distribution
     let models = sqlx::query_as::<_, (String, i64)>(
@@ -327,8 +319,7 @@ pub async fn get_overview(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Recent 10 commits
     let recent = sqlx::query_as::<_, (String, String, i64, i64, chrono::DateTime<chrono::Utc>)>(
@@ -355,8 +346,7 @@ pub async fn get_overview(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Sessions over time (daily buckets)
     let sessions_time = sqlx::query_as::<_, (String, i64)>(
@@ -378,8 +368,7 @@ pub async fn get_overview(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Hourly activity
     let hourly = sqlx::query_as::<_, (i32, i64)>(
@@ -402,8 +391,7 @@ pub async fn get_overview(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // kpi tuple indices:
     // 0=sessions, 1=tokens, 2=input, 3=output, 4=authors, 5=cost,
@@ -505,7 +493,7 @@ pub async fn get_tokens(
     State(state): State<AppState>,
     auth: OrgAuth,
     Query(q): Query<AnalyticsQuery>,
-) -> Result<Json<TokensResponse>, (StatusCode, String)> {
+) -> Result<Json<TokensResponse>, AppError> {
     let org_id = q.effective_org_id(&auth);
 
     let time_series = sqlx::query_as::<_, (String, i64, i64)>(
@@ -529,8 +517,7 @@ pub async fn get_tokens(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let by_repo = sqlx::query_as::<_, (String, i64, i64, i64, i64)>(
         "SELECT r.name,
@@ -553,8 +540,7 @@ pub async fn get_tokens(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let by_author = sqlx::query_as::<_, (String, i64)>(
         "SELECT u.email, COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0)
@@ -573,8 +559,7 @@ pub async fn get_tokens(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Cache token totals
     let cache_totals = sqlx::query_as::<_, (i64, i64)>(
@@ -595,8 +580,7 @@ pub async fn get_tokens(
     .bind(q.from)
     .bind(q.to)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let cache_savings = state
         .extensions
@@ -681,7 +665,7 @@ pub async fn get_models(
     State(state): State<AppState>,
     auth: OrgAuth,
     Query(q): Query<AnalyticsQuery>,
-) -> Result<Json<ModelsResponse>, (StatusCode, String)> {
+) -> Result<Json<ModelsResponse>, AppError> {
     let org_id = q.effective_org_id(&auth);
 
     // Common CTE using s.model directly
@@ -710,28 +694,28 @@ pub async fn get_models(
     )
     .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
     .fetch_all(&state.pool).await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    ?;
 
     let trends = sqlx::query_as::<_, (String, String, i64)>(
         &format!("{model_cte} SELECT TO_CHAR(created_at::date, 'YYYY-MM-DD'), model, COUNT(*) FROM model_data GROUP BY created_at::date, model ORDER BY 1, 2")
     )
     .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
     .fetch_all(&state.pool).await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    ?;
 
     let author_model_matrix = sqlx::query_as::<_, (String, String, i64, i64)>(
         &format!("{model_cte} SELECT author, model, COUNT(*), COALESCE(CAST(SUM(tokens) AS BIGINT), 0) FROM model_data WHERE author IS NOT NULL GROUP BY author, model ORDER BY author, 3 DESC")
     )
     .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
     .fetch_all(&state.pool).await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    ?;
 
     let comparison = sqlx::query_as::<_, (String, i64, f64, i64, i64, Option<i64>)>(
         &format!("{model_cte} SELECT model, COALESCE(CAST(AVG(tokens) AS BIGINT), 0), COALESCE(AVG(estimated_cost_usd), 0.0), COALESCE(CAST(SUM(cache_read_tokens) AS BIGINT), 0), COALESCE(CAST(SUM(cache_write_tokens) AS BIGINT), 0), CAST(AVG(duration_ms) AS BIGINT) FROM model_data GROUP BY model ORDER BY 2 DESC")
     )
     .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
     .fetch_all(&state.pool).await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    ?;
 
     Ok(Json(ModelsResponse {
         distribution: distribution
@@ -813,7 +797,7 @@ pub async fn get_authors(
     State(state): State<AppState>,
     auth: OrgAuth,
     Query(q): Query<AnalyticsQuery>,
-) -> Result<Json<AuthorsResponse>, (StatusCode, String)> {
+) -> Result<Json<AuthorsResponse>, AppError> {
     let org_id = q.effective_org_id(&auth);
 
     // Author leaderboard via users
@@ -855,8 +839,7 @@ pub async fn get_authors(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Author timeline stays on commits table (counting commits per author per day)
     let timeline = sqlx::query_as::<_, (String, String, i64)>(
@@ -877,8 +860,7 @@ pub async fn get_authors(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Model preferences by session model
     let model_preferences = sqlx::query_as::<_, (String, String, i64)>(
@@ -900,8 +882,7 @@ pub async fn get_authors(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(Json(AuthorsResponse {
         leaderboard: leaderboard
@@ -980,7 +961,7 @@ pub async fn get_attribution(
     State(state): State<AppState>,
     auth: OrgAuth,
     Query(q): Query<AnalyticsQuery>,
-) -> Result<Json<AttributionResponse>, (StatusCode, String)> {
+) -> Result<Json<AttributionResponse>, AppError> {
     let org_id = q.effective_org_id(&auth);
 
     // Only include commits that have attribution data
@@ -1006,8 +987,7 @@ pub async fn get_attribution(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let by_repo = sqlx::query_as::<_, (String, f64, i64, i64)>(
         &format!(
@@ -1027,7 +1007,7 @@ pub async fn get_attribution(
     )
     .bind(org_id).bind(&q.author).bind(q.from).bind(q.to)
     .fetch_all(&state.pool).await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    ?;
 
     let by_author = sqlx::query_as::<_, (String, f64)>(&format!(
         "SELECT c.author, AVG((c.attribution->'summary'->>'ai_percentage')::float)
@@ -1045,8 +1025,7 @@ pub async fn get_attribution(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let totals = sqlx::query_as::<_, (i64, i64, f64)>(
         &format!(
@@ -1065,7 +1044,7 @@ pub async fn get_attribution(
     )
     .bind(org_id).bind(&q.repo).bind(&q.author).bind(q.from).bind(q.to)
     .fetch_one(&state.pool).await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    ?;
 
     Ok(Json(AttributionResponse {
         trend: trend
@@ -1149,7 +1128,7 @@ pub async fn get_sessions(
     State(state): State<AppState>,
     auth: OrgAuth,
     Query(q): Query<SessionsQuery>,
-) -> Result<Json<SessionsResponse>, (StatusCode, String)> {
+) -> Result<Json<SessionsResponse>, AppError> {
     let org_id = q.effective_org_id(&auth);
     let limit = q.limit.unwrap_or(50).min(200);
     let offset = q.offset.unwrap_or(0);
@@ -1204,8 +1183,7 @@ pub async fn get_sessions(
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Aggregates
     let agg = sqlx::query_as::<_, (i64, Option<i64>, Option<f64>)>(
@@ -1234,8 +1212,7 @@ pub async fn get_sessions(
     .bind(q.from)
     .bind(q.to)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Tool frequency from events table
     let tool_freq_rows = sqlx::query_as::<_, (String, i64)>(
@@ -1259,8 +1236,7 @@ pub async fn get_sessions(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let tool_frequency: serde_json::Value = tool_freq_rows
         .into_iter()
@@ -1337,7 +1313,7 @@ pub async fn get_cost(
     State(state): State<AppState>,
     auth: OrgAuth,
     Query(q): Query<AnalyticsQuery>,
-) -> Result<Json<CostResponse>, (StatusCode, String)> {
+) -> Result<Json<CostResponse>, AppError> {
     let org_id = q.effective_org_id(&auth);
 
     // Total cost and avg cost per session
@@ -1360,8 +1336,7 @@ pub async fn get_cost(
     .bind(q.from)
     .bind(q.to)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Approximate cache savings using Sonnet rates for aggregate
     let cache_savings = state
@@ -1390,8 +1365,7 @@ pub async fn get_cost(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Cost by model
     let cost_model = sqlx::query_as::<_, (String, f64, i64, i64)>(
@@ -1416,8 +1390,7 @@ pub async fn get_cost(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Cost by repo
     let cost_repo = sqlx::query_as::<_, (String, f64)>(
@@ -1437,8 +1410,7 @@ pub async fn get_cost(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Cost by author
     let cost_author = sqlx::query_as::<_, (String, f64)>(
@@ -1458,8 +1430,7 @@ pub async fn get_cost(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(Json(CostResponse {
         total_cost: totals.0,
@@ -1516,7 +1487,7 @@ pub async fn get_software(
     State(state): State<AppState>,
     auth: OrgAuth,
     Query(q): Query<AnalyticsQuery>,
-) -> Result<Json<SoftwareResponse>, (StatusCode, String)> {
+) -> Result<Json<SoftwareResponse>, AppError> {
     let org_id = q.effective_org_id(&auth);
 
     let org_tools = sqlx::query_as::<_, (String, i64, i64)>(
@@ -1539,8 +1510,7 @@ pub async fn get_software(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let ai_summary_rows = sqlx::query_as::<_, (String, String, i64)>(
         "SELECT atu.tool_category, atu.tool_name, SUM(atu.usage_count) AS count
@@ -1562,8 +1532,7 @@ pub async fn get_software(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let mut total_mcp_servers: i64 = 0;
     let mut total_skill_groups: i64 = 0;
@@ -1641,7 +1610,7 @@ pub async fn get_software_user_detail(
     auth: OrgAuth,
     Path((_slug, user_id)): Path<(String, Uuid)>,
     Query(q): Query<AnalyticsQuery>,
-) -> Result<Json<SoftwareUserDetailResponse>, (StatusCode, String)> {
+) -> Result<Json<SoftwareUserDetailResponse>, AppError> {
     let org_id = q.effective_org_id(&auth);
 
     let user = sqlx::query_as::<_, (Uuid, String, Option<String>)>(
@@ -1650,7 +1619,7 @@ pub async fn get_software_user_detail(
     .bind(user_id)
     .fetch_one(&state.pool)
     .await
-    .map_err(|e| (StatusCode::NOT_FOUND, format!("User not found: {}", e)))?;
+    .map_err(|_| AppError::NotFound("User not found".into()))?;
 
     let software = sqlx::query_as::<
         _,
@@ -1679,8 +1648,7 @@ pub async fn get_software_user_detail(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let recent = sqlx::query_as::<
         _,
@@ -1707,8 +1675,7 @@ pub async fn get_software_user_detail(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let session_ids: Vec<Uuid> = recent.iter().map(|r| r.0).collect();
     let session_tools = sqlx::query_as::<_, (Uuid, String)>(
@@ -1719,8 +1686,7 @@ pub async fn get_software_user_detail(
     )
     .bind(&session_ids)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let mut session_tools_map: std::collections::HashMap<Uuid, Vec<String>> =
         std::collections::HashMap::new();
@@ -1781,7 +1747,7 @@ pub async fn get_ai_tools(
     State(state): State<AppState>,
     auth: OrgAuth,
     Query(q): Query<AnalyticsQuery>,
-) -> Result<Json<AiToolsResponse>, (StatusCode, String)> {
+) -> Result<Json<AiToolsResponse>, AppError> {
     let org_id = q.effective_org_id(&auth);
 
     let rows = sqlx::query_as::<_, (String, String, i64, i64)>(
@@ -1804,8 +1770,7 @@ pub async fn get_ai_tools(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let mut mcp_servers = Vec::new();
     let mut skill_groups = Vec::new();
@@ -1858,7 +1823,7 @@ pub async fn get_ai_tools_user_detail(
     auth: OrgAuth,
     Path((_slug, user_id)): Path<(String, Uuid)>,
     Query(q): Query<AnalyticsQuery>,
-) -> Result<Json<AiToolsUserDetailResponse>, (StatusCode, String)> {
+) -> Result<Json<AiToolsUserDetailResponse>, AppError> {
     let org_id = q.effective_org_id(&auth);
 
     let user = sqlx::query_as::<_, (Uuid, String, Option<String>)>(
@@ -1867,7 +1832,7 @@ pub async fn get_ai_tools_user_detail(
     .bind(user_id)
     .fetch_one(&state.pool)
     .await
-    .map_err(|e| (StatusCode::NOT_FOUND, format!("User not found: {}", e)))?;
+    .map_err(|_| AppError::NotFound("User not found".into()))?;
 
     let tools = sqlx::query_as::<
         _,
@@ -1897,8 +1862,7 @@ pub async fn get_ai_tools_user_detail(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let mut mcp_servers = Vec::new();
     let mut skill_groups = Vec::new();
@@ -1943,8 +1907,7 @@ pub async fn get_ai_tools_user_detail(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let session_ids: Vec<Uuid> = recent.iter().map(|r| r.0).collect();
     let session_tools = sqlx::query_as::<_, (Uuid, String)>(
@@ -1955,8 +1918,7 @@ pub async fn get_ai_tools_user_detail(
     )
     .bind(&session_ids)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let mut session_tools_map: std::collections::HashMap<Uuid, Vec<String>> =
         std::collections::HashMap::new();
@@ -2040,7 +2002,7 @@ pub async fn get_author_detail(
     auth: OrgAuth,
     Path((_slug, user_id)): Path<(String, Uuid)>,
     Query(q): Query<AnalyticsQuery>,
-) -> Result<Json<AuthorDetailResponse>, (StatusCode, String)> {
+) -> Result<Json<AuthorDetailResponse>, AppError> {
     let org_id = q.effective_org_id(&auth);
 
     let user = sqlx::query_as::<_, (Uuid, String, Option<String>)>(
@@ -2049,7 +2011,7 @@ pub async fn get_author_detail(
     .bind(user_id)
     .fetch_one(&state.pool)
     .await
-    .map_err(|e| (StatusCode::NOT_FOUND, format!("User not found: {}", e)))?;
+    .map_err(|_| AppError::NotFound("User not found".into()))?;
 
     let stats = sqlx::query_as::<_, (i64, i64, f64, Option<i64>, i64)>(
         "SELECT COUNT(*),
@@ -2070,8 +2032,7 @@ pub async fn get_author_detail(
     .bind(q.from)
     .bind(q.to)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let models = sqlx::query_as::<_, (String, i64)>(
         "SELECT COALESCE(s.model, 'unknown'), COUNT(*)
@@ -2090,8 +2051,7 @@ pub async fn get_author_detail(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let top_sw = sqlx::query_as::<_, (String,)>(
         "SELECT software_name
@@ -2108,8 +2068,7 @@ pub async fn get_author_detail(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let top_ai = sqlx::query_as::<_, (String, String, i64)>(
         "SELECT tool_category, tool_name, SUM(usage_count)::BIGINT
@@ -2126,8 +2085,7 @@ pub async fn get_author_detail(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let recent = sqlx::query_as::<
         _,
@@ -2158,8 +2116,7 @@ pub async fn get_author_detail(
     .bind(q.from)
     .bind(q.to)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     Ok(Json(AuthorDetailResponse {
         user: AuthorUserInfo {

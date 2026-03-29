@@ -8,33 +8,7 @@ use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
-mod api;
-mod attribution;
-mod audit;
-mod auth;
-mod branch_tracking;
-mod config;
-mod db;
-mod encryption;
-pub mod extensions;
-mod extractors;
-mod llm;
-mod org_signing;
-pub mod permissions;
-pub mod pricing;
-pub mod pricing_sync;
-mod repo_manager;
-mod signing;
-mod story;
-
-#[derive(Clone)]
-pub struct AppState {
-    pub pool: sqlx::PgPool,
-    pub repo_manager: repo_manager::RepoManager,
-    pub extensions: extensions::ExtensionRegistry,
-    pub encryption_key: Option<String>,
-    pub http_client: reqwest::Client,
-}
+use tracevault_server::{api, config, db, extensions, pricing_sync, repo_manager, AppState};
 
 #[tokio::main]
 async fn main() {
@@ -104,6 +78,24 @@ async fn main() {
                         }
                     }
                     Err(e) => tracing::warn!("Daily pricing sync failed: {e}"),
+                }
+            }
+        });
+    }
+
+    // Background materialized view refresh (every 5 minutes)
+    {
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                if let Err(e) =
+                    sqlx::query("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_daily_session_stats")
+                        .execute(&pool)
+                        .await
+                {
+                    tracing::warn!("Failed to refresh materialized view: {e}");
                 }
             }
         });

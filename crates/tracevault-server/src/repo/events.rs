@@ -1,0 +1,156 @@
+use chrono::{DateTime, Utc};
+use sqlx::PgPool;
+use uuid::Uuid;
+
+use crate::error::AppError;
+
+pub struct InsertToolEvent {
+    pub session_id: Uuid,
+    pub event_index: i32,
+    pub tool_name: Option<String>,
+    pub tool_input: Option<serde_json::Value>,
+    pub tool_response: Option<serde_json::Value>,
+    pub timestamp: Option<DateTime<Utc>>,
+}
+
+pub struct InsertFileChange {
+    pub session_id: Uuid,
+    pub event_id: Uuid,
+    pub file_path: String,
+    pub change_type: String,
+    pub diff_text: Option<String>,
+    pub content_hash: Option<String>,
+    pub timestamp: Option<DateTime<Utc>>,
+}
+
+pub struct InsertTranscriptChunk {
+    pub session_id: Uuid,
+    pub chunk_index: i32,
+    pub data: serde_json::Value,
+}
+
+pub struct UpsertSoftwareUsage {
+    pub org_id: Uuid,
+    pub user_id: Uuid,
+    pub session_id: Uuid,
+    pub software_name: String,
+    pub timestamp: Option<DateTime<Utc>>,
+}
+
+pub struct UpsertAiToolUsage {
+    pub org_id: Uuid,
+    pub user_id: Uuid,
+    pub session_id: Uuid,
+    pub tool_category: String,
+    pub tool_name: String,
+    pub timestamp: Option<DateTime<Utc>>,
+}
+
+pub struct EventRepo;
+
+impl EventRepo {
+    /// INSERT INTO events ... ON CONFLICT DO NOTHING RETURNING id.
+    /// Returns None if the row already existed (conflict).
+    pub async fn insert_tool_event(
+        pool: &PgPool,
+        req: &InsertToolEvent,
+    ) -> Result<Option<Uuid>, AppError> {
+        let id: Option<Uuid> = sqlx::query_scalar(
+            "INSERT INTO events (session_id, event_index, event_type, tool_name, tool_input, tool_response, timestamp)
+             VALUES ($1, $2, 'tool_use', $3, $4, $5, $6)
+             ON CONFLICT (session_id, event_index) DO NOTHING
+             RETURNING id",
+        )
+        .bind(req.session_id)
+        .bind(req.event_index)
+        .bind(&req.tool_name)
+        .bind(&req.tool_input)
+        .bind(&req.tool_response)
+        .bind(req.timestamp)
+        .fetch_optional(pool)
+        .await?;
+        Ok(id)
+    }
+
+    /// INSERT INTO file_changes ... ON CONFLICT DO NOTHING.
+    pub async fn insert_file_change(pool: &PgPool, req: &InsertFileChange) -> Result<(), AppError> {
+        sqlx::query(
+            "INSERT INTO file_changes (session_id, event_id, file_path, change_type, diff_text, content_hash, timestamp)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (event_id, file_path) DO NOTHING",
+        )
+        .bind(req.session_id)
+        .bind(req.event_id)
+        .bind(&req.file_path)
+        .bind(&req.change_type)
+        .bind(&req.diff_text)
+        .bind(&req.content_hash)
+        .bind(req.timestamp)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// INSERT INTO transcript_chunks ... ON CONFLICT DO NOTHING.
+    pub async fn insert_transcript_chunk(
+        pool: &PgPool,
+        req: &InsertTranscriptChunk,
+    ) -> Result<(), AppError> {
+        sqlx::query(
+            "INSERT INTO transcript_chunks (session_id, chunk_index, data)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (session_id, chunk_index) DO NOTHING",
+        )
+        .bind(req.session_id)
+        .bind(req.chunk_index)
+        .bind(&req.data)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// INSERT INTO user_software_usage ... ON CONFLICT DO UPDATE.
+    pub async fn upsert_software_usage(
+        pool: &PgPool,
+        req: &UpsertSoftwareUsage,
+    ) -> Result<(), AppError> {
+        sqlx::query(
+            "INSERT INTO user_software_usage (org_id, user_id, session_id, software_name, first_seen_at, last_seen_at)
+             VALUES ($1, $2, $3, $4, $5, $5)
+             ON CONFLICT (session_id, software_name) DO UPDATE SET
+                 usage_count = user_software_usage.usage_count + 1,
+                 last_seen_at = EXCLUDED.last_seen_at",
+        )
+        .bind(req.org_id)
+        .bind(req.user_id)
+        .bind(req.session_id)
+        .bind(&req.software_name)
+        .bind(req.timestamp)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// INSERT INTO user_ai_tool_usage ... ON CONFLICT DO UPDATE.
+    pub async fn upsert_ai_tool_usage(
+        pool: &PgPool,
+        req: &UpsertAiToolUsage,
+    ) -> Result<(), AppError> {
+        sqlx::query(
+            "INSERT INTO user_ai_tool_usage (org_id, user_id, session_id, tool_category, tool_name, first_seen_at, last_seen_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $6)
+             ON CONFLICT (session_id, tool_category, tool_name) DO UPDATE SET
+                 usage_count = user_ai_tool_usage.usage_count + 1,
+                 last_seen_at = EXCLUDED.last_seen_at",
+        )
+        .bind(req.org_id)
+        .bind(req.user_id)
+        .bind(req.session_id)
+        .bind(&req.tool_category)
+        .bind(&req.tool_name)
+        .bind(req.timestamp)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+}

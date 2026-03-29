@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
-	import { api } from '$lib/api';
+	import { useFetch } from '$lib/hooks/use-fetch.svelte';
+	import { fmtNum, fmtDuration, fmtRelativeTime } from '$lib/utils/format';
 	import DataTable from '$lib/components/DataTable.svelte';
 	import HelpTip from '$lib/components/HelpTip.svelte';
 	import Chart from '$lib/components/chart.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import {
 		Chart as ChartJS,
 		CategoryScale,
@@ -57,56 +60,12 @@
 		model_preferences: AuthorModelPreference[];
 	}
 
-	let data: AuthorsResponse | null = $state(null);
-	let loading = $state(true);
-	let error = $state('');
-
 	const slug = $derived($page.params.slug);
+	const search = $derived($page.url.search.replace(/^\?/, ''));
 
-	async function fetchData(search: string) {
-		loading = true;
-		error = '';
-		try {
-			data = await api.get<AuthorsResponse>(`/api/v1/orgs/${slug}/analytics/authors` + (search ? '?' + search : ''));
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load';
-		} finally {
-			loading = false;
-		}
-	}
-
-	$effect(() => {
-		const search = $page.url.search.replace(/^\?/, '');
-		fetchData(search);
-	});
-
-	function fmtNum(n: number): string {
-		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-		return String(n);
-	}
-
-	function fmtDuration(ms: number | null): string {
-		if (ms == null) return '-';
-		const totalSeconds = Math.floor(ms / 1000);
-		const hours = Math.floor(totalSeconds / 3600);
-		const minutes = Math.floor((totalSeconds % 3600) / 60);
-		const seconds = totalSeconds % 60;
-		if (hours >= 1) return `${hours}h ${minutes}m`;
-		if (minutes >= 1) return `${minutes}m ${seconds}s`;
-		return `${seconds}s`;
-	}
-
-	function fmtRelativeTime(iso: string): string {
-		const diff = Date.now() - new Date(iso).getTime();
-		const minutes = Math.floor(diff / 60000);
-		const hours = Math.floor(minutes / 60);
-		const days = Math.floor(hours / 24);
-		if (days > 0) return `${days}d ago`;
-		if (hours > 0) return `${hours}h ago`;
-		if (minutes > 0) return `${minutes}m ago`;
-		return 'just now';
-	}
+	const authorsQuery = useFetch<AuthorsResponse>(
+		() => `/api/v1/orgs/${slug}/analytics/authors` + (search ? '?' + search : '')
+	);
 
 	function timelineChartData(d: AuthorsResponse) {
 		const authors = [...new Set(d.timeline.map((t) => t.author))];
@@ -124,8 +83,8 @@
 	}
 
 	function modelPrefsForAuthor(author: string): AuthorModelPreference[] {
-		if (!data) return [];
-		return data.model_preferences.filter((p) => p.author === author);
+		if (!authorsQuery.data) return [];
+		return authorsQuery.data.model_preferences.filter((p) => p.author === author);
 	}
 
 	const tableColumns = [
@@ -141,8 +100,8 @@
 	];
 
 	const tableRows = $derived.by(() => {
-		if (!data) return [] as Record<string, unknown>[];
-		return data.leaderboard.map((r) => ({
+		if (!authorsQuery.data) return [] as Record<string, unknown>[];
+		return authorsQuery.data.leaderboard.map((r) => ({
 			...r,
 			_models: modelPrefsForAuthor(r.author)
 		}));
@@ -156,14 +115,12 @@
 <div class="space-y-6">
 	<h1 class="text-xl font-semibold">Author Analytics</h1>
 
-	{#if loading}
-		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
-			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-			Loading...
-		</div>
-	{:else if error}
-		<p class="text-destructive">{error}</p>
-	{:else if data}
+	{#if authorsQuery.loading}
+		<LoadingState />
+	{:else if authorsQuery.error}
+		<ErrorState message={authorsQuery.error} onRetry={authorsQuery.refetch} />
+	{:else if authorsQuery.data}
+		{@const data = authorsQuery.data}
 		<DataTable
 			columns={tableColumns}
 			rows={tableRows}

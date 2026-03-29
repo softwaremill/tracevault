@@ -34,10 +34,14 @@ reqwest = { version = "0.12", features = ["json"] }
 async-trait = "0.1"
 aes-gcm = "0.10"
 dotenvy = "0.15.7"
+thiserror.workspace = true
 
 [dependencies.tracevault-enterprise]
 path = "../../enterprise"
 optional = true
+
+[dev-dependencies]
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "migrate"] }
 
 [features]
 default = []

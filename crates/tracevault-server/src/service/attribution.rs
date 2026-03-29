@@ -4,21 +4,171 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::error::AppError;
+use crate::repo::commits::{CommitRepo, FileChangeMatch, InsertAttribution};
+
+pub struct AttributionService;
+
+impl AttributionService {
+    /// Run line-level attribution for a commit.
+    ///
+    /// Parses diff hunks from the commit's diff_data, matches them against
+    /// file_changes in the same repo within 48h before the commit, computes
+    /// confidence scores, and inserts into commit_attributions.
+    ///
+    /// Returns the number of attributions created.
+    pub async fn attribute_commit(
+        pool: &PgPool,
+        commit_id: Uuid,
+        repo_id: Uuid,
+        diff_data: &serde_json::Value,
+        committed_at: DateTime<Utc>,
+    ) -> Result<i64, AppError> {
+        let hunks = parse_diff_hunks(diff_data);
+        if hunks.is_empty() {
+            return Ok(0);
+        }
+
+        // Idempotent: clear previous attributions
+        CommitRepo::clear_attributions(pool, commit_id).await?;
+
+        let mut count: i64 = 0;
+
+        for hunk in &hunks {
+            let matches = CommitRepo::find_matching_file_changes(
+                pool,
+                repo_id,
+                committed_at,
+                &hunk.file_path,
+            )
+            .await?;
+
+            for fc in &matches {
+                let confidence = compute_confidence(hunk, fc);
+                if confidence < 0.1 {
+                    continue;
+                }
+
+                CommitRepo::insert_attribution(
+                    pool,
+                    &InsertAttribution {
+                        commit_id,
+                        session_id: fc.session_id,
+                        event_id: fc.event_id,
+                        file_path: hunk.file_path.clone(),
+                        line_start: if hunk.line_start > 0 {
+                            Some(hunk.line_start)
+                        } else {
+                            None
+                        },
+                        line_end: if hunk.line_end > 0 {
+                            Some(hunk.line_end)
+                        } else {
+                            None
+                        },
+                        confidence,
+                    },
+                )
+                .await?;
+
+                count += 1;
+            }
+        }
+
+        Ok(count)
+    }
+
+    /// Compute attribution summary from commit_attributions and store in commits.attribution JSONB.
+    ///
+    /// After `attribute_commit` populates `commit_attributions`, this function:
+    /// 1. Counts total added lines per file from diff_data
+    /// 2. Queries commit_attributions for matched line ranges
+    /// 3. Deduplicates overlapping ranges (union per file)
+    /// 4. Computes AI vs human percentages
+    /// 5. Stores the summary in commits.attribution
+    pub async fn compute_summary(
+        pool: &PgPool,
+        commit_id: Uuid,
+        diff_data: &serde_json::Value,
+    ) -> Result<(), AppError> {
+        let (added_per_file, total_deleted) = count_diff_lines(diff_data);
+        let total_added: i64 = added_per_file.values().sum();
+
+        if total_added == 0 {
+            // No added lines -- store 0% AI
+            let summary = serde_json::json!({
+                "summary": {
+                    "total_lines_added": 0,
+                    "total_lines_deleted": total_deleted,
+                    "ai_percentage": 0.0,
+                    "human_percentage": 0.0,
+                }
+            });
+            CommitRepo::update_attribution_summary(pool, commit_id, &summary).await?;
+            return Ok(());
+        }
+
+        // Query all commit_attributions line ranges for this commit
+        let rows = CommitRepo::get_attributions(pool, commit_id).await?;
+
+        // Group line ranges by file and merge overlapping ranges
+        let mut ranges_by_file: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
+        for row in &rows {
+            if let (Some(start), Some(end)) = (row.line_start, row.line_end) {
+                if start > 0 && end > 0 {
+                    ranges_by_file
+                        .entry(row.file_path.clone())
+                        .or_default()
+                        .push((start, end));
+                }
+            } else {
+                // File-level match with no line ranges -- count all added lines in this file as AI
+                if let Some(&file_added) = added_per_file.get(row.file_path.as_str()) {
+                    if file_added > 0 {
+                        ranges_by_file
+                            .entry(row.file_path.clone())
+                            .or_default()
+                            .push((1, file_added as i32));
+                    }
+                }
+            }
+        }
+
+        // Count AI lines by merging overlapping ranges per file
+        let mut total_ai_lines: i64 = 0;
+        for (file_path, ranges) in &mut ranges_by_file {
+            let merged = merge_ranges(ranges);
+            let ai_lines: i64 = merged.iter().map(|(s, e)| (*e - *s + 1) as i64).sum();
+            // Cap AI lines at the file's total added lines
+            let file_added = added_per_file.get(file_path.as_str()).copied().unwrap_or(0);
+            total_ai_lines += ai_lines.min(file_added);
+        }
+
+        let ai_percentage = (total_ai_lines as f64 / total_added as f64) * 100.0;
+        let human_percentage = 100.0 - ai_percentage;
+
+        let summary = serde_json::json!({
+            "summary": {
+                "total_lines_added": total_added,
+                "total_lines_deleted": total_deleted,
+                "ai_percentage": ai_percentage,
+                "human_percentage": human_percentage,
+            }
+        });
+
+        CommitRepo::update_attribution_summary(pool, commit_id, &summary).await?;
+
+        Ok(())
+    }
+}
+
+// --- Pure helper functions ---
+
 struct DiffHunk {
     file_path: String,
     line_start: i32,
     line_end: i32,
     added_lines: Vec<String>,
-}
-
-#[derive(sqlx::FromRow)]
-struct FileChangeMatch {
-    session_id: Uuid,
-    event_id: Uuid,
-    change_type: String,
-    line_start: Option<i32>,
-    line_end: Option<i32>,
-    diff_text: Option<String>,
 }
 
 /// Parse diff hunks from diff_data JSON.
@@ -36,7 +186,7 @@ fn parse_diff_hunks(diff_data: &serde_json::Value) -> Vec<DiffHunk> {
             continue;
         };
         let Some(file_hunks) = file.get("hunks").and_then(|h| h.as_array()) else {
-            // File entry with no hunks — create a file-level hunk with no lines
+            // File entry with no hunks -- create a file-level hunk with no lines
             hunks.push(DiffHunk {
                 file_path: file_path.to_string(),
                 line_start: 0,
@@ -135,89 +285,6 @@ fn compute_confidence(hunk: &DiffHunk, fc: &FileChangeMatch) -> f32 {
     0.3
 }
 
-/// Run line-level attribution for a commit.
-///
-/// Parses diff hunks from the commit's diff_data, matches them against
-/// file_changes in the same repo within 48h before the commit, computes
-/// confidence scores, and inserts into commit_attributions.
-///
-/// Returns the number of attributions created.
-pub async fn attribute_commit(
-    pool: &PgPool,
-    commit_id: Uuid,
-    repo_id: Uuid,
-    diff_data: &serde_json::Value,
-    committed_at: DateTime<Utc>,
-) -> Result<i64, String> {
-    let hunks = parse_diff_hunks(diff_data);
-    if hunks.is_empty() {
-        return Ok(0);
-    }
-
-    // Idempotent: clear previous attributions
-    sqlx::query("DELETE FROM commit_attributions WHERE commit_id = $1")
-        .bind(commit_id)
-        .execute(pool)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let mut count: i64 = 0;
-
-    for hunk in &hunks {
-        let matches = sqlx::query_as::<_, FileChangeMatch>(
-            "SELECT fc.session_id, fc.event_id, fc.change_type,
-                    fc.line_start, fc.line_end, fc.diff_text
-             FROM file_changes fc
-             JOIN sessions s ON fc.session_id = s.id
-             WHERE s.repo_id = $1
-               AND fc.timestamp >= $2 - INTERVAL '48 hours'
-               AND fc.timestamp <= $2
-               AND fc.file_path LIKE '%' || $3",
-        )
-        .bind(repo_id)
-        .bind(committed_at)
-        .bind(&hunk.file_path)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| e.to_string())?;
-
-        for fc in &matches {
-            let confidence = compute_confidence(hunk, fc);
-            if confidence < 0.1 {
-                continue;
-            }
-
-            sqlx::query(
-                "INSERT INTO commit_attributions
-                    (commit_id, session_id, event_id, file_path, line_start, line_end, confidence)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7)",
-            )
-            .bind(commit_id)
-            .bind(fc.session_id)
-            .bind(fc.event_id)
-            .bind(&hunk.file_path)
-            .bind(if hunk.line_start > 0 {
-                Some(hunk.line_start)
-            } else {
-                None
-            })
-            .bind(if hunk.line_end > 0 {
-                Some(hunk.line_end)
-            } else {
-                None
-            })
-            .bind(confidence)
-            .execute(pool)
-            .await
-            .map_err(|e| e.to_string())?;
-
-            count += 1;
-        }
-    }
-
-    Ok(count)
-}
-
 /// Count total added and deleted lines per file from diff_data JSON.
 fn count_diff_lines(diff_data: &serde_json::Value) -> (HashMap<String, i64>, i64) {
     let mut added_per_file: HashMap<String, i64> = HashMap::new();
@@ -263,105 +330,6 @@ fn count_diff_lines(diff_data: &serde_json::Value) -> (HashMap<String, i64>, i64
     }
 
     (added_per_file, total_deleted)
-}
-
-/// Compute attribution summary from commit_attributions and store in commits.attribution JSONB.
-///
-/// After `attribute_commit` populates `commit_attributions`, this function:
-/// 1. Counts total added lines per file from diff_data
-/// 2. Queries commit_attributions for matched line ranges
-/// 3. Deduplicates overlapping ranges (union per file)
-/// 4. Computes AI vs human percentages
-/// 5. Stores the summary in commits.attribution
-pub async fn compute_attribution_summary(
-    pool: &PgPool,
-    commit_id: Uuid,
-    diff_data: &serde_json::Value,
-) -> Result<(), String> {
-    let (added_per_file, total_deleted) = count_diff_lines(diff_data);
-    let total_added: i64 = added_per_file.values().sum();
-
-    if total_added == 0 {
-        // No added lines — store 0% AI
-        let summary = serde_json::json!({
-            "summary": {
-                "total_lines_added": 0,
-                "total_lines_deleted": total_deleted,
-                "ai_percentage": 0.0,
-                "human_percentage": 0.0,
-            }
-        });
-        sqlx::query("UPDATE commits SET attribution = $1 WHERE id = $2")
-            .bind(&summary)
-            .bind(commit_id)
-            .execute(pool)
-            .await
-            .map_err(|e| e.to_string())?;
-        return Ok(());
-    }
-
-    // Query all commit_attributions line ranges for this commit
-    let rows = sqlx::query_as::<_, (String, Option<i32>, Option<i32>)>(
-        "SELECT file_path, line_start, line_end FROM commit_attributions WHERE commit_id = $1",
-    )
-    .bind(commit_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    // Group line ranges by file and merge overlapping ranges
-    let mut ranges_by_file: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
-    for (file_path, line_start, line_end) in &rows {
-        if let (Some(start), Some(end)) = (line_start, line_end) {
-            if *start > 0 && *end > 0 {
-                ranges_by_file
-                    .entry(file_path.clone())
-                    .or_default()
-                    .push((*start, *end));
-            }
-        } else {
-            // File-level match with no line ranges — count all added lines in this file as AI
-            if let Some(&file_added) = added_per_file.get(file_path.as_str()) {
-                if file_added > 0 {
-                    ranges_by_file
-                        .entry(file_path.clone())
-                        .or_default()
-                        .push((1, file_added as i32));
-                }
-            }
-        }
-    }
-
-    // Count AI lines by merging overlapping ranges per file
-    let mut total_ai_lines: i64 = 0;
-    for (file_path, ranges) in &mut ranges_by_file {
-        let merged = merge_ranges(ranges);
-        let ai_lines: i64 = merged.iter().map(|(s, e)| (*e - *s + 1) as i64).sum();
-        // Cap AI lines at the file's total added lines
-        let file_added = added_per_file.get(file_path.as_str()).copied().unwrap_or(0);
-        total_ai_lines += ai_lines.min(file_added);
-    }
-
-    let ai_percentage = (total_ai_lines as f64 / total_added as f64) * 100.0;
-    let human_percentage = 100.0 - ai_percentage;
-
-    let summary = serde_json::json!({
-        "summary": {
-            "total_lines_added": total_added,
-            "total_lines_deleted": total_deleted,
-            "ai_percentage": ai_percentage,
-            "human_percentage": human_percentage,
-        }
-    });
-
-    sqlx::query("UPDATE commits SET attribution = $1 WHERE id = $2")
-        .bind(&summary)
-        .bind(commit_id)
-        .execute(pool)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(())
 }
 
 /// Merge overlapping or adjacent ranges into a minimal set of non-overlapping ranges.

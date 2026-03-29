@@ -5,6 +5,7 @@ use tracevault_core::streaming::*;
 fn test_stream_event_request_serialization() {
     let req = StreamEventRequest {
         protocol_version: 1,
+        tool: None,
         event_type: StreamEventType::ToolUse,
         session_id: "sess-123".to_string(),
         timestamp: chrono::Utc::now(),

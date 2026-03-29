@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { api } from '$lib/api';
+	import { useFetch } from '$lib/hooks/use-fetch.svelte';
+	import { fmtNum } from '$lib/utils/format';
 	import Chart from '$lib/components/chart.svelte';
 	import HelpTip from '$lib/components/HelpTip.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import {
 		Chart as ChartJS,
 		CategoryScale,
@@ -55,34 +58,12 @@
 		totals: AttributionTotals;
 	}
 
-	let data: AttributionResponse | null = $state(null);
-	let loading = $state(true);
-	let error = $state('');
-
 	const slug = $derived($page.params.slug);
+	const search = $derived($page.url.search.replace(/^\?/, ''));
 
-	async function fetchData(search: string) {
-		loading = true;
-		error = '';
-		try {
-			data = await api.get<AttributionResponse>(`/api/v1/orgs/${slug}/analytics/attribution` + (search ? '?' + search : ''));
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load';
-		} finally {
-			loading = false;
-		}
-	}
-
-	$effect(() => {
-		const search = $page.url.search.replace(/^\?/, '');
-		fetchData(search);
-	});
-
-	function fmtNum(n: number): string {
-		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-		return String(n);
-	}
+	const attributionQuery = useFetch<AttributionResponse>(
+		() => `/api/v1/orgs/${slug}/analytics/attribution` + (search ? '?' + search : '')
+	);
 
 	const AI_COLOR = '#8b5cf6';
 	const HUMAN_COLOR = '#10b981';
@@ -155,14 +136,12 @@
 <div class="space-y-6">
 	<h1 class="text-2xl font-bold">AI Attribution Analytics</h1>
 
-	{#if loading}
-		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
-			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-			Loading...
-		</div>
-	{:else if error}
-		<p class="text-destructive">{error}</p>
-	{:else if data}
+	{#if attributionQuery.loading}
+		<LoadingState />
+	{:else if attributionQuery.error}
+		<ErrorState message={attributionQuery.error} onRetry={attributionQuery.refetch} />
+	{:else if attributionQuery.data}
+		{@const data = attributionQuery.data}
 		<div class="border-border overflow-hidden rounded-lg border">
 			<div class="grid grid-cols-3 gap-px">
 				<div class="bg-background p-3 text-center">

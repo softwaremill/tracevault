@@ -116,6 +116,7 @@ pub async fn run_stream(
 
     let req = StreamEventRequest {
         protocol_version: 1,
+        tool: Some("claude-code".to_string()),
         event_type: stream_event_type,
         session_id: hook_event.session_id.clone(),
         timestamp: chrono::Utc::now(),

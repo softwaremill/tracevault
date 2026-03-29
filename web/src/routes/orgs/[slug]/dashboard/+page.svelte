@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { api } from '$lib/api';
 	import { goto } from '$app/navigation';
+	import { useFetch } from '$lib/hooks/use-fetch.svelte';
+	import { fmtNum, fmtCost } from '$lib/utils/format';
 	import PeriodSwitcher from '$lib/components/dashboard/PeriodSwitcher.svelte';
 	import KpiCard from '$lib/components/dashboard/KpiCard.svelte';
 	import SessionQualityBar from '$lib/components/dashboard/SessionQualityBar.svelte';
 	import ComplianceCard from '$lib/components/dashboard/ComplianceCard.svelte';
 	import CacheSavingsCard from '$lib/components/dashboard/CacheSavingsCard.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import * as Table from '$lib/components/ui/table/index.js';
 
 	interface TopAuthor {
@@ -44,37 +47,10 @@
 	const slug = $derived($page.params.slug);
 
 	let period = $state<'7d' | '30d' | 'month'>('7d');
-	let data = $state<DashboardData | null>(null);
-	let loading = $state(true);
-	let error = $state('');
 
-	async function fetchData(p: string) {
-		loading = true;
-		error = '';
-		try {
-			data = await api.get<DashboardData>(
-				`/api/v1/orgs/${slug}/dashboard?period=${p}`
-			);
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load dashboard';
-		} finally {
-			loading = false;
-		}
-	}
-
-	$effect(() => {
-		fetchData(period);
-	});
-
-	function fmtCost(v: number): string {
-		return '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-	}
-
-	function fmtNum(v: number): string {
-		if (v >= 1_000_000) return (v / 1_000_000).toFixed(1) + 'M';
-		if (v >= 1_000) return (v / 1_000).toFixed(1) + 'k';
-		return v.toLocaleString();
-	}
+	const dashboard = useFetch<DashboardData>(
+		() => `/api/v1/orgs/${slug}/dashboard?period=${period}`
+	);
 </script>
 
 <div class="space-y-4">
@@ -83,11 +59,12 @@
 		<PeriodSwitcher value={period} onchange={(p) => (period = p)} />
 	</div>
 
-	{#if loading && !data}
-		<div class="text-muted-foreground py-12 text-center text-sm">Loading dashboard...</div>
-	{:else if error}
-		<div class="py-12 text-center text-sm text-red-500">{error}</div>
-	{:else if data}
+	{#if dashboard.loading && !dashboard.data}
+		<LoadingState />
+	{:else if dashboard.error}
+		<ErrorState message={dashboard.error} onRetry={dashboard.refetch} />
+	{:else if dashboard.data}
+		{@const data = dashboard.data}
 		<!-- Top Authors Leaderboard -->
 		{#if data.top_authors.length > 0}
 			<div class="border-border overflow-hidden rounded-lg border">

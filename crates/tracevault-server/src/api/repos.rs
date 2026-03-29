@@ -7,7 +7,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::error::AppError;
 use crate::extractors::OrgAuth;
+use crate::repo::repos::GitRepoRepo;
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterRepoRequest {
@@ -24,16 +26,14 @@ pub async fn register_repo(
     State(state): State<AppState>,
     auth: OrgAuth,
     Json(req): Json<RegisterRepoRequest>,
-) -> Result<(StatusCode, Json<RegisterRepoResponse>), (StatusCode, String)> {
-    let repo_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO repos (org_id, name, github_url) VALUES ($1, $2, $3) ON CONFLICT (org_id, name) DO UPDATE SET github_url = COALESCE(EXCLUDED.github_url, repos.github_url) RETURNING id",
+) -> Result<(StatusCode, Json<RegisterRepoResponse>), AppError> {
+    let repo_id = GitRepoRepo::create(
+        &state.pool,
+        auth.org_id,
+        &req.repo_name,
+        req.github_url.as_deref(),
     )
-    .bind(auth.org_id)
-    .bind(&req.repo_name)
-    .bind(&req.github_url)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     // Trigger background clone if github_url is provided
     if let Some(url) = &req.github_url {
@@ -55,22 +55,18 @@ pub async fn get_deploy_key(
     pool: &sqlx::PgPool,
     repo_id: Uuid,
     encryption: &dyn crate::extensions::EncryptionProvider,
-) -> Result<Option<String>, (StatusCode, String)> {
+) -> Result<Option<String>, AppError> {
     let row = sqlx::query_as::<_, (Option<String>, Option<String>)>(
         "SELECT deploy_key_encrypted, deploy_key_nonce FROM repos WHERE id = $1",
     )
     .bind(repo_id)
     .fetch_optional(pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     if let Some((Some(ct), Some(nonce))) = row {
-        let plaintext = encryption.decrypt(&ct, &nonce).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to decrypt deploy key: {e}"),
-            )
-        })?;
+        let plaintext = encryption
+            .decrypt(&ct, &nonce)
+            .map_err(|e| AppError::Internal(format!("Failed to decrypt deploy key: {e}")))?;
         Ok(Some(plaintext))
     } else {
         Ok(None)
@@ -81,16 +77,15 @@ pub async fn sync_repo(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, repo_id)): Path<(String, Uuid)>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<Json<serde_json::Value>, AppError> {
     let repo = sqlx::query_as::<_, (String, Option<String>)>(
         "SELECT clone_status, github_url FROM repos WHERE id = $1 AND org_id = $2",
     )
     .bind(repo_id)
     .bind(auth.org_id)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, "Repo not found".into()))?;
+    .await?
+    .ok_or_else(|| AppError::NotFound("Repo not found".into()))?;
 
     let deploy_key =
         get_deploy_key(&state.pool, repo_id, state.extensions.encryption.as_ref()).await?;
@@ -101,7 +96,7 @@ pub async fn sync_repo(
             state
                 .repo_manager
                 .fetch_repo(repo_id, deploy_key.as_deref())
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+                .map_err(|e| AppError::Internal(e.to_string()))?;
 
             sqlx::query("UPDATE repos SET last_fetched_at = now() WHERE id = $1")
                 .bind(repo_id)
@@ -113,10 +108,11 @@ pub async fn sync_repo(
         }
         "pending" | "error" => {
             // Not yet cloned or previous clone failed — trigger clone
-            let github_url = repo.1.ok_or((
-                StatusCode::BAD_REQUEST,
-                "Repo has no github_url set. Update the repo with a github_url first.".into(),
-            ))?;
+            let github_url = repo.1.ok_or_else(|| {
+                AppError::BadRequest(
+                    "Repo has no github_url set. Update the repo with a github_url first.".into(),
+                )
+            })?;
 
             let pool = state.pool.clone();
             let repo_mgr = state.repo_manager.clone();
@@ -132,10 +128,9 @@ pub async fn sync_repo(
             Ok(Json(serde_json::json!({"status": "cloning"})))
         }
         "cloning" => Ok(Json(serde_json::json!({"status": "cloning"}))),
-        other => Err((
-            StatusCode::BAD_REQUEST,
-            format!("Unknown clone status: {other}"),
-        )),
+        other => Err(AppError::BadRequest(format!(
+            "Unknown clone status: {other}"
+        ))),
     }
 }
 
@@ -152,16 +147,15 @@ pub async fn get_repo(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, id)): Path<(String, Uuid)>,
-) -> Result<Json<RepoResponse>, (StatusCode, String)> {
+) -> Result<Json<RepoResponse>, AppError> {
     let row = sqlx::query_as::<_, (Uuid, String, Option<String>, String, chrono::DateTime<chrono::Utc>)>(
         "SELECT id, name, github_url, clone_status, created_at FROM repos WHERE id = $1 AND org_id = $2",
     )
     .bind(id)
     .bind(auth.org_id)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, "Repo not found".into()))?;
+    .await?
+    .ok_or_else(|| AppError::NotFound("Repo not found".into()))?;
 
     Ok(Json(RepoResponse {
         id: row.0,
@@ -175,23 +169,17 @@ pub async fn get_repo(
 pub async fn list_repos(
     State(state): State<AppState>,
     auth: OrgAuth,
-) -> Result<Json<Vec<RepoResponse>>, (StatusCode, String)> {
-    let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, String, chrono::DateTime<chrono::Utc>)>(
-        "SELECT id, name, github_url, clone_status, created_at FROM repos WHERE org_id = $1 ORDER BY name",
-    )
-    .bind(auth.org_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+) -> Result<Json<Vec<RepoResponse>>, AppError> {
+    let rows = GitRepoRepo::list(&state.pool, auth.org_id).await?;
 
     let repos = rows
         .into_iter()
         .map(|r| RepoResponse {
-            id: r.0,
-            name: r.1,
-            github_url: r.2,
-            clone_status: r.3,
-            created_at: r.4,
+            id: r.id,
+            name: r.name,
+            github_url: r.github_url,
+            clone_status: r.clone_status,
+            created_at: r.created_at,
         })
         .collect();
 
@@ -202,17 +190,16 @@ pub async fn delete_repo(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, id)): Path<(String, Uuid)>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<StatusCode, AppError> {
     if auth.role != "owner" && auth.role != "admin" {
-        return Err((StatusCode::FORBIDDEN, "Requires admin role".into()));
+        return Err(AppError::Forbidden("Requires admin role".into()));
     }
 
     sqlx::query("DELETE FROM repos WHERE id = $1 AND org_id = $2")
         .bind(id)
         .bind(auth.org_id)
         .execute(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
     Ok(StatusCode::OK)
 }
@@ -231,16 +218,15 @@ pub async fn get_settings(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, id)): Path<(String, Uuid)>,
-) -> Result<Json<RepoSettingsResponse>, (StatusCode, String)> {
+) -> Result<Json<RepoSettingsResponse>, AppError> {
     let row = sqlx::query_as::<_, (Option<String>, String, Option<String>, Option<chrono::DateTime<chrono::Utc>>)>(
         "SELECT github_url, clone_status, deploy_key_encrypted, last_fetched_at FROM repos WHERE id = $1 AND org_id = $2",
     )
     .bind(id)
     .bind(auth.org_id)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, "Repo not found".into()))?;
+    .await?
+    .ok_or_else(|| AppError::NotFound("Repo not found".into()))?;
 
     Ok(Json(RepoSettingsResponse {
         github_url: row.0,
@@ -261,7 +247,7 @@ pub async fn update_settings(
     auth: OrgAuth,
     Path((_slug, id)): Path<(String, Uuid)>,
     Json(req): Json<UpdateSettingsRequest>,
-) -> Result<Json<RepoSettingsResponse>, (StatusCode, String)> {
+) -> Result<Json<RepoSettingsResponse>, AppError> {
     // Verify repo belongs to org
     let exists = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM repos WHERE id = $1 AND org_id = $2)",
@@ -269,11 +255,10 @@ pub async fn update_settings(
     .bind(id)
     .bind(auth.org_id)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     if !exists {
-        return Err((StatusCode::NOT_FOUND, "Repo not found".into()));
+        return Err(AppError::NotFound("Repo not found".into()));
     }
 
     // Update github_url if provided (ignore empty strings)
@@ -282,18 +267,16 @@ pub async fn update_settings(
             .bind(url)
             .bind(id)
             .execute(&state.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .await?;
     }
 
     // Encrypt and store deploy key if provided (ignore empty strings)
     if let Some(ref key_pem) = req.deploy_key.filter(|k| !k.trim().is_empty()) {
-        let (ct, nonce) = state.extensions.encryption.encrypt(key_pem).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Encryption failed: {e}"),
-            )
-        })?;
+        let (ct, nonce) = state
+            .extensions
+            .encryption
+            .encrypt(key_pem)
+            .map_err(|e| AppError::Internal(format!("Encryption failed: {e}")))?;
 
         sqlx::query(
             "UPDATE repos SET deploy_key_encrypted = $1, deploy_key_nonce = $2 WHERE id = $3",
@@ -302,8 +285,7 @@ pub async fn update_settings(
         .bind(&nonce)
         .bind(id)
         .execute(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
     }
 
     // Read back current state to decide whether to trigger clone
@@ -312,8 +294,7 @@ pub async fn update_settings(
     )
     .bind(id)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let github_url = row.0.clone();
     let clone_status = row.1.clone();
@@ -351,7 +332,7 @@ pub async fn update_settings(
                 state
                     .repo_manager
                     .fetch_repo(id, deploy_key.as_deref())
-                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+                    .map_err(|e| AppError::Internal(e.to_string()))?;
                 sqlx::query("UPDATE repos SET last_fetched_at = now() WHERE id = $1")
                     .bind(id)
                     .execute(&state.pool)

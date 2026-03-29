@@ -82,6 +82,12 @@ pub async fn init_in_directory(
     install_git_hook(project_root)?;
     install_post_commit_hook(project_root)?;
 
+    // Detect AI tools in the project
+    let detected = crate::hooks::detect_tools(project_root);
+    for tool in &detected {
+        println!("  Detected: {}", tool.name());
+    }
+
     let (resolved_url, resolved_token) = crate::api_client::resolve_credentials(project_root);
     let effective_url = server_url.map(String::from).or(resolved_url);
 

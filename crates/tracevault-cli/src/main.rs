@@ -5,6 +5,7 @@ mod api_client;
 mod commands;
 mod config;
 mod credentials;
+mod hooks;
 
 #[derive(Parser)]
 #[command(name = "tracevault", version, about = "AI code governance platform")]

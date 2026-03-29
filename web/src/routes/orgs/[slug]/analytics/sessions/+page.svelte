@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { api } from '$lib/api';
+	import { useFetch } from '$lib/hooks/use-fetch.svelte';
+	import { fmtNum, fmtCost, fmtDuration, fmtRelativeTime } from '$lib/utils/format';
 	import DataTable from '$lib/components/DataTable.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import HelpTip from '$lib/components/HelpTip.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import SessionDetailPanel from '$lib/components/session-detail/SessionDetailPanel.svelte';
 	import MonitorPlayIcon from '@lucide/svelte/icons/monitor-play';
 	import ClockIcon from '@lucide/svelte/icons/clock';
@@ -13,7 +16,7 @@
 
 	const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
-	interface SessionItem {
+	interface AnalyticsSessionItem {
 		id: string;
 		session_id: string;
 		model: string | null;
@@ -33,19 +36,21 @@
 	}
 
 	interface SessionsResponse {
-		sessions: SessionItem[];
+		sessions: AnalyticsSessionItem[];
 		tool_frequency: Record<string, number>;
 		avg_duration_ms: number | null;
 		avg_messages_per_session: number | null;
 		total_sessions: number;
 	}
 
-	let data: SessionsResponse | null = $state(null);
-	let loading = $state(true);
-	let error = $state('');
 	let expandedSessionId = $state<string | null>(null);
 
 	const slug = $derived($page.params.slug);
+	const search = $derived($page.url.search.replace(/^\?/, ''));
+
+	const sessionsQuery = useFetch<SessionsResponse>(
+		() => `/api/v1/orgs/${slug}/analytics/sessions` + (search ? '?' + search : '')
+	);
 
 	const tableColumns = [
 		{ key: 'session_id', label: 'Session ID' },
@@ -60,7 +65,7 @@
 	];
 
 	const tableRows = $derived.by(() => {
-		const d = data;
+		const d = sessionsQuery.data;
 		if (!d) return [] as Record<string, unknown>[];
 		return d.sessions.map((s) => ({
 			...s,
@@ -69,13 +74,13 @@
 	});
 
 	const totalCost = $derived.by(() => {
-		const d = data;
+		const d = sessionsQuery.data;
 		if (!d) return 0;
 		return d.sessions.reduce((sum: number, s) => sum + (s.estimated_cost_usd ?? 0), 0);
 	});
 
 	const topModel = $derived.by(() => {
-		const d = data;
+		const d = sessionsQuery.data;
 		const freq: Record<string, number> = {};
 		for (const s of d?.sessions ?? []) {
 			if (s.model) freq[s.model] = (freq[s.model] ?? 0) + 1;
@@ -90,57 +95,6 @@
 		}
 		return best;
 	});
-
-	async function fetchData(search: string) {
-		loading = true;
-		error = '';
-		try {
-			data = await api.get<SessionsResponse>(`/api/v1/orgs/${slug}/analytics/sessions` + (search ? '?' + search : ''));
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load';
-		} finally {
-			loading = false;
-		}
-	}
-
-	$effect(() => {
-		const search = $page.url.search.replace(/^\?/, '');
-		fetchData(search);
-	});
-
-	function fmtDuration(ms: number | null): string {
-		if (ms == null) return '-';
-		const totalSeconds = Math.floor(ms / 1000);
-		const hours = Math.floor(totalSeconds / 3600);
-		const minutes = Math.floor((totalSeconds % 3600) / 60);
-		const seconds = totalSeconds % 60;
-		if (hours >= 1) return `${hours}h ${minutes}m`;
-		if (minutes >= 1) return `${minutes}m ${seconds}s`;
-		return `${seconds}s`;
-	}
-
-	function fmtCost(n: number | null): string {
-		if (n == null) return '-';
-		return `$${n.toFixed(2)}`;
-	}
-
-	function fmtNum(n: number): string {
-		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-		return String(n);
-	}
-
-	function fmtRelativeTime(iso: string | null): string {
-		if (!iso) return '-';
-		const diff = Date.now() - new Date(iso).getTime();
-		const minutes = Math.floor(diff / 60000);
-		const hours = Math.floor(minutes / 60);
-		const days = Math.floor(hours / 24);
-		if (days > 0) return `${days}d ago`;
-		if (hours > 0) return `${hours}h ago`;
-		if (minutes > 0) return `${minutes}m ago`;
-		return 'just now';
-	}
 
 	function toolFrequencyEntries(d: SessionsResponse): Array<{ name: string; count: number; color: string }> {
 		return Object.entries(d.tool_frequency)
@@ -165,14 +119,12 @@
 <div class="space-y-6">
 	<h1 class="text-2xl font-bold">Session Analytics</h1>
 
-	{#if loading}
-		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
-			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-			Loading...
-		</div>
-	{:else if error}
-		<p class="text-destructive">{error}</p>
-	{:else if data}
+	{#if sessionsQuery.loading}
+		<LoadingState />
+	{:else if sessionsQuery.error}
+		<ErrorState message={sessionsQuery.error} onRetry={sessionsQuery.refetch} />
+	{:else if sessionsQuery.data}
+		{@const data = sessionsQuery.data}
 		<!-- Stat cards -->
 		<div class="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
 			<StatCard label="Total Sessions" value={fmtNum(data.total_sessions)} icon={MonitorPlayIcon} color="#3b82f6" tooltip="Total AI coding sessions in the selected period." />

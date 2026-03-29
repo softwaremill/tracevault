@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { api } from '$lib/api';
+	import { useFetch } from '$lib/hooks/use-fetch.svelte';
+	import { fmtNum, fmtCost, fmtDuration, fmtRelativeTime } from '$lib/utils/format';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import HelpTip from '$lib/components/HelpTip.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import SessionDetailPanel from '$lib/components/session-detail/SessionDetailPanel.svelte';
 	import MonitorPlayIcon from '@lucide/svelte/icons/monitor-play';
 	import CoinsIcon from '@lucide/svelte/icons/coins';
@@ -44,66 +47,15 @@
 		recent_sessions: RecentSession[];
 	}
 
-	let data: AuthorDetailResponse | null = $state(null);
-	let loading = $state(true);
-	let error = $state('');
 	let expandedSessionId = $state<string | null>(null);
 
 	const slug = $derived($page.params.slug);
 	const userId = $derived($page.params.user_id);
+	const search = $derived($page.url.search.replace(/^\?/, ''));
 
-	async function fetchData(search: string) {
-		loading = true;
-		error = '';
-		try {
-			data = await api.get<AuthorDetailResponse>(
-				`/api/v1/orgs/${slug}/analytics/authors/${userId}` + (search ? '?' + search : '')
-			);
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load';
-		} finally {
-			loading = false;
-		}
-	}
-
-	$effect(() => {
-		const search = $page.url.search.replace(/^\?/, '');
-		fetchData(search);
-	});
-
-	function fmtNum(n: number): string {
-		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-		return String(n);
-	}
-
-	function fmtCost(n: number | null): string {
-		if (n == null) return '-';
-		return `$${n.toFixed(2)}`;
-	}
-
-	function fmtDuration(ms: number | null): string {
-		if (ms == null) return '-';
-		const totalSeconds = Math.floor(ms / 1000);
-		const hours = Math.floor(totalSeconds / 3600);
-		const minutes = Math.floor((totalSeconds % 3600) / 60);
-		const seconds = totalSeconds % 60;
-		if (hours >= 1) return `${hours}h ${minutes}m`;
-		if (minutes >= 1) return `${minutes}m ${seconds}s`;
-		return `${seconds}s`;
-	}
-
-	function fmtRelativeTime(iso: string | null): string {
-		if (!iso) return '-';
-		const diff = Date.now() - new Date(iso).getTime();
-		const minutes = Math.floor(diff / 60000);
-		const hours = Math.floor(minutes / 60);
-		const days = Math.floor(hours / 24);
-		if (days > 0) return `${days}d ago`;
-		if (hours > 0) return `${hours}h ago`;
-		if (minutes > 0) return `${minutes}m ago`;
-		return 'just now';
-	}
+	const authorQuery = useFetch<AuthorDetailResponse>(
+		() => `/api/v1/orgs/${slug}/analytics/authors/${userId}` + (search ? '?' + search : '')
+	);
 
 	const sessionColumns = [
 		{ key: 'session_id', label: 'Session ID' },
@@ -116,18 +68,16 @@
 </script>
 
 <svelte:head>
-	<title>{data ? (data.user.name ?? data.user.email) : 'User'} - Author Analytics - TraceVault</title>
+	<title>{authorQuery.data ? (authorQuery.data.user.name ?? authorQuery.data.user.email) : 'User'} - Author Analytics - TraceVault</title>
 </svelte:head>
 
 <div class="space-y-6">
-	{#if loading}
-		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
-			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-			Loading...
-		</div>
-	{:else if error}
-		<p class="text-destructive">{error}</p>
-	{:else if data}
+	{#if authorQuery.loading}
+		<LoadingState />
+	{:else if authorQuery.error}
+		<ErrorState message={authorQuery.error} onRetry={authorQuery.refetch} />
+	{:else if authorQuery.data}
+		{@const data = authorQuery.data}
 		<div class="flex items-center gap-3">
 			<a href="/orgs/{slug}/analytics/authors" class="text-muted-foreground hover:text-foreground text-sm">&larr; Back</a>
 			<h1 class="text-xl font-semibold">{data.user.name ?? data.user.email}</h1>

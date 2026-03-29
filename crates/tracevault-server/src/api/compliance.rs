@@ -1,14 +1,15 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
     Json,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::audit;
+use crate::error::{self, AppError};
 use crate::extractors::OrgAuth;
 use crate::permissions::Permission;
+use crate::repo::compliance::ComplianceRepo;
 use crate::AppState;
 
 // --- Compliance Settings ---
@@ -27,47 +28,22 @@ pub struct ComplianceSettingsResponse {
 pub async fn get_compliance_settings(
     State(state): State<AppState>,
     auth: OrgAuth,
-) -> Result<Json<ComplianceSettingsResponse>, (StatusCode, String)> {
-    if !state
-        .extensions
-        .permissions
-        .has_permission(&auth.role, Permission::ComplianceView)
-    {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
-    }
+) -> Result<Json<ComplianceSettingsResponse>, AppError> {
+    error::require_permission(&state.extensions, &auth.role, Permission::ComplianceView)?;
 
     let org_id = auth.org_id;
 
-    let row = sqlx::query_as::<
-        _,
-        (
-            Uuid,
-            i32,
-            bool,
-            Option<i32>,
-            Option<String>,
-            chrono::DateTime<chrono::Utc>,
-            chrono::DateTime<chrono::Utc>,
-        ),
-    >(
-        "SELECT org_id, retention_days, signing_enabled,
-                chain_verification_interval_hours, compliance_mode, created_at, updated_at
-         FROM org_compliance_settings WHERE org_id = $1",
-    )
-    .bind(org_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let row = ComplianceRepo::get_settings(&state.pool, org_id).await?;
 
     if let Some(r) = row {
         Ok(Json(ComplianceSettingsResponse {
-            org_id: r.0,
-            retention_days: r.1,
-            signing_enabled: r.2,
-            chain_verification_interval_hours: r.3,
-            compliance_mode: r.4,
-            created_at: r.5,
-            updated_at: r.6,
+            org_id: r.org_id,
+            retention_days: r.retention_days,
+            signing_enabled: r.signing_enabled,
+            chain_verification_interval_hours: r.chain_verification_interval_hours,
+            compliance_mode: r.compliance_mode,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
         }))
     } else {
         Ok(Json(ComplianceSettingsResponse {
@@ -94,27 +70,18 @@ pub async fn update_compliance_settings(
     State(state): State<AppState>,
     auth: OrgAuth,
     Json(req): Json<UpdateComplianceSettingsRequest>,
-) -> Result<Json<ComplianceSettingsResponse>, (StatusCode, String)> {
-    if !state
-        .extensions
-        .permissions
-        .has_permission(&auth.role, Permission::ComplianceManage)
-    {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
-    }
+) -> Result<Json<ComplianceSettingsResponse>, AppError> {
+    error::require_permission(&state.extensions, &auth.role, Permission::ComplianceManage)?;
 
     let org_id = auth.org_id;
 
     let valid_modes = ["none", "sox", "pci_dss", "sr_11_7", "custom"];
     if let Some(mode) = &req.compliance_mode {
         if !valid_modes.contains(&mode.as_str()) {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!(
-                    "Invalid compliance mode. Must be one of: {}",
-                    valid_modes.join(", ")
-                ),
-            ));
+            return Err(AppError::BadRequest(format!(
+                "Invalid compliance mode. Must be one of: {}",
+                valid_modes.join(", ")
+            )));
         }
     }
 
@@ -127,35 +94,22 @@ pub async fn update_compliance_settings(
     };
     if let Some(days) = req.retention_days {
         if days < min_retention {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!(
-                    "Compliance mode '{}' requires minimum {} days retention",
-                    mode, min_retention
-                ),
-            ));
+            return Err(AppError::BadRequest(format!(
+                "Compliance mode '{}' requires minimum {} days retention",
+                mode, min_retention
+            )));
         }
     }
 
-    let row = sqlx::query_as::<_, (Uuid, i32, bool, Option<i32>, Option<String>, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>(
-        "INSERT INTO org_compliance_settings (org_id, retention_days, signing_enabled, chain_verification_interval_hours, compliance_mode)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (org_id) DO UPDATE SET
-           retention_days = COALESCE($2, org_compliance_settings.retention_days),
-           signing_enabled = COALESCE($3, org_compliance_settings.signing_enabled),
-           chain_verification_interval_hours = COALESCE($4, org_compliance_settings.chain_verification_interval_hours),
-           compliance_mode = COALESCE($5, org_compliance_settings.compliance_mode),
-           updated_at = NOW()
-         RETURNING org_id, retention_days, signing_enabled, chain_verification_interval_hours, compliance_mode, created_at, updated_at"
+    let r = ComplianceRepo::upsert_settings(
+        &state.pool,
+        org_id,
+        req.retention_days.unwrap_or(365),
+        req.signing_enabled.unwrap_or(false),
+        req.chain_verification_interval_hours,
+        mode,
     )
-    .bind(org_id)
-    .bind(req.retention_days.unwrap_or(365))
-    .bind(req.signing_enabled.unwrap_or(false))
-    .bind(req.chain_verification_interval_hours)
-    .bind(req.compliance_mode.as_deref().unwrap_or("none"))
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     audit::log(
         &state.pool,
@@ -173,13 +127,13 @@ pub async fn update_compliance_settings(
     .await;
 
     Ok(Json(ComplianceSettingsResponse {
-        org_id: row.0,
-        retention_days: row.1,
-        signing_enabled: row.2,
-        chain_verification_interval_hours: row.3,
-        compliance_mode: row.4,
-        created_at: row.5,
-        updated_at: row.6,
+        org_id: r.org_id,
+        retention_days: r.retention_days,
+        signing_enabled: r.signing_enabled,
+        chain_verification_interval_hours: r.chain_verification_interval_hours,
+        compliance_mode: r.compliance_mode,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
     }))
 }
 
@@ -194,19 +148,16 @@ pub struct PublicKeyResponse {
 pub async fn get_public_key(
     State(state): State<AppState>,
     auth: OrgAuth,
-) -> Result<Json<PublicKeyResponse>, (StatusCode, String)> {
-    let encryption_key = state.encryption_key.as_deref().ok_or((
-        StatusCode::SERVICE_UNAVAILABLE,
-        "Encryption not configured".into(),
-    ))?;
+) -> Result<Json<PublicKeyResponse>, AppError> {
+    let encryption_key = state
+        .encryption_key
+        .as_deref()
+        .ok_or_else(|| AppError::Internal("Encryption not configured".into()))?;
 
     let svc = crate::org_signing::load_current(&state.pool, auth.org_id, encryption_key)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            "No signing key configured for this org".into(),
-        ))?;
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::NotFound("No signing key configured for this org".into()))?;
 
     Ok(Json(PublicKeyResponse {
         algorithm: "Ed25519".into(),
@@ -228,35 +179,12 @@ pub struct ChainStatusResponse {
 pub async fn get_chain_status(
     State(state): State<AppState>,
     auth: OrgAuth,
-) -> Result<Json<ChainStatusResponse>, (StatusCode, String)> {
-    if !state
-        .extensions
-        .permissions
-        .has_permission(&auth.role, Permission::ComplianceView)
-    {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
-    }
+) -> Result<Json<ChainStatusResponse>, AppError> {
+    error::require_permission(&state.extensions, &auth.role, Permission::ComplianceView)?;
 
     let org_id = auth.org_id;
 
-    let row = sqlx::query_as::<
-        _,
-        (
-            String,
-            i32,
-            i32,
-            Option<serde_json::Value>,
-            Option<chrono::DateTime<chrono::Utc>>,
-        ),
-    >(
-        "SELECT status, total_commits, verified_commits, errors, completed_at
-         FROM chain_verifications WHERE org_id = $1
-         ORDER BY created_at DESC LIMIT 1",
-    )
-    .bind(org_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let row = ComplianceRepo::get_chain_status(&state.pool, org_id).await?;
 
     if let Some(r) = row {
         Ok(Json(ChainStatusResponse {
@@ -280,44 +208,17 @@ pub async fn get_chain_status(
 pub async fn verify_chain(
     State(state): State<AppState>,
     auth: OrgAuth,
-) -> Result<Json<ChainStatusResponse>, (StatusCode, String)> {
-    if !state
-        .extensions
-        .permissions
-        .has_permission(&auth.role, Permission::ComplianceView)
-    {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
-    }
+) -> Result<Json<ChainStatusResponse>, AppError> {
+    error::require_permission(&state.extensions, &auth.role, Permission::ComplianceView)?;
 
     let org_id = auth.org_id;
 
-    let encryption_key = state.encryption_key.as_deref().ok_or((
-        StatusCode::SERVICE_UNAVAILABLE,
-        "Encryption not configured".into(),
-    ))?;
+    let encryption_key = state
+        .encryption_key
+        .as_deref()
+        .ok_or_else(|| AppError::Internal("Encryption not configured".into()))?;
 
-    let commits = sqlx::query_as::<
-        _,
-        (
-            Uuid,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            chrono::DateTime<chrono::Utc>,
-        ),
-    >(
-        "SELECT c.id, cs.record_hash, cs.chain_hash, cs.prev_chain_hash, cs.signature, cs.sealed_at
-         FROM commits c
-         JOIN commit_seals cs ON cs.commit_id = c.id
-         JOIN repos r ON c.repo_id = r.id
-         WHERE r.org_id = $1
-         ORDER BY cs.sealed_at ASC, c.created_at ASC, c.id ASC",
-    )
-    .bind(org_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let commits = ComplianceRepo::get_sealed_commits_for_verification(&state.pool, org_id).await?;
 
     let total = commits.len() as i32;
     let mut verified = 0i32;
@@ -333,7 +234,7 @@ pub async fn verify_chain(
 
         let svc = crate::org_signing::load_at_time(&state.pool, org_id, sealed_at, encryption_key)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            .map_err(AppError::internal)?;
 
         let Some(svc) = svc else {
             errors.push(serde_json::json!({"commit_id": id, "error": "no signing key found for sealed_at time"}));
@@ -371,18 +272,15 @@ pub async fn verify_chain(
         Some(serde_json::json!(errors))
     };
 
-    sqlx::query(
-        "INSERT INTO chain_verifications (org_id, status, total_commits, verified_commits, errors, started_at, completed_at)
-         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())"
+    ComplianceRepo::insert_chain_verification(
+        &state.pool,
+        org_id,
+        status,
+        total,
+        verified,
+        &errors_json,
     )
-    .bind(org_id)
-    .bind(status)
-    .bind(total)
-    .bind(verified)
-    .bind(&errors_json)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     audit::log(
         &state.pool,
@@ -444,14 +342,8 @@ pub async fn list_audit_log(
     State(state): State<AppState>,
     auth: OrgAuth,
     Query(query): Query<AuditLogQuery>,
-) -> Result<Json<AuditLogResponse>, (StatusCode, String)> {
-    if !state
-        .extensions
-        .permissions
-        .has_permission(&auth.role, Permission::AuditLogView)
-    {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
-    }
+) -> Result<Json<AuditLogResponse>, AppError> {
+    error::require_permission(&state.extensions, &auth.role, Permission::AuditLogView)?;
 
     let org_id = auth.org_id;
 
@@ -459,62 +351,29 @@ pub async fn list_audit_log(
     let page = query.page.unwrap_or(1).max(1);
     let offset = (page - 1) * per_page;
 
-    let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM audit_log
-         WHERE org_id = $1
-           AND ($2::TEXT IS NULL OR action = $2)
-           AND ($3::UUID IS NULL OR actor_id = $3)
-           AND ($4::TEXT IS NULL OR resource_type = $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR created_at >= $5)
-           AND ($6::TIMESTAMPTZ IS NULL OR created_at <= $6)",
+    let total = ComplianceRepo::count_audit_log(
+        &state.pool,
+        org_id,
+        &query.action,
+        query.actor_id,
+        &query.resource_type,
+        query.from,
+        query.to,
     )
-    .bind(org_id)
-    .bind(&query.action)
-    .bind(query.actor_id)
-    .bind(&query.resource_type)
-    .bind(query.from)
-    .bind(query.to)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
-    let rows = sqlx::query_as::<
-        _,
-        (
-            Uuid,
-            Option<Uuid>,
-            String,
-            String,
-            Option<Uuid>,
-            Option<serde_json::Value>,
-            Option<String>,
-            Option<String>,
-            chrono::DateTime<chrono::Utc>,
-        ),
-    >(
-        "SELECT id, actor_id, action, resource_type, resource_id, details,
-                host(ip_address)::TEXT, user_agent, created_at
-         FROM audit_log
-         WHERE org_id = $1
-           AND ($2::TEXT IS NULL OR action = $2)
-           AND ($3::UUID IS NULL OR actor_id = $3)
-           AND ($4::TEXT IS NULL OR resource_type = $4)
-           AND ($5::TIMESTAMPTZ IS NULL OR created_at >= $5)
-           AND ($6::TIMESTAMPTZ IS NULL OR created_at <= $6)
-         ORDER BY created_at DESC
-         LIMIT $7 OFFSET $8",
+    let rows = ComplianceRepo::list_audit_log(
+        &state.pool,
+        org_id,
+        &query.action,
+        query.actor_id,
+        &query.resource_type,
+        query.from,
+        query.to,
+        per_page,
+        offset,
     )
-    .bind(org_id)
-    .bind(&query.action)
-    .bind(query.actor_id)
-    .bind(&query.resource_type)
-    .bind(query.from)
-    .bind(query.to)
-    .bind(per_page)
-    .bind(offset)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let entries = rows
         .into_iter()
@@ -554,41 +413,21 @@ pub async fn verify_trace(
     State(state): State<AppState>,
     auth: OrgAuth,
     Path((_slug, sha)): Path<(String, String)>,
-) -> Result<Json<TraceVerifyResponse>, (StatusCode, String)> {
-    let commit = sqlx::query_as::<
-        _,
-        (
-            Uuid,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<chrono::DateTime<chrono::Utc>>,
-        ),
-    >(
-        "SELECT c.id, cs.record_hash, cs.chain_hash, cs.prev_chain_hash, cs.signature, cs.sealed_at
-         FROM commits c
-         JOIN repos r ON c.repo_id = r.id
-         LEFT JOIN commit_seals cs ON cs.commit_id = c.id
-         WHERE c.commit_sha = $1 AND r.org_id = $2",
-    )
-    .bind(&sha)
-    .bind(auth.org_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, "Commit not found".into()))?;
+) -> Result<Json<TraceVerifyResponse>, AppError> {
+    let commit = ComplianceRepo::get_commit_seal_by_sha(&state.pool, &sha, auth.org_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Commit not found".into()))?;
 
     let (commit_id, record_hash, chain_hash, prev_chain_hash, signature, sealed_at) = commit;
 
     let svc = if let Some(ref sat) = sealed_at {
-        let encryption_key = state.encryption_key.as_deref().ok_or((
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Encryption not configured".into(),
-        ))?;
+        let encryption_key = state
+            .encryption_key
+            .as_deref()
+            .ok_or_else(|| AppError::Internal("Encryption not configured".into()))?;
         crate::org_signing::load_at_time(&state.pool, auth.org_id, sat, encryption_key)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+            .map_err(AppError::internal)?
     } else {
         None
     };

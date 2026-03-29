@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { api } from '$lib/api';
+	import { useFetch } from '$lib/hooks/use-fetch.svelte';
+	import { fmtNum } from '$lib/utils/format';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import HelpTip from '$lib/components/HelpTip.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import BotIcon from '@lucide/svelte/icons/bot';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import ActivityIcon from '@lucide/svelte/icons/activity';
@@ -24,49 +27,25 @@
 		skill_groups: AiToolEntry[];
 	}
 
-	let data: AiToolsResponse | null = $state(null);
-	let loading = $state(true);
-	let error = $state('');
-
 	const slug = $derived($page.params.slug);
+	const search = $derived($page.url.search.replace(/^\?/, ''));
 
-	async function fetchData(search: string) {
-		loading = true;
-		error = '';
-		try {
-			data = await api.get<AiToolsResponse>(
-				`/api/v1/orgs/${slug}/analytics/ai-tools` + (search ? '?' + search : '')
-			);
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load';
-		} finally {
-			loading = false;
-		}
-	}
-
-	$effect(() => {
-		const search = $page.url.search.replace(/^\?/, '');
-		fetchData(search);
-	});
-
-	function fmtNum(n: number): string {
-		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-		return String(n);
-	}
+	const aiToolsQuery = useFetch<AiToolsResponse>(
+		() => `/api/v1/orgs/${slug}/analytics/ai-tools` + (search ? '?' + search : '')
+	);
 
 	const totalMcpServers = $derived.by(() => {
-		if (!data) return 0;
-		return data.mcp_servers.length;
+		if (!aiToolsQuery.data) return 0;
+		return aiToolsQuery.data.mcp_servers.length;
 	});
 	const totalSkillGroups = $derived.by(() => {
-		if (!data) return 0;
-		return data.skill_groups.length;
+		if (!aiToolsQuery.data) return 0;
+		return aiToolsQuery.data.skill_groups.length;
 	});
 	const totalUsage = $derived.by(() => {
-		if (!data) return 0;
-		const mcp = data.mcp_servers.reduce((s, e) => s + e.count, 0);
-		const skill = data.skill_groups.reduce((s, e) => s + e.count, 0);
+		if (!aiToolsQuery.data) return 0;
+		const mcp = aiToolsQuery.data.mcp_servers.reduce((s, e) => s + e.count, 0);
+		const skill = aiToolsQuery.data.skill_groups.reduce((s, e) => s + e.count, 0);
 		return mcp + skill;
 	});
 
@@ -80,12 +59,12 @@
 	}
 
 	const mcpBarEntries = $derived.by(() => {
-		if (!data) return [];
-		return barEntries(data.mcp_servers);
+		if (!aiToolsQuery.data) return [];
+		return barEntries(aiToolsQuery.data.mcp_servers);
 	});
 	const skillBarEntries = $derived.by(() => {
-		if (!data) return [];
-		return barEntries(data.skill_groups);
+		if (!aiToolsQuery.data) return [];
+		return barEntries(aiToolsQuery.data.skill_groups);
 	});
 	const mcpBarTotal = $derived(mcpBarEntries.reduce((s, e) => s + e.count, 0));
 	const skillBarTotal = $derived(skillBarEntries.reduce((s, e) => s + e.count, 0));
@@ -104,14 +83,12 @@
 <div class="space-y-6">
 	<h1 class="text-xl font-semibold">AI Tools Analytics</h1>
 
-	{#if loading}
-		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
-			<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-			Loading...
-		</div>
-	{:else if error}
-		<p class="text-destructive">{error}</p>
-	{:else if data}
+	{#if aiToolsQuery.loading}
+		<LoadingState />
+	{:else if aiToolsQuery.error}
+		<ErrorState message={aiToolsQuery.error} onRetry={aiToolsQuery.refetch} />
+	{:else if aiToolsQuery.data}
+		{@const data = aiToolsQuery.data}
 		<div class="grid grid-cols-3 gap-3">
 			<StatCard
 				label="MCP Servers"
