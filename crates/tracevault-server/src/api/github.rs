@@ -1,12 +1,35 @@
 use axum::{
+    body::Bytes,
     extract::State,
     http::{HeaderMap, StatusCode},
-    Json,
 };
 use chrono::Utc;
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use uuid::Uuid;
 
 use crate::AppState;
+
+type HmacSha256 = Hmac<Sha256>;
+
+/// Verify the GitHub webhook signature (X-Hub-Signature-256 header).
+/// Returns true if the signature is valid.
+fn verify_webhook_signature(secret: &str, body: &[u8], signature_header: Option<&str>) -> bool {
+    let Some(header) = signature_header else {
+        return false;
+    };
+    let Some(hex_sig) = header.strip_prefix("sha256=") else {
+        return false;
+    };
+    let Ok(sig_bytes) = hex::decode(hex_sig) else {
+        return false;
+    };
+    let Ok(mut mac) = HmacSha256::new_from_slice(secret.as_bytes()) else {
+        return false;
+    };
+    mac.update(body);
+    mac.verify_slice(&sig_bytes).is_ok()
+}
 
 /// POST /api/v1/github/webhook
 ///
@@ -16,8 +39,20 @@ use crate::AppState;
 pub async fn webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(body): Json<serde_json::Value>,
+    body: Bytes,
 ) -> (StatusCode, &'static str) {
+    let signature = headers
+        .get("x-hub-signature-256")
+        .and_then(|v| v.to_str().ok());
+
+    if !verify_webhook_signature(&state.github_webhook_secret, &body, signature) {
+        return (StatusCode::UNAUTHORIZED, "invalid webhook signature");
+    }
+
+    let Ok(body) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        return (StatusCode::BAD_REQUEST, "invalid JSON body");
+    };
+
     let event_type = headers
         .get("x-github-event")
         .and_then(|v| v.to_str().ok())
@@ -125,4 +160,43 @@ async fn handle_create(
     }
 
     (StatusCode::OK, "tag processed")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verify_signature_valid() {
+        let secret = "test-secret";
+        let body = b"{\"action\":\"push\"}";
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(body);
+        let expected = hex::encode(mac.finalize().into_bytes());
+        let header_value = format!("sha256={expected}");
+        assert!(verify_webhook_signature(secret, body, Some(&header_value)));
+    }
+
+    #[test]
+    fn verify_signature_invalid() {
+        assert!(!verify_webhook_signature(
+            "test-secret",
+            b"{}",
+            Some("sha256=deadbeef")
+        ));
+    }
+
+    #[test]
+    fn verify_signature_missing() {
+        assert!(!verify_webhook_signature("test-secret", b"{}", None));
+    }
+
+    #[test]
+    fn verify_signature_wrong_prefix() {
+        assert!(!verify_webhook_signature(
+            "test-secret",
+            b"{}",
+            Some("sha1=deadbeef")
+        ));
+    }
 }
