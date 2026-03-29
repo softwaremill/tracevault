@@ -233,18 +233,20 @@
 			<StatCard label="Cache Savings" value={fmtCost(data.cache_savings_usd)} icon={PiggyBankIcon} color="#10b981" tooltip="Money saved by reusing cached tokens at reduced rates." />
 		</div>
 
-		<div class="grid gap-6 lg:grid-cols-2">
+		<div class="grid gap-4 lg:grid-cols-2">
 			<div class="border-border rounded-lg border p-3">
 				<h4 class="mb-2 text-sm font-semibold">
 					<a href="/orgs/{slug}/analytics/tokens" class="hover:underline">Tokens Over Time</a>
 					<HelpTip text="Input and output token usage per day over the selected period." />
 				</h4>
 				{#if data.tokens_over_time.length > 0}
-					<Chart
-						type="line"
-						data={tokensChartData(data)}
-						options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
-					/>
+					<div style="height: 200px">
+						<Chart
+							type="line"
+							data={tokensChartData(data)}
+							options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } }}
+						/>
+					</div>
 				{:else}
 					<p class="text-muted-foreground text-sm">No data</p>
 				{/if}
@@ -256,33 +258,38 @@
 					<HelpTip text="Repositories ranked by total token consumption." />
 				</h4>
 				{#if data.top_repos.length > 0}
-					<Chart
-						type="bar"
-						data={reposChartData(data)}
-						options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
-					/>
+					<div style="height: 200px">
+						<Chart
+							type="bar"
+							data={reposChartData(data)}
+							options={{ responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } } }}
+						/>
+					</div>
 				{:else}
 					<p class="text-muted-foreground text-sm">No data</p>
 				{/if}
 			</div>
 		</div>
 
-		<div class="grid gap-6 lg:grid-cols-2">
+		<div class="grid gap-4 lg:grid-cols-2">
 			<div class="border-border rounded-lg border p-3">
 				<h4 class="mb-2 text-sm font-semibold">
 					<a href="/orgs/{slug}/analytics/sessions" class="hover:underline">Hourly Activity</a>
 					<HelpTip text="Distribution of sessions by hour of day (UTC), showing peak coding times." />
 				</h4>
 				{#if data.hourly_activity.length > 0}
-					<Chart
-						type="bar"
-						data={hourlyActivityChartData(data)}
-						options={{
-							responsive: true,
-							plugins: { legend: { display: false } },
-							scales: { x: { title: { display: true, text: 'Hour of Day' } }, y: { title: { display: true, text: 'Sessions' } } }
-						}}
-					/>
+					<div style="height: 200px">
+						<Chart
+							type="bar"
+							data={hourlyActivityChartData(data)}
+							options={{
+								responsive: true,
+								maintainAspectRatio: false,
+								plugins: { legend: { display: false } },
+								scales: { x: { title: { display: true, text: 'Hour of Day' } }, y: { title: { display: true, text: 'Sessions' } } }
+							}}
+						/>
+					</div>
 				{:else}
 					<p class="text-muted-foreground text-sm">No data</p>
 				{/if}
@@ -294,36 +301,36 @@
 					<HelpTip text="Number of sessions started per day." />
 				</h4>
 				{#if data.sessions_over_time.length > 0}
-					<Chart
-						type="line"
-						data={sessionsOverTimeChartData(data)}
-						options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
-					/>
+					<div style="height: 200px">
+						<Chart
+							type="line"
+							data={sessionsOverTimeChartData(data)}
+							options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } }}
+						/>
+					</div>
 				{:else}
 					<p class="text-muted-foreground text-sm">No data</p>
 				{/if}
 			</div>
 		</div>
 
-		<div class="grid gap-6 lg:grid-cols-2">
+		<div class="grid gap-4 lg:grid-cols-2">
 			<div class="border-border rounded-lg border p-3">
 				<h4 class="mb-2 text-sm font-semibold">
 					<a href="/orgs/{slug}/analytics/models" class="hover:underline">Model Distribution</a>
 					<HelpTip text="Breakdown of sessions by AI model used." />
 				</h4>
-				<div class="flex justify-center">
-					{#if data.model_distribution.length > 0}
-						<div class="max-w-[300px]">
-							<Chart
-								type="doughnut"
-								data={modelChartData(data)}
-								options={{ responsive: true, plugins: { legend: { position: 'bottom' } } }}
-							/>
-						</div>
-					{:else}
-						<p class="text-muted-foreground text-sm">No data</p>
-					{/if}
-				</div>
+				{#if data.model_distribution.length > 0}
+					<div style="height: 200px">
+						<Chart
+							type="doughnut"
+							data={modelChartData(data)}
+							options={{ responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } } as any}
+						/>
+					</div>
+				{:else}
+					<p class="text-muted-foreground text-sm">No data</p>
+				{/if}
 			</div>
 
 			<div class="border-border rounded-lg border p-3">

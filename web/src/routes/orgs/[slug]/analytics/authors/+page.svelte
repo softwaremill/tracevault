@@ -162,11 +162,13 @@
 		<div class="border-border rounded-lg border p-3">
 			<h4 class="mb-2 text-sm font-semibold">Activity Timeline <HelpTip text="Commits per author per day." /></h4>
 			{#if data.timeline.length > 0}
-				<Chart
-					type="line"
-					data={timelineChartData(data)}
-					options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
-				/>
+				<div style="height: 200px">
+					<Chart
+						type="line"
+						data={timelineChartData(data)}
+						options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } }}
+					/>
+				</div>
 			{:else}
 				<p class="text-muted-foreground text-sm">No data</p>
 			{/if}
