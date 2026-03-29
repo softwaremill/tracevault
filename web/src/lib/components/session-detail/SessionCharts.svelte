@@ -134,7 +134,11 @@
 		scales: {
 			y: {
 				ticks: {
-					callback: (value: string | number) => `$${Math.round(Number(value))}`
+					callback: function (value: string | number) {
+						const n = Number(value);
+						if (n !== Math.round(n)) return '';
+						return `$${n}`;
+					}
 				}
 			}
 		},
