@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1](https://github.com/softwaremill/tracevault/compare/v0.6.0...v0.6.1) - 2026-03-29
+
+### Test
+
+- add code_nav, hooks, redact, diff, streaming, software tests
+- add session state unit tests
+- add policy_engine unit tests
+
 ## [0.6.0](https://github.com/softwaremill/tracevault/compare/v0.5.0...v0.6.0) - 2026-03-29
 
 ### Added
