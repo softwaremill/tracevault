@@ -36,3 +36,38 @@ impl HookAdapter for ClaudeCodeAdapter {
         Ok(lines)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_event_sets_tool_name() {
+        let adapter = ClaudeCodeAdapter;
+        let json = serde_json::json!({
+            "protocol_version": 2,
+            "event_type": "tool_use",
+            "session_id": "sess-1",
+            "timestamp": "2026-01-01T00:00:00Z"
+        });
+        let result = adapter
+            .parse_event(&serde_json::to_string(&json).unwrap())
+            .unwrap();
+        assert_eq!(result.tool.as_deref(), Some("claude-code"));
+    }
+
+    #[test]
+    fn parse_event_upgrades_version_0() {
+        let adapter = ClaudeCodeAdapter;
+        let json = serde_json::json!({
+            "protocol_version": 0,
+            "event_type": "tool_use",
+            "session_id": "sess-1",
+            "timestamp": "2026-01-01T00:00:00Z"
+        });
+        let result = adapter
+            .parse_event(&serde_json::to_string(&json).unwrap())
+            .unwrap();
+        assert_eq!(result.protocol_version, 2);
+    }
+}

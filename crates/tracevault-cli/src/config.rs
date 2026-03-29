@@ -68,3 +68,55 @@ impl TracevaultConfig {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn to_toml_all_fields() {
+        let cfg = TracevaultConfig {
+            agent: "claude-code".into(),
+            server_url: Some("https://example.com".into()),
+            api_key: None, // api_key not included in to_toml
+            org_slug: Some("my-org".into()),
+            repo_id: Some("repo-1".into()),
+        };
+        let toml = cfg.to_toml();
+        assert!(toml.contains("agent = \"claude-code\""));
+        assert!(toml.contains("server_url = \"https://example.com\""));
+        assert!(toml.contains("org_slug = \"my-org\""));
+        assert!(toml.contains("repo_id = \"repo-1\""));
+    }
+
+    #[test]
+    fn to_toml_minimal() {
+        let cfg = TracevaultConfig::default();
+        let toml = cfg.to_toml();
+        assert!(toml.contains("agent = \"claude-code\""));
+        assert!(!toml.contains("server_url"));
+    }
+
+    #[test]
+    fn load_valid_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let tv_dir = dir.path().join(".tracevault");
+        fs::create_dir_all(&tv_dir).unwrap();
+        fs::write(
+            tv_dir.join("config.toml"),
+            "agent = \"claude-code\"\nserver_url = \"https://example.com\"\norg_slug = \"myorg\"\n",
+        )
+        .unwrap();
+        let cfg = TracevaultConfig::load(dir.path()).unwrap();
+        assert_eq!(cfg.agent, "claude-code");
+        assert_eq!(cfg.server_url.unwrap(), "https://example.com");
+        assert_eq!(cfg.org_slug.unwrap(), "myorg");
+    }
+
+    #[test]
+    fn load_missing_file_returns_none() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(TracevaultConfig::load(dir.path()).is_none());
+    }
+}
