@@ -129,18 +129,16 @@
 		<ErrorState message={modelsQuery.error} onRetry={modelsQuery.refetch} />
 	{:else if modelsQuery.data}
 		{@const data = modelsQuery.data}
-		<div class="grid gap-6 lg:grid-cols-2">
+		<div class="grid gap-4 lg:grid-cols-2">
 			<div class="border-border rounded-lg border p-3">
 				<h4 class="mb-2 text-sm font-semibold">Model Distribution<HelpTip text="Number of sessions using each AI model." /></h4>
 				{#if data.distribution.length > 0}
-					<div class="flex justify-center">
-						<div class="max-w-[300px]">
-							<Chart
-								type="doughnut"
-								data={distributionChartData(data)}
-								options={{ responsive: true, plugins: { legend: { position: 'bottom' } } }}
-							/>
-						</div>
+					<div style="height: 200px">
+						<Chart
+							type="doughnut"
+							data={distributionChartData(data)}
+							options={{ responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } } as any}
+						/>
 					</div>
 				{:else}
 					<p class="text-muted-foreground text-sm">No data</p>
@@ -150,15 +148,18 @@
 			<div class="border-border rounded-lg border p-3">
 				<h4 class="mb-2 text-sm font-semibold">Model Trends<HelpTip text="How model usage has changed over time." /></h4>
 				{#if data.trends.length > 0}
-					<Chart
-						type="line"
-						data={trendsChartData(data)}
-						options={{
-							responsive: true,
-							scales: { y: { stacked: true } },
-							plugins: { legend: { position: 'top' } }
-						}}
-					/>
+					<div style="height: 200px">
+						<Chart
+							type="line"
+							data={trendsChartData(data)}
+							options={{
+								responsive: true,
+								maintainAspectRatio: false,
+								scales: { y: { stacked: true } },
+								plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } }
+							}}
+						/>
+					</div>
 				{:else}
 					<p class="text-muted-foreground text-sm">No data</p>
 				{/if}
@@ -199,11 +200,13 @@
 			<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground p-3">Model Comparison<HelpTip text="Average token consumption per session for each model." /></h2>
 			{#if data.comparison.length > 0}
 				<div class="p-3 pt-0">
-					<Chart
-						type="bar"
-						data={comparisonChartData(data)}
-						options={{ responsive: true, plugins: { legend: { display: false } } }}
-					/>
+					<div style="height: 200px">
+						<Chart
+							type="bar"
+							data={comparisonChartData(data)}
+							options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }}
+						/>
+					</div>
 				</div>
 				<Table.Root class="text-xs">
 					<Table.Header>

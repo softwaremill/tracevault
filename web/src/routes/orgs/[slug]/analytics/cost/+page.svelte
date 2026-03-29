@@ -156,28 +156,28 @@
 		<div class="border-border rounded-lg border p-3">
 			<h4 class="mb-2 text-sm font-semibold">Cost Over Time<HelpTip text="Daily cost trend over the selected period." /></h4>
 			{#if data.cost_over_time.length > 0}
-				<Chart
-					type="line"
-					data={costOverTimeChartData(data)}
-					options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
-				/>
+				<div style="height: 200px">
+					<Chart
+						type="line"
+						data={costOverTimeChartData(data)}
+						options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } }}
+					/>
+				</div>
 			{:else}
 				<p class="text-muted-foreground text-sm">No data</p>
 			{/if}
 		</div>
 
-		<div class="grid gap-6 lg:grid-cols-2">
+		<div class="grid gap-4 lg:grid-cols-2">
 			<div class="border-border rounded-lg border p-3">
 				<h4 class="mb-2 text-sm font-semibold">Cost by Model<HelpTip text="Cost distribution across different AI models." /></h4>
 				{#if data.cost_by_model.length > 0}
-					<div class="flex justify-center">
-						<div class="max-w-[300px]">
-							<Chart
-								type="doughnut"
-								data={costByModelChartData(data)}
-								options={{ responsive: true, plugins: { legend: { position: 'bottom' } } }}
-							/>
-						</div>
+					<div style="height: 200px">
+						<Chart
+							type="doughnut"
+							data={costByModelChartData(data)}
+							options={{ responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } } as any}
+						/>
 					</div>
 				{:else}
 					<p class="text-muted-foreground text-sm">No data</p>
@@ -187,11 +187,13 @@
 			<div class="border-border rounded-lg border p-3">
 				<h4 class="mb-2 text-sm font-semibold">Cost by Repository<HelpTip text="Cost breakdown by repository." /></h4>
 				{#if data.cost_by_repo.length > 0}
-					<Chart
-						type="bar"
-						data={costByRepoChartData(data)}
-						options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
-					/>
+					<div style="height: 200px">
+						<Chart
+							type="bar"
+							data={costByRepoChartData(data)}
+							options={{ responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } } }}
+						/>
+					</div>
 				{:else}
 					<p class="text-muted-foreground text-sm">No data</p>
 				{/if}
@@ -201,11 +203,13 @@
 		<div class="border-border rounded-lg border p-3">
 			<h4 class="mb-2 text-sm font-semibold">Cost by Author<HelpTip text="Cost breakdown by developer." /></h4>
 			{#if data.cost_by_author.length > 0}
-				<Chart
-					type="bar"
-					data={costByAuthorChartData(data)}
-					options={{ responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }}
-				/>
+				<div style="height: 200px">
+					<Chart
+						type="bar"
+						data={costByAuthorChartData(data)}
+						options={{ responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } } }}
+					/>
+				</div>
 			{:else}
 				<p class="text-muted-foreground text-sm">No data</p>
 			{/if}

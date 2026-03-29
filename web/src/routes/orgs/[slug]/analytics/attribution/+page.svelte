@@ -162,34 +162,40 @@
 		<div class="border-border rounded-lg border p-3">
 			<h4 class="mb-2 text-sm font-semibold">AI vs Human Trend<HelpTip text="How the ratio of AI-generated vs human-written code has changed over time." /></h4>
 			{#if data.trend.length > 0}
-				<Chart
-					type="line"
-					data={trendChartData(data)}
-					options={{
-						responsive: true,
-						scales: { y: { stacked: true, max: 100 } },
-						plugins: { legend: { position: 'top' } }
-					}}
-				/>
+				<div style="height: 200px">
+					<Chart
+						type="line"
+						data={trendChartData(data)}
+						options={{
+							responsive: true,
+							maintainAspectRatio: false,
+							scales: { y: { stacked: true, max: 100 } },
+							plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } }
+						}}
+					/>
+				</div>
 			{:else}
 				<p class="text-muted-foreground text-sm">No data</p>
 			{/if}
 		</div>
 
-		<div class="grid gap-6 lg:grid-cols-2">
+		<div class="grid gap-4 lg:grid-cols-2">
 			<div class="border-border rounded-lg border p-3">
 				<h4 class="mb-2 text-sm font-semibold">By Repository<HelpTip text="AI vs human code ratio per repository." /></h4>
 				{#if data.by_repo.length > 0}
-					<Chart
-						type="bar"
-						data={repoChartData(data)}
-						options={{
-							responsive: true,
-							indexAxis: 'y',
-							scales: { x: { stacked: true, max: 100 } },
-							plugins: { legend: { position: 'top' } }
-						}}
-					/>
+					<div style="height: 200px">
+						<Chart
+							type="bar"
+							data={repoChartData(data)}
+							options={{
+								responsive: true,
+								maintainAspectRatio: false,
+								indexAxis: 'y',
+								scales: { x: { stacked: true, max: 100 } },
+								plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } }
+							}}
+						/>
+					</div>
 				{:else}
 					<p class="text-muted-foreground text-sm">No data</p>
 				{/if}
@@ -198,16 +204,19 @@
 			<div class="border-border rounded-lg border p-3">
 				<h4 class="mb-2 text-sm font-semibold">By Author<HelpTip text="AI vs human code ratio per developer." /></h4>
 				{#if data.by_author.length > 0}
-					<Chart
-						type="bar"
-						data={authorChartData(data)}
-						options={{
-							responsive: true,
-							indexAxis: 'y',
-							scales: { x: { stacked: true, max: 100 } },
-							plugins: { legend: { position: 'top' } }
-						}}
-					/>
+					<div style="height: 200px">
+						<Chart
+							type="bar"
+							data={authorChartData(data)}
+							options={{
+								responsive: true,
+								maintainAspectRatio: false,
+								indexAxis: 'y',
+								scales: { x: { stacked: true, max: 100 } },
+								plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } }
+							}}
+						/>
+					</div>
 				{:else}
 					<p class="text-muted-foreground text-sm">No data</p>
 				{/if}
