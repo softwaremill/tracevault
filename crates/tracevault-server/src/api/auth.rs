@@ -7,6 +7,24 @@ use crate::auth::{generate_device_token, generate_session_token, hash_password, 
 use crate::error::AppError;
 use crate::extractors::AuthUser;
 
+/// Basic email format validation: local@domain.tld
+fn is_valid_email(email: &str) -> bool {
+    let Some((local, domain)) = email.split_once('@') else {
+        return false;
+    };
+    if local.is_empty() || domain.is_empty() {
+        return false;
+    }
+    if local.contains(' ') || domain.contains(' ') {
+        return false;
+    }
+    let parts: Vec<&str> = domain.split('.').collect();
+    if parts.len() < 2 {
+        return false;
+    }
+    parts.iter().all(|p| !p.is_empty())
+}
+
 // --- Register ---
 
 #[derive(Deserialize)]
@@ -35,6 +53,10 @@ pub async fn register(
         return Err(AppError::BadRequest(
             "Password must be at least 10 characters".into(),
         ));
+    }
+
+    if !is_valid_email(&req.email) {
+        return Err(AppError::BadRequest("Invalid email format".into()));
     }
 
     let org_slug = req.org_name.trim().to_lowercase();
@@ -522,4 +544,29 @@ pub async fn request_invitation(
         .await?;
 
     Ok(StatusCode::CREATED)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_emails() {
+        assert!(is_valid_email("user@example.com"));
+        assert!(is_valid_email("user.name@example.co.uk"));
+        assert!(is_valid_email("user+tag@domain.org"));
+        assert!(is_valid_email("a@b.co"));
+    }
+
+    #[test]
+    fn invalid_emails() {
+        assert!(!is_valid_email(""));
+        assert!(!is_valid_email("notanemail"));
+        assert!(!is_valid_email("@domain.com"));
+        assert!(!is_valid_email("user@"));
+        assert!(!is_valid_email("user@.com"));
+        assert!(!is_valid_email("user@domain"));
+        assert!(!is_valid_email("user @domain.com"));
+        assert!(!is_valid_email("user@domain .com"));
+    }
 }
