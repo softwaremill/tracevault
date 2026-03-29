@@ -41,8 +41,20 @@ impl IntoResponse for AppError {
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".into()),
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
-            AppError::Sqlx(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-            AppError::Git(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+            AppError::Sqlx(e) => {
+                tracing::error!("Database error: {e}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".into(),
+                )
+            }
+            AppError::Git(e) => {
+                tracing::error!("Git error: {e}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".into(),
+                )
+            }
         };
         (status, Json(json!({ "error": message }))).into_response()
     }
@@ -109,5 +121,31 @@ mod tests {
     fn internal_is_500() {
         let resp = AppError::Internal("x".into()).into_response();
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn sqlx_error_does_not_leak_details() {
+        let err = AppError::Sqlx(sqlx::Error::ColumnNotFound("password_hash".into()));
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let bytes = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+            String::from_utf8(bytes.to_vec()).unwrap()
+        });
+        assert!(!body.contains("password_hash"));
+        assert!(body.contains("Internal server error"));
+    }
+
+    #[test]
+    fn git_error_does_not_leak_details() {
+        let err = AppError::Git(git2::Error::from_str("path /secret/repo not found"));
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let bytes = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+            String::from_utf8(bytes.to_vec()).unwrap()
+        });
+        assert!(!body.contains("/secret/repo"));
+        assert!(body.contains("Internal server error"));
     }
 }
