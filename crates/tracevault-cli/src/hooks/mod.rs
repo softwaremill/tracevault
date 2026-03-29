@@ -47,3 +47,32 @@ pub fn detect_tools(cwd: &Path) -> Vec<DetectedTool> {
     }
     tools
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn detect_tools_claude_only() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join(".claude")).unwrap();
+        let tools = detect_tools(dir.path());
+        assert_eq!(tools.len(), 1);
+        assert!(matches!(tools[0], DetectedTool::ClaudeCode));
+    }
+
+    #[test]
+    fn detect_tools_neither() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(detect_tools(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn detect_tools_both() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join(".claude")).unwrap();
+        fs::create_dir(dir.path().join(".cursor")).unwrap();
+        assert_eq!(detect_tools(dir.path()).len(), 2);
+    }
+}

@@ -30,3 +30,31 @@ pub struct Paginated<T: Serialize> {
     pub next_cursor: Option<String>,
     pub total_count: i64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encode_decode_roundtrip() {
+        let cursor = PageCursor {
+            created_at: Utc::now(),
+            id: Uuid::new_v4(),
+        };
+        let encoded = cursor.encode();
+        let decoded = PageCursor::decode(&encoded).unwrap();
+        assert_eq!(decoded.id, cursor.id);
+    }
+
+    #[test]
+    fn decode_invalid_base64_returns_none() {
+        assert!(PageCursor::decode("not-valid-base64!!!").is_none());
+    }
+
+    #[test]
+    fn decode_valid_base64_invalid_json_returns_none() {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        let encoded = URL_SAFE_NO_PAD.encode(b"not json");
+        assert!(PageCursor::decode(&encoded).is_none());
+    }
+}

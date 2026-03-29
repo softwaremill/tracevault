@@ -332,3 +332,34 @@ pub fn tracevault_hooks() -> serde_json::Value {
         }]
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_github_org_ssh() {
+        assert_eq!(
+            parse_github_org("git@github.com:myorg/myrepo.git"),
+            Some("myorg".into())
+        );
+    }
+
+    #[test]
+    fn parse_github_org_https() {
+        assert_eq!(
+            parse_github_org("https://github.com/myorg/myrepo"),
+            Some("myorg".into())
+        );
+    }
+
+    #[test]
+    fn parse_github_org_non_github_returns_none() {
+        assert_eq!(parse_github_org("https://gitlab.com/org/repo"), None);
+    }
+
+    #[test]
+    fn parse_github_org_invalid() {
+        assert_eq!(parse_github_org("not-a-url"), None);
+    }
+}

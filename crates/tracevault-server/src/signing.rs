@@ -54,3 +54,78 @@ impl SigningService {
         BASE64.encode(self.verifying_key.as_bytes())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ed25519_dalek::Signer;
+
+    fn test_seed() -> String {
+        BASE64.encode([42u8; 32])
+    }
+
+    #[test]
+    fn new_ephemeral_creates_service() {
+        let svc = SigningService::new(None);
+        assert!(!svc.public_key_b64().is_empty());
+    }
+
+    #[test]
+    fn new_with_seed_deterministic() {
+        let seed = test_seed();
+        let svc1 = SigningService::new(Some(&seed));
+        let svc2 = SigningService::new(Some(&seed));
+        assert_eq!(svc1.public_key_b64(), svc2.public_key_b64());
+    }
+
+    #[test]
+    fn chain_hash_no_prev() {
+        let svc = SigningService::new(None);
+        let hash = svc.chain_hash(None, "record123");
+        assert_eq!(hash.len(), 64);
+    }
+
+    #[test]
+    fn chain_hash_with_prev_differs() {
+        let svc = SigningService::new(None);
+        let h1 = svc.chain_hash(None, "record123");
+        let h2 = svc.chain_hash(Some("prevhash"), "record123");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn chain_hash_deterministic() {
+        let svc = SigningService::new(None);
+        let h1 = svc.chain_hash(Some("prev"), "record");
+        let h2 = svc.chain_hash(Some("prev"), "record");
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn verify_valid_signature() {
+        let seed = test_seed();
+        let svc = SigningService::new(Some(&seed));
+        let key_bytes = BASE64.decode(&seed).unwrap();
+        let signing_key = SigningKey::from_bytes(key_bytes[..32].try_into().unwrap());
+        let sig = signing_key.sign(b"myhash");
+        let sig_b64 = BASE64.encode(sig.to_bytes());
+        assert!(svc.verify("myhash", &sig_b64));
+    }
+
+    #[test]
+    fn verify_tampered_message() {
+        let seed = test_seed();
+        let svc = SigningService::new(Some(&seed));
+        let key_bytes = BASE64.decode(&seed).unwrap();
+        let signing_key = SigningKey::from_bytes(key_bytes[..32].try_into().unwrap());
+        let sig = signing_key.sign(b"original");
+        let sig_b64 = BASE64.encode(sig.to_bytes());
+        assert!(!svc.verify("tampered", &sig_b64));
+    }
+
+    #[test]
+    fn verify_invalid_base64() {
+        let svc = SigningService::new(None);
+        assert!(!svc.verify("hash", "not-valid-base64!!!"));
+    }
+}

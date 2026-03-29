@@ -86,3 +86,21 @@ fn test_commit_push_request_serialization() {
     let parsed: CommitPushRequest = serde_json::from_str(&json_str).unwrap();
     assert_eq!(parsed.commit_sha, "abc123");
 }
+
+#[test]
+fn extract_file_change_write_missing_content() {
+    let input = json!({"file_path": "/tmp/test.rs"});
+    assert!(extract_file_change("Write", &input).is_none());
+}
+
+#[test]
+fn extract_file_change_edit_missing_old_string() {
+    let input = json!({"file_path": "/tmp/test.rs", "new_string": "new"});
+    assert!(extract_file_change("Edit", &input).is_none());
+}
+
+#[test]
+fn extract_file_change_write_missing_file_path() {
+    let input = json!({"content": "hello"});
+    assert!(extract_file_change("Write", &input).is_none());
+}

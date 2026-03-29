@@ -314,4 +314,54 @@ mod tests {
         assert_eq!(canonical_model_name("claude-haiku-4-5"), "haiku");
         assert_eq!(canonical_model_name("unknown-model"), "sonnet");
     }
+
+    #[test]
+    fn canonical_model_name_case_insensitive() {
+        assert_eq!(canonical_model_name("Claude-3.5-Sonnet"), "sonnet");
+    }
+
+    #[test]
+    fn estimate_cost_with_pricing_all_types() {
+        let pricing = ModelPricing {
+            input_per_m: 3.0,
+            output_per_m: 15.0,
+            cache_write_per_m: 3.75,
+            cache_read_per_m: 0.30,
+        };
+        let cost = estimate_cost_with_pricing(&pricing, 1_000_000, 1_000_000, 1_000_000, 1_000_000);
+        let expected = 3.0 + 15.0 + 0.30 + 3.75;
+        assert!((cost - expected).abs() < 0.01);
+    }
+
+    #[test]
+    fn estimate_cache_savings_calculation() {
+        let savings = estimate_cache_savings("sonnet", 1_000_000);
+        assert!((savings - 2.70).abs() < 0.01);
+    }
+
+    #[test]
+    fn cost_from_model_usage_none_uses_fallback() {
+        let cost = cost_from_model_usage(None, Some("sonnet"), 1_000_000, 0, 0, 0);
+        assert!((cost - 3.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn cost_from_model_usage_valid_json() {
+        let usage = serde_json::json!([{
+            "model": "sonnet",
+            "input_tokens": 1000000,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_creation_tokens": 0
+        }]);
+        let cost = cost_from_model_usage(Some(&usage), None, 0, 0, 0, 0);
+        assert!((cost - 3.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn cost_from_model_usage_missing_fields_uses_zero() {
+        let usage = serde_json::json!([{"model": "sonnet"}]);
+        let cost = cost_from_model_usage(Some(&usage), None, 0, 0, 0, 0);
+        assert!(cost.abs() < 0.001);
+    }
 }

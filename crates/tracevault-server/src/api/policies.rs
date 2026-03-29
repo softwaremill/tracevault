@@ -463,3 +463,76 @@ pub(crate) fn evaluate_condition(
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn required_tool_call_all_present() {
+        let cond = serde_json::json!({"type": "RequiredToolCall", "tool_names": ["Read", "Write"]});
+        let mut tools = HashMap::new();
+        tools.insert("Read".to_string(), 5_i64);
+        tools.insert("Write".to_string(), 3_i64);
+        assert!(evaluate_condition(&cond, &tools, &[]).passed);
+    }
+
+    #[test]
+    fn required_tool_call_missing() {
+        let cond = serde_json::json!({"type": "RequiredToolCall", "tool_names": ["Lint"]});
+        assert!(!evaluate_condition(&cond, &HashMap::new(), &[]).passed);
+    }
+
+    #[test]
+    fn conditional_tool_call_file_matches_count_met() {
+        let cond = serde_json::json!({
+            "type": "ConditionalToolCall",
+            "tool_name": "security_scan",
+            "min_count": 1,
+            "when_files_match": ["**/*.rs"]
+        });
+        let mut tools = HashMap::new();
+        tools.insert("security_scan".to_string(), 2_i64);
+        let files = vec!["src/main.rs".to_string()];
+        assert!(evaluate_condition(&cond, &tools, &files).passed);
+    }
+
+    #[test]
+    fn conditional_tool_call_count_not_met() {
+        let cond = serde_json::json!({
+            "type": "ConditionalToolCall",
+            "tool_name": "security_scan",
+            "min_count": 5,
+            "when_files_match": ["**/*.rs"]
+        });
+        let mut tools = HashMap::new();
+        tools.insert("security_scan".to_string(), 1_i64);
+        let files = vec!["src/main.rs".to_string()];
+        assert!(!evaluate_condition(&cond, &tools, &files).passed);
+    }
+
+    #[test]
+    fn conditional_tool_call_no_file_match_passes() {
+        let cond = serde_json::json!({
+            "type": "ConditionalToolCall",
+            "tool_name": "security_scan",
+            "min_count": 1,
+            "when_files_match": ["*.py"]
+        });
+        let files = vec!["src/main.rs".to_string()];
+        assert!(evaluate_condition(&cond, &HashMap::new(), &files).passed);
+    }
+
+    #[test]
+    fn ai_percentage_threshold_passes() {
+        let cond = serde_json::json!({"type": "AiPercentageThreshold", "threshold": 80.0});
+        assert!(evaluate_condition(&cond, &HashMap::new(), &[]).passed);
+    }
+
+    #[test]
+    fn unknown_condition_passes() {
+        let cond = serde_json::json!({"type": "FutureCondition"});
+        assert!(evaluate_condition(&cond, &HashMap::new(), &[]).passed);
+    }
+}

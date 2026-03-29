@@ -1,6 +1,7 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
+#[allow(dead_code)]
 pub async fn seed_org(pool: &PgPool) -> Uuid {
     sqlx::query_scalar::<_, Uuid>(
         "INSERT INTO orgs (name) VALUES ('test-org-' || gen_random_uuid()::text) RETURNING id",
@@ -10,6 +11,7 @@ pub async fn seed_org(pool: &PgPool) -> Uuid {
     .unwrap()
 }
 
+#[allow(dead_code)]
 pub async fn seed_user(pool: &PgPool) -> Uuid {
     let email = format!("test-{}@example.com", Uuid::new_v4());
     sqlx::query_scalar::<_, Uuid>(
@@ -43,4 +45,72 @@ pub async fn seed_membership(pool: &PgPool, user_id: Uuid, org_id: Uuid, role: &
         .execute(pool)
         .await
         .unwrap();
+}
+
+#[allow(dead_code)]
+pub async fn seed_session(pool: &PgPool, org_id: Uuid, repo_id: Uuid, user_id: Uuid) -> Uuid {
+    use tracevault_server::repo::sessions::{SessionRepo, UpsertSession};
+    SessionRepo::upsert(
+        pool,
+        &UpsertSession {
+            org_id,
+            repo_id,
+            user_id,
+            session_id: format!("sess-{}", Uuid::new_v4()),
+            model: Some("sonnet".into()),
+            cwd: Some("/project".into()),
+            tool: Some("claude-code".into()),
+            timestamp: Some(chrono::Utc::now()),
+        },
+    )
+    .await
+    .unwrap()
+}
+
+#[allow(dead_code)]
+pub async fn seed_event(pool: &PgPool, session_id: Uuid, event_index: i32) -> Uuid {
+    use tracevault_server::repo::events::{EventRepo, InsertToolEvent};
+    EventRepo::insert_tool_event(
+        pool,
+        &InsertToolEvent {
+            session_id,
+            event_index,
+            tool_name: Some("Read".into()),
+            tool_input: Some(serde_json::json!({"file_path": "/tmp/test.rs"})),
+            tool_response: None,
+            timestamp: Some(chrono::Utc::now()),
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap()
+}
+
+#[allow(dead_code)]
+pub async fn seed_commit(pool: &PgPool, repo_id: Uuid, sha: &str) -> Uuid {
+    use tracevault_server::repo::commits::{CommitRepo, UpsertCommit};
+    CommitRepo::upsert(
+        pool,
+        &UpsertCommit {
+            repo_id,
+            commit_sha: sha.into(),
+            branch: Some("main".into()),
+            author: "dev@test.com".into(),
+            message: Some("test commit".into()),
+            diff_data: None,
+            committed_at: Some(chrono::Utc::now()),
+        },
+    )
+    .await
+    .unwrap()
+}
+
+#[allow(dead_code)]
+pub async fn seed_api_key(pool: &PgPool, org_id: Uuid) -> (Uuid, String) {
+    use tracevault_server::repo::api_keys::ApiKeyRepo;
+    let hash = format!("keyhash_{}", Uuid::new_v4());
+    let id = ApiKeyRepo::create(pool, org_id, &hash, "test-key")
+        .await
+        .unwrap();
+    (id, hash)
 }

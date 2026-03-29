@@ -30,3 +30,21 @@ impl ServerConfig {
         format!("{}:{}", self.host, self.port)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bind_addr_format() {
+        let cfg = ServerConfig {
+            database_url: String::new(),
+            host: "127.0.0.1".into(),
+            port: 8080,
+            cors_origin: None,
+            repos_dir: ".".into(),
+            encryption_key: None,
+        };
+        assert_eq!(cfg.bind_addr(), "127.0.0.1:8080");
+    }
+}

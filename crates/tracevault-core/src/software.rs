@@ -246,4 +246,23 @@ mod tests {
             vec!["find", "xargs", "sort"]
         );
     }
+
+    #[test]
+    fn quoted_pipe_not_split() {
+        let result = extract_software(r#"echo "hello | world""#);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn flag_with_equals() {
+        assert_eq!(
+            extract_software("cargo build --target=x86_64"),
+            vec!["cargo"]
+        );
+    }
+
+    #[test]
+    fn trailing_operator() {
+        assert_eq!(extract_software("git add . &&"), vec!["git"]);
+    }
 }

@@ -260,3 +260,229 @@ fn default_policies() -> Vec<PolicyRule> {
         },
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::token_usage::TokenUsage;
+    use crate::trace::{Session, ToolCall};
+    use chrono::Utc;
+
+    fn make_trace(session_id: &str, model: Option<&str>) -> TraceRecord {
+        TraceRecord {
+            id: Uuid::nil(),
+            repo_id: "repo".into(),
+            commit_sha: "abc123".into(),
+            branch: None,
+            author: "dev".into(),
+            created_at: Utc::now(),
+            model: model.map(String::from),
+            tool: "claude-code".into(),
+            tool_version: None,
+            session: Session {
+                session_id: session_id.into(),
+                started_at: Utc::now(),
+                ended_at: None,
+                prompts: vec![],
+                responses: vec![],
+                token_usage: TokenUsage::default(),
+                tools_used: vec![],
+            },
+            agent_trace: None,
+            signature: None,
+        }
+    }
+
+    fn make_trace_with_tools(tools: Vec<&str>) -> TraceRecord {
+        let mut trace = make_trace("sess-1", Some("anthropic/claude-3"));
+        trace.session.tools_used = tools
+            .into_iter()
+            .map(|name| ToolCall {
+                name: name.into(),
+                input_summary: String::new(),
+                timestamp: Utc::now(),
+            })
+            .collect();
+        trace
+    }
+
+    fn make_trace_with_tokens(total_tokens: u64, cost: f64) -> TraceRecord {
+        let mut trace = make_trace("sess-1", Some("anthropic/claude-3"));
+        trace.session.token_usage.total_tokens = total_tokens;
+        trace.session.token_usage.estimated_cost_usd = cost;
+        trace
+    }
+
+    // --- TraceCompleteness ---
+
+    #[test]
+    fn completeness_pass_when_both_present() {
+        let trace = make_trace("sess-1", Some("claude-3"));
+        let (result, _) = eval_trace_completeness(&trace);
+        assert_eq!(result, EvalResult::Pass);
+    }
+
+    #[test]
+    fn completeness_fail_missing_session_id() {
+        let trace = make_trace("", Some("claude-3"));
+        let (result, details) = eval_trace_completeness(&trace);
+        assert_eq!(result, EvalResult::Warn);
+        assert!(details.contains("session"));
+    }
+
+    #[test]
+    fn completeness_fail_missing_model() {
+        let trace = make_trace("sess-1", None);
+        let (result, details) = eval_trace_completeness(&trace);
+        assert_eq!(result, EvalResult::Warn);
+        assert!(details.contains("model"));
+    }
+
+    #[test]
+    fn completeness_fail_both_missing() {
+        let trace = make_trace("", None);
+        let (result, details) = eval_trace_completeness(&trace);
+        assert_eq!(result, EvalResult::Warn);
+        assert!(details.contains("session"));
+        assert!(details.contains("model"));
+    }
+
+    // --- ModelAllowlist ---
+
+    #[test]
+    fn model_allowlist_pass_empty_list() {
+        let trace = make_trace("sess-1", Some("anything"));
+        let (result, _) = eval_model_allowlist(&trace, &[]);
+        assert_eq!(result, EvalResult::Pass);
+    }
+
+    #[test]
+    fn model_allowlist_pass_match() {
+        let trace = make_trace("sess-1", Some("anthropic/claude-3"));
+        let allowed = vec!["anthropic/claude".into(), "openai/gpt".into()];
+        let (result, _) = eval_model_allowlist(&trace, &allowed);
+        assert_eq!(result, EvalResult::Pass);
+    }
+
+    #[test]
+    fn model_allowlist_fail_no_match() {
+        let trace = make_trace("sess-1", Some("unknown/model"));
+        let allowed = vec!["anthropic/claude".into(), "openai/gpt".into()];
+        let (result, _) = eval_model_allowlist(&trace, &allowed);
+        assert_eq!(result, EvalResult::Fail);
+    }
+
+    // --- RequiredToolCall ---
+
+    #[test]
+    fn required_tool_call_pass_all_present() {
+        let trace = make_trace_with_tools(vec!["cargo test", "cargo clippy"]);
+        let required = vec!["cargo test".into(), "cargo clippy".into()];
+        let (result, _) = eval_required_tool_call(&trace, &required);
+        assert_eq!(result, EvalResult::Pass);
+    }
+
+    #[test]
+    fn required_tool_call_warn_missing() {
+        let trace = make_trace_with_tools(vec!["cargo test"]);
+        let required = vec!["cargo test".into(), "cargo clippy".into()];
+        let (result, details) = eval_required_tool_call(&trace, &required);
+        assert_eq!(result, EvalResult::Warn);
+        assert!(details.contains("cargo clippy"));
+    }
+
+    // --- TokenBudget ---
+
+    #[test]
+    fn token_budget_pass_under_limits() {
+        let trace = make_trace_with_tokens(1000, 1.0);
+        let (result, _) = eval_token_budget(&trace, Some(5000), Some(10.0));
+        assert_eq!(result, EvalResult::Pass);
+    }
+
+    #[test]
+    fn token_budget_warn_over_max_tokens() {
+        let trace = make_trace_with_tokens(10_000, 1.0);
+        let (result, _) = eval_token_budget(&trace, Some(5000), Some(10.0));
+        assert_eq!(result, EvalResult::Warn);
+    }
+
+    #[test]
+    fn token_budget_warn_over_max_cost() {
+        let trace = make_trace_with_tokens(1000, 20.0);
+        let (result, _) = eval_token_budget(&trace, Some(5000), Some(10.0));
+        assert_eq!(result, EvalResult::Warn);
+    }
+
+    #[test]
+    fn token_budget_pass_both_none() {
+        let trace = make_trace_with_tokens(999_999, 999.0);
+        let (result, _) = eval_token_budget(&trace, None, None);
+        assert_eq!(result, EvalResult::Pass);
+    }
+
+    // --- ConditionalToolCall ---
+
+    #[test]
+    fn conditional_tool_call_pass_count_met() {
+        let trace = make_trace_with_tools(vec!["cargo test", "cargo test"]);
+        let (result, _) = eval_conditional_tool_call(&trace, "cargo test", Some(2));
+        assert_eq!(result, EvalResult::Pass);
+    }
+
+    #[test]
+    fn conditional_tool_call_fail_count_not_met() {
+        let trace = make_trace_with_tools(vec!["cargo test"]);
+        let (result, _) = eval_conditional_tool_call(&trace, "cargo test", Some(3));
+        assert_eq!(result, EvalResult::Fail);
+    }
+
+    #[test]
+    fn conditional_tool_call_fail_absent() {
+        let trace = make_trace_with_tools(vec!["cargo clippy"]);
+        let (result, _) = eval_conditional_tool_call(&trace, "cargo test", Some(1));
+        assert_eq!(result, EvalResult::Fail);
+    }
+
+    // --- PolicyEngine ---
+
+    #[test]
+    fn evaluate_skips_disabled_policies() {
+        let policies = vec![
+            PolicyRule {
+                id: Uuid::nil(),
+                org_id: None,
+                name: "enabled".into(),
+                description: String::new(),
+                condition: PolicyCondition::TraceCompleteness,
+                action: PolicyAction::Warn,
+                severity: PolicySeverity::Low,
+                enabled: true,
+            },
+            PolicyRule {
+                id: Uuid::nil(),
+                org_id: None,
+                name: "disabled".into(),
+                description: String::new(),
+                condition: PolicyCondition::TraceCompleteness,
+                action: PolicyAction::Warn,
+                severity: PolicySeverity::Low,
+                enabled: false,
+            },
+        ];
+        let engine = PolicyEngine::new(policies);
+        let trace = make_trace("sess-1", Some("claude-3"));
+        let results = engine.evaluate(&trace);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].policy.name, "enabled");
+    }
+
+    #[test]
+    fn with_defaults_returns_six_enabled() {
+        let engine = PolicyEngine::with_defaults();
+        let trace = make_trace("sess-1", Some("anthropic/claude-3"));
+        let results = engine.evaluate(&trace);
+        assert_eq!(results.len(), 6);
+        assert!(results.iter().all(|r| r.policy.enabled));
+    }
+}

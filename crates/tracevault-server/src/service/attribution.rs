@@ -350,3 +350,123 @@ fn merge_ranges(ranges: &mut [(i32, i32)]) -> Vec<(i32, i32)> {
     }
     merged
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_ranges_overlapping() {
+        let mut ranges = vec![(1, 3), (2, 5)];
+        assert_eq!(merge_ranges(&mut ranges), vec![(1, 5)]);
+    }
+
+    #[test]
+    fn merge_ranges_adjacent() {
+        let mut ranges = vec![(1, 2), (3, 4)];
+        assert_eq!(merge_ranges(&mut ranges), vec![(1, 4)]);
+    }
+
+    #[test]
+    fn merge_ranges_disjoint() {
+        let mut ranges = vec![(1, 2), (5, 6)];
+        assert_eq!(merge_ranges(&mut ranges), vec![(1, 2), (5, 6)]);
+    }
+
+    #[test]
+    fn merge_ranges_empty() {
+        let mut ranges: Vec<(i32, i32)> = vec![];
+        assert!(merge_ranges(&mut ranges).is_empty());
+    }
+
+    #[test]
+    fn parse_diff_hunks_added_lines_format() {
+        let diff = serde_json::json!({"files": [{
+            "path": "src/main.rs",
+            "hunks": [{
+                "new_start": 1,
+                "new_count": 3,
+                "added_lines": ["line1", "line2", "line3"]
+            }]
+        }]});
+        let hunks = parse_diff_hunks(&diff);
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(hunks[0].file_path, "src/main.rs");
+        assert_eq!(hunks[0].added_lines.len(), 3);
+    }
+
+    #[test]
+    fn parse_diff_hunks_lines_format_with_plus() {
+        let diff = serde_json::json!({"files": [{
+            "path": "src/main.rs",
+            "hunks": [{
+                "new_start": 1,
+                "new_count": 2,
+                "lines": ["+added1", "-removed", "+added2"]
+            }]
+        }]});
+        let hunks = parse_diff_hunks(&diff);
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(hunks[0].added_lines.len(), 2);
+    }
+
+    #[test]
+    fn parse_diff_hunks_empty_hunks_creates_file_level() {
+        let diff = serde_json::json!({"files": [{
+            "path": "src/main.rs"
+        }]});
+        let hunks = parse_diff_hunks(&diff);
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(hunks[0].line_start, 0);
+        assert_eq!(hunks[0].line_end, 0);
+    }
+
+    #[test]
+    fn count_diff_lines_both_formats() {
+        let diff = serde_json::json!({"files": [{
+            "path": "a.rs",
+            "hunks": [{"added_lines": ["x", "y"], "lines": ["-old"]}]
+        }]});
+        let (added, deleted) = count_diff_lines(&diff);
+        assert_eq!(*added.get("a.rs").unwrap(), 2);
+        assert_eq!(deleted, 1);
+    }
+
+    #[test]
+    fn compute_confidence_file_level_write() {
+        let hunk = DiffHunk {
+            file_path: "src/main.rs".into(),
+            line_start: 0,
+            line_end: 0,
+            added_lines: vec![],
+        };
+        let fc = FileChangeMatch {
+            session_id: uuid::Uuid::new_v4(),
+            event_id: uuid::Uuid::new_v4(),
+            change_type: "write".into(),
+            line_start: None,
+            line_end: None,
+            diff_text: None,
+        };
+        assert!((compute_confidence(&hunk, &fc) - 0.4).abs() < 0.01);
+    }
+
+    #[test]
+    fn compute_confidence_file_level_read() {
+        let hunk = DiffHunk {
+            file_path: "src/main.rs".into(),
+            line_start: 0,
+            line_end: 0,
+            added_lines: vec![],
+        };
+        let fc = FileChangeMatch {
+            session_id: uuid::Uuid::new_v4(),
+            event_id: uuid::Uuid::new_v4(),
+            change_type: "read".into(),
+            line_start: None,
+            line_end: None,
+            diff_text: None,
+        };
+        assert!((compute_confidence(&hunk, &fc) - 0.3).abs() < 0.01);
+    }
+}

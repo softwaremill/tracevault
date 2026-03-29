@@ -141,3 +141,70 @@ fn parse_diff_to_json(diff: &str) -> serde_json::Value {
 
     json!({ "files": files })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_diff_empty() {
+        let result = parse_diff_to_json("");
+        assert!(result["files"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn parse_diff_single_file() {
+        let diff = "\
+diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,3 +1,4 @@
+ fn main() {
++    println!(\"hello\");
+     other();
+ }
+";
+        let result = parse_diff_to_json(diff);
+        let files = result["files"].as_array().unwrap();
+        assert_eq!(files.len(), 1);
+    }
+
+    #[test]
+    fn parse_diff_extracts_added_lines() {
+        let diff = "\
+diff --git a/a.rs b/a.rs
+--- a/a.rs
++++ b/a.rs
+@@ -1,2 +1,3 @@
+ existing
++new_line
+-removed
+";
+        let result = parse_diff_to_json(diff);
+        let files = result["files"].as_array().unwrap();
+        let hunks = files[0]["hunks"].as_array().unwrap();
+        let added = hunks[0]["added_lines"].as_array().unwrap();
+        assert!(added.iter().any(|l| l.as_str().unwrap() == "new_line"));
+    }
+
+    #[test]
+    fn parse_diff_multiple_files() {
+        let diff = "\
+diff --git a/a.rs b/a.rs
+--- a/a.rs
++++ b/a.rs
+@@ -1 +1,2 @@
+ a
++b
+diff --git a/c.rs b/c.rs
+--- a/c.rs
++++ b/c.rs
+@@ -1 +1,2 @@
+ c
++d
+";
+        let result = parse_diff_to_json(diff);
+        let files = result["files"].as_array().unwrap();
+        assert_eq!(files.len(), 2);
+    }
+}
