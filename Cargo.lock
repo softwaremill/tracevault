@@ -2676,7 +2676,7 @@ checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
 name = "tracevault-cli"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "chrono",
  "clap",
@@ -2695,7 +2695,7 @@ dependencies = [
 
 [[package]]
 name = "tracevault-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2725,7 +2725,7 @@ dependencies = [
 
 [[package]]
 name = "tracevault-server"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "aes-gcm",
  "argon2",
