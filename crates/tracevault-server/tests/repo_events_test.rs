@@ -127,14 +127,16 @@ async fn insert_transcript_chunk_dedup(pool: sqlx::PgPool) {
         data: serde_json::json!({"role": "user", "content": "hello"}),
     };
 
-    EventRepo::insert_transcript_chunk(&pool, &chunk)
+    let inserted = EventRepo::insert_transcript_chunk(&pool, &chunk)
         .await
         .unwrap();
+    assert!(inserted, "first insert should return true");
 
-    // Duplicate should not error (ON CONFLICT DO NOTHING)
-    EventRepo::insert_transcript_chunk(&pool, &chunk)
+    // Duplicate should not error (ON CONFLICT DO NOTHING) and should return false
+    let inserted_again = EventRepo::insert_transcript_chunk(&pool, &chunk)
         .await
         .unwrap();
+    assert!(!inserted_again, "duplicate insert should return false");
 
     let (count,): (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM transcript_chunks WHERE session_id = $1")

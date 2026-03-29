@@ -67,7 +67,7 @@ impl StreamService {
 
                 for (i, line) in lines.iter().enumerate() {
                     let chunk_index = offset as i32 + i as i32;
-                    EventRepo::insert_transcript_chunk(
+                    let was_inserted = EventRepo::insert_transcript_chunk(
                         &state.pool,
                         &InsertTranscriptChunk {
                             session_id: session_db_id,
@@ -76,6 +76,12 @@ impl StreamService {
                         },
                     )
                     .await?;
+
+                    // Only count tokens from newly inserted chunks to avoid
+                    // double-counting when overlapping batches are sent
+                    if !was_inserted {
+                        continue;
+                    }
 
                     // Extract token usage from assistant messages
                     if let Some(msg) = line.get("message") {
