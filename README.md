@@ -144,7 +144,32 @@ The dashboard runs on `http://localhost:5173` and proxies API calls to `http://l
 PUBLIC_API_URL=http://your-server:3000 pnpm dev
 ```
 
-### 5. Initialize TraceVault in a repository
+### 5. Run tests
+
+Unit tests (no database required):
+
+```sh
+cargo test -p tracevault-core
+cargo test -p tracevault-server --lib
+cargo test -p tracevault-cli
+```
+
+Integration tests require a running PostgreSQL instance. A separate test database is provided via Docker Compose to avoid interfering with your development database:
+
+```sh
+# Start the test database (port 5433, uses tmpfs — no persistence)
+docker compose -f docker-compose.test.yml up -d
+
+# Run integration tests
+source .env.test && cargo test -p tracevault-server --test '*'
+
+# Tear down
+docker compose -f docker-compose.test.yml down
+```
+
+The test database runs on port **5433** with separate credentials (`tracevault_test`), so it won't conflict with the dev database on port 5432.
+
+### 6. Initialize TraceVault in a repository
 
 ```sh
 cd /path/to/your/repo
@@ -192,7 +217,7 @@ The command also installs the Claude Code hook configuration in `.claude/setting
 }
 ```
 
-### 6. Authenticate and push traces
+### 7. Authenticate and push traces
 
 ```sh
 # Log in to a TraceVault server (opens browser for device auth):
