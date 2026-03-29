@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn key_too_long() {
-        let long_key = B64.encode(&[0u8; 64]);
+        let long_key = B64.encode([0u8; 64]);
         assert!(encrypt("hello", &long_key).is_err());
     }
 
@@ -92,15 +92,15 @@ mod tests {
 
     #[test]
     fn decrypt_wrong_key() {
-        let key1 = B64.encode(&[1u8; 32]);
-        let key2 = B64.encode(&[2u8; 32]);
+        let key1 = B64.encode([1u8; 32]);
+        let key2 = B64.encode([2u8; 32]);
         let (ct, nonce) = encrypt("secret", &key1).unwrap();
         assert!(decrypt(&ct, &nonce, &key2).is_err());
     }
 
     #[test]
     fn decrypt_corrupted_ciphertext() {
-        let key = B64.encode(&[3u8; 32]);
+        let key = B64.encode([3u8; 32]);
         let (_, nonce) = encrypt("secret", &key).unwrap();
         let bad_ct = B64.encode(b"corrupted");
         assert!(decrypt(&bad_ct, &nonce, &key).is_err());
@@ -108,9 +108,9 @@ mod tests {
 
     #[test]
     fn decrypt_wrong_nonce() {
-        let key = B64.encode(&[4u8; 32]);
+        let key = B64.encode([4u8; 32]);
         let (ct, _) = encrypt("secret", &key).unwrap();
-        let bad_nonce = B64.encode(&[0u8; 12]);
+        let bad_nonce = B64.encode([0u8; 12]);
         assert!(decrypt(&ct, &bad_nonce, &key).is_err());
     }
 }
