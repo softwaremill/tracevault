@@ -404,3 +404,51 @@ fn trend_pct(current: f64, previous: f64) -> f64 {
         ((current - previous) / previous) * 100.0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trend_pct_zero_previous_current_positive() {
+        // previous=0, current=100 → 100% (special case)
+        assert_eq!(trend_pct(100.0, 0.0), 100.0);
+    }
+
+    #[test]
+    fn trend_pct_both_zero() {
+        assert_eq!(trend_pct(0.0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn trend_pct_no_change() {
+        assert!((trend_pct(100.0, 100.0) - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn trend_pct_decrease() {
+        // current=50, previous=100 → -50%
+        assert!((trend_pct(50.0, 100.0) - (-50.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn trend_pct_increase() {
+        // current=200, previous=100 → +100%
+        assert!((trend_pct(200.0, 100.0) - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn period_ranges_7d() {
+        let (from, to, prev_from, _prev_to) = period_ranges("7d");
+        let diff = to.signed_duration_since(from);
+        assert!(diff.num_days() >= 6 && diff.num_days() <= 7);
+        assert!(prev_from < from);
+    }
+
+    #[test]
+    fn period_ranges_30d() {
+        let (from, to, _, _) = period_ranges("30d");
+        let diff = to.signed_duration_since(from);
+        assert!(diff.num_days() >= 29 && diff.num_days() <= 30);
+    }
+}
