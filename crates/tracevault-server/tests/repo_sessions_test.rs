@@ -213,3 +213,56 @@ async fn increment_tool_calls(pool: sqlx::PgPool) {
         .unwrap();
     assert_eq!(count, 3);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn complete_with_stats(pool: sqlx::PgPool) {
+    let org_id = common::seed_org(&pool).await;
+    let repo_id = common::seed_repo(&pool, org_id).await;
+    let user_id = common::seed_user(&pool).await;
+    let session_id = common::seed_session(&pool, org_id, repo_id, user_id).await;
+
+    let stats = tracevault_core::streaming::SessionFinalStats {
+        duration_ms: Some(5000),
+        total_tokens: Some(200),
+        input_tokens: Some(150),
+        output_tokens: Some(50),
+        cache_read_tokens: None,
+        cache_write_tokens: None,
+        user_messages: Some(3),
+        assistant_messages: Some(3),
+        total_tool_calls: Some(10),
+    };
+
+    SessionRepo::complete_with_stats(&pool, session_id, Some(Utc::now()), &stats)
+        .await
+        .unwrap();
+
+    let row: (Option<String>, Option<i64>, Option<i32>) =
+        sqlx::query_as("SELECT status, duration_ms, user_messages FROM sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(row.0.as_deref(), Some("completed"));
+    assert_eq!(row.1, Some(5000));
+    assert_eq!(row.2, Some(3));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn complete_minimal(pool: sqlx::PgPool) {
+    let org_id = common::seed_org(&pool).await;
+    let repo_id = common::seed_repo(&pool, org_id).await;
+    let user_id = common::seed_user(&pool).await;
+    let session_id = common::seed_session(&pool, org_id, repo_id, user_id).await;
+
+    SessionRepo::complete_minimal(&pool, session_id, Some(Utc::now()))
+        .await
+        .unwrap();
+
+    let (status,): (Option<String>,) = sqlx::query_as("SELECT status FROM sessions WHERE id = $1")
+        .bind(session_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status.as_deref(), Some("completed"));
+}
