@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
-	import { browser } from '$app/environment';
 	import { auth } from '$lib/stores/auth';
 	import { orgStore } from '$lib/stores/org';
 	import { features } from '$lib/stores/features';
+	import { sidebarExpanded } from '$lib/stores/sidebar';
 	import { ChevronsLeft } from '@lucide/svelte';
 	import SidebarNav from './sidebar/SidebarNav.svelte';
 	import SidebarOrgSwitcher from './sidebar/SidebarOrgSwitcher.svelte';
@@ -35,17 +35,10 @@
 	const slug = $derived(orgCurrent?.org_name ?? $page.params.slug ?? '');
 
 	let expanded = $state(false);
-
-	if (browser) {
-		expanded = localStorage.getItem('sidebar-expanded') === 'true';
-	}
-
-	function toggleExpanded() {
-		expanded = !expanded;
-		if (browser) {
-			localStorage.setItem('sidebar-expanded', String(expanded));
-		}
-	}
+	$effect(() => {
+		const unsub = sidebarExpanded.subscribe((v) => (expanded = v));
+		return unsub;
+	});
 
 	async function handleLogout() {
 		try {
@@ -84,7 +77,7 @@
 			{/if}
 		</a>
 		{#if expanded}
-			<button onclick={toggleExpanded} class="text-muted-foreground hover:text-foreground p-1">
+			<button onclick={sidebarExpanded.toggle} class="text-muted-foreground hover:text-foreground p-1">
 				<ChevronsLeft class="h-4 w-4" />
 			</button>
 		{/if}
@@ -96,6 +89,6 @@
 		{expanded}
 		userEmail={authState.user?.email ?? null}
 		onLogout={handleLogout}
-		onExpand={toggleExpanded}
+		onExpand={sidebarExpanded.toggle}
 	/>
 </aside>
