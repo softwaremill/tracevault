@@ -94,6 +94,5 @@
 		{expanded}
 		userEmail={authState.user?.email ?? null}
 		onLogout={handleLogout}
-		onExpand={sidebarExpanded.toggle}
 	/>
 </aside>
