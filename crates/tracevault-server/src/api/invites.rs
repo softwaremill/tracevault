@@ -112,6 +112,7 @@ pub struct InviteListItem {
     pub id: Uuid,
     pub email: String,
     pub role: String,
+    pub status: String,
     pub invited_by: Uuid,
     pub expires_at: chrono::DateTime<chrono::Utc>,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -129,30 +130,40 @@ pub async fn list_invites(
             Uuid,
             String,
             String,
+            String,
             Uuid,
             chrono::DateTime<chrono::Utc>,
             chrono::DateTime<chrono::Utc>,
         ),
     >(
-        "SELECT id, email, role, invited_by, expires_at, created_at
+        "SELECT id, email, role, status, invited_by, expires_at, created_at
          FROM org_invites
-         WHERE org_id = $1 AND status = 'pending' AND expires_at > NOW()
+         WHERE org_id = $1
          ORDER BY created_at DESC",
     )
     .bind(auth.org_id)
     .fetch_all(&state.pool)
     .await?;
 
+    let now = chrono::Utc::now();
     let items = rows
         .into_iter()
         .map(
-            |(id, email, role, invited_by, expires_at, created_at)| InviteListItem {
-                id,
-                email,
-                role,
-                invited_by,
-                expires_at,
-                created_at,
+            |(id, email, role, status, invited_by, expires_at, created_at)| {
+                let effective_status = if status == "pending" && expires_at < now {
+                    "expired".to_string()
+                } else {
+                    status
+                };
+                InviteListItem {
+                    id,
+                    email,
+                    role,
+                    status: effective_status,
+                    invited_by,
+                    expires_at,
+                    created_at,
+                }
             },
         )
         .collect();

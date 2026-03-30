@@ -31,7 +31,14 @@ async function request<T>(
 
 	if (!resp.ok) {
 		const body = await resp.text();
-		throw new Error(body || `HTTP ${resp.status}`);
+		let message = body || `HTTP ${resp.status}`;
+		try {
+			const parsed = JSON.parse(body);
+			if (parsed.error) message = parsed.error;
+		} catch {
+			// not JSON, use raw body
+		}
+		throw new Error(message);
 	}
 
 	if (resp.status === 204 || resp.headers.get('content-length') === '0') {

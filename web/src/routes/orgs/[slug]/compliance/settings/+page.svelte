@@ -9,6 +9,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 
 	interface ComplianceSettings {
 		org_id: string;
@@ -111,6 +112,8 @@
 
 	{#if loading}
 		<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm"><span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>Loading...</div>
+	{:else if error && !settings}
+		<ErrorState message={error} />
 	{:else}
 		<div class="border-border overflow-hidden rounded-lg border">
 			<div class="bg-muted/30 px-4 py-3 text-sm font-semibold">Compliance Configuration</div>

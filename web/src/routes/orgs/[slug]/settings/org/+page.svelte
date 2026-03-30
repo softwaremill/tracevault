@@ -7,6 +7,7 @@
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import { formatDate } from '$lib/utils/date';
 
 	interface OrgDetail {
@@ -75,11 +76,8 @@
 	</div>
 
 	{#if error}
-		<Alert.Root variant="destructive">
-			<Alert.Title>Error</Alert.Title>
-			<Alert.Description>{error}</Alert.Description>
-		</Alert.Root>
-	{/if}
+		<ErrorState message={error} />
+	{:else}
 
 	{#if success}
 		<Alert.Root>
@@ -145,5 +143,6 @@
 				</div>
 			</div>
 		</div>
+	{/if}
 	{/if}
 </div>

@@ -11,7 +11,8 @@
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
-	import { formatDate } from '$lib/utils/date';
+	import ErrorState from '$lib/components/ErrorState.svelte';
+	import { formatDate, formatDateTime } from '$lib/utils/date';
 
 	interface Member {
 		id: string;
@@ -29,6 +30,15 @@
 	let authState: { user: { user_id: string } | null } = $state({ user: null });
 	auth.subscribe((s) => (authState = s));
 
+	interface Invite {
+		id: string;
+		email: string;
+		role: string;
+		status: string;
+		expires_at: string;
+		created_at: string;
+	}
+
 	interface InvitationRequest {
 		id: string;
 		email: string;
@@ -38,17 +48,31 @@
 	}
 
 	let members: Member[] = $state([]);
+	let invites: Invite[] = $state([]);
 	let invRequests: InvitationRequest[] = $state([]);
 	let loading = $state(true);
 	let error = $state('');
 
+	let inviteSearch = $state('');
+	let invitePage = $state(0);
+	const invitePageSize = 10;
+
+	const filteredInvites = $derived(
+		invites.filter((i) => {
+			const q = inviteSearch.toLowerCase();
+			return !q || i.email.toLowerCase().includes(q) || i.role.includes(q) || i.status.includes(q);
+		})
+	);
+	const inviteTotalPages = $derived(Math.max(1, Math.ceil(filteredInvites.length / invitePageSize)));
+	const pagedInvites = $derived(filteredInvites.slice(invitePage * invitePageSize, (invitePage + 1) * invitePageSize));
+
 	let inviteOpen = $state(false);
 	let inviteEmail = $state('');
-	let invitePassword = $state('');
-	let inviteName = $state('');
 	let inviteRole = $state('developer');
 	let inviteError = $state('');
 	let inviteLoading = $state(false);
+	let inviteUrl = $state('');
+	let copied = $state(false);
 
 	const isOwner = $derived(orgState.current?.role === 'owner');
 	const isAdmin = $derived(
@@ -57,6 +81,7 @@
 
 	onMount(() => {
 		loadMembers();
+		loadInvites();
 		loadInvitationRequests();
 	});
 
@@ -73,24 +98,38 @@
 	async function handleInvite(e: Event) {
 		e.preventDefault();
 		inviteError = '';
+		inviteUrl = '';
 		inviteLoading = true;
 		try {
-			await api.post(`/api/v1/orgs/${slug}/members`, {
+			const res = await api.post<{ invite_url: string }>(`/api/v1/orgs/${slug}/invites`, {
 				email: inviteEmail,
-				password: invitePassword,
-				name: inviteName || undefined,
 				role: inviteRole
 			});
-			inviteOpen = false;
+			inviteUrl = res.invite_url;
 			inviteEmail = '';
-			invitePassword = '';
-			inviteName = '';
 			inviteRole = 'developer';
-			await loadMembers();
+			await loadInvites();
 		} catch (err) {
-			inviteError = err instanceof Error ? err.message : 'Failed to invite member';
+			inviteError = err instanceof Error ? err.message : 'Failed to create invite';
 		} finally {
 			inviteLoading = false;
+		}
+	}
+
+	async function loadInvites() {
+		try {
+			invites = await api.get<Invite[]>(`/api/v1/orgs/${slug}/invites`);
+		} catch {
+			// User may not have permission
+		}
+	}
+
+	async function revokeInvite(id: string) {
+		try {
+			await api.delete(`/api/v1/orgs/${slug}/invites/${id}`);
+			await loadInvites();
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Failed to revoke invite';
 		}
 	}
 
@@ -152,8 +191,11 @@
 
 	function statusColor(status: string): { bg: string; color: string; border: string } {
 		switch (status) {
-			case 'approved': return { bg: 'rgba(62,207,142,0.12)', color: '#3ecf8e', border: 'rgba(62,207,142,0.25)' };
-			case 'rejected': return { bg: 'rgba(240,101,101,0.12)', color: '#f06565', border: 'rgba(240,101,101,0.25)' };
+			case 'approved':
+			case 'accepted': return { bg: 'rgba(62,207,142,0.12)', color: '#3ecf8e', border: 'rgba(62,207,142,0.25)' };
+			case 'rejected':
+			case 'revoked': return { bg: 'rgba(240,101,101,0.12)', color: '#f06565', border: 'rgba(240,101,101,0.25)' };
+			case 'expired': return { bg: 'rgba(156,163,175,0.12)', color: '#9ca3af', border: 'rgba(156,163,175,0.25)' };
 			default: return { bg: 'rgba(79,110,247,0.12)', color: '#4f6ef7', border: 'rgba(79,110,247,0.25)' };
 		}
 	}
@@ -177,16 +219,12 @@
 	</div>
 
 	{#if error}
-		<Alert.Root variant="destructive">
-			<Alert.Title>Error</Alert.Title>
-			<Alert.Description>{error}</Alert.Description>
-		</Alert.Root>
-	{/if}
-
+		<ErrorState message={error} />
+	{:else}
 	<div class="flex items-center justify-between">
 		<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Members</h2>
 		{#if isAdmin}
-			<Dialog.Root bind:open={inviteOpen}>
+			<Dialog.Root bind:open={inviteOpen} onOpenChange={(open) => { if (!open) { inviteUrl = ''; inviteError = ''; copied = false; } }}>
 				<Dialog.Trigger>
 					{#snippet child({ props })}
 						<Button {...props}>Invite member</Button>
@@ -202,39 +240,47 @@
 							<Alert.Description>{inviteError}</Alert.Description>
 						</Alert.Root>
 					{/if}
-					<form onsubmit={handleInvite} class="grid gap-4">
+					{#if inviteUrl}
 						<div class="grid gap-2">
-							<Label for="invite_email">Email</Label>
-							<Input id="invite_email" type="email" bind:value={inviteEmail} required />
-						</div>
-						<div class="grid gap-2">
-							<Label for="invite_password">Password</Label>
-							<Input id="invite_password" type="password" bind:value={invitePassword} required minlength={8} />
-						</div>
-						<div class="grid gap-2">
-							<Label for="invite_name">Name</Label>
-							<Input id="invite_name" bind:value={inviteName} />
-						</div>
-						<div class="grid gap-2">
-							<Label>Role</Label>
-							<Select.Root type="single" value={inviteRole} onValueChange={(v) => { if (v) inviteRole = v; }}>
-								<Select.Trigger>
-									{inviteRole}
-								</Select.Trigger>
-								<Select.Content>
-									<Select.Item value="developer">Developer</Select.Item>
-									<Select.Item value="admin">Admin</Select.Item>
-									<Select.Item value="policy_admin">Policy Admin</Select.Item>
-									<Select.Item value="auditor">Auditor</Select.Item>
-								</Select.Content>
-							</Select.Root>
+							<Label>Invite link</Label>
+							<div class="flex gap-2">
+								<Input value={inviteUrl} readonly class="flex-1" />
+								<Button variant="outline" onclick={() => { navigator.clipboard.writeText(inviteUrl); copied = true; setTimeout(() => { copied = false; }, 2000); }}>
+									{copied ? 'Copied!' : 'Copy'}
+								</Button>
+							</div>
+							<p class="text-xs text-muted-foreground">Share this link with the invited user.</p>
 						</div>
 						<Dialog.Footer>
-							<Button type="submit" disabled={inviteLoading}>
-								{inviteLoading ? 'Inviting...' : 'Invite'}
-							</Button>
+							<Button onclick={() => { inviteOpen = false; inviteUrl = ''; }}>Done</Button>
 						</Dialog.Footer>
-					</form>
+					{:else}
+						<form onsubmit={handleInvite} class="grid gap-4">
+							<div class="grid gap-2">
+								<Label for="invite_email">Email</Label>
+								<Input id="invite_email" type="email" bind:value={inviteEmail} required />
+							</div>
+							<div class="grid gap-2">
+								<Label>Role</Label>
+								<Select.Root type="single" value={inviteRole} onValueChange={(v) => { if (v) inviteRole = v; }}>
+									<Select.Trigger>
+										{inviteRole}
+									</Select.Trigger>
+									<Select.Content>
+										<Select.Item value="developer">Developer</Select.Item>
+										<Select.Item value="admin">Admin</Select.Item>
+										<Select.Item value="policy_admin">Policy Admin</Select.Item>
+										<Select.Item value="auditor">Auditor</Select.Item>
+									</Select.Content>
+								</Select.Root>
+							</div>
+							<Dialog.Footer>
+								<Button type="submit" disabled={inviteLoading}>
+									{inviteLoading ? 'Sending...' : 'Send invite'}
+								</Button>
+							</Dialog.Footer>
+						</form>
+					{/if}
 				</Dialog.Content>
 			</Dialog.Root>
 		{/if}
@@ -298,6 +344,66 @@
 		</Table.Root>
 	{/if}
 
+	<!-- Invites -->
+	{#if isAdmin && invites.length > 0}
+		<div class="space-y-3 pt-4">
+			<div class="flex items-center justify-between">
+				<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Invites</h2>
+				<Input
+					type="text"
+					placeholder="Search invites..."
+					class="w-64 h-8 text-xs"
+					value={inviteSearch}
+					oninput={(e) => { inviteSearch = e.currentTarget.value; invitePage = 0; }}
+				/>
+			</div>
+			<Table.Root>
+				<Table.Header>
+					<Table.Row>
+						<Table.Head class="text-xs">Email</Table.Head>
+						<Table.Head class="text-xs">Role</Table.Head>
+						<Table.Head class="text-xs">Status</Table.Head>
+						<Table.Head class="text-xs">Expires</Table.Head>
+						<Table.Head class="text-xs">Sent</Table.Head>
+						<Table.Head class="text-xs">Actions</Table.Head>
+					</Table.Row>
+				</Table.Header>
+				<Table.Body>
+					{#each pagedInvites as invite}
+						<Table.Row class="hover:bg-muted/40 transition-colors">
+							<Table.Cell class="text-xs">{invite.email}</Table.Cell>
+							<Table.Cell class="text-xs">
+								{@const rc = roleColor(invite.role)}
+								<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: {rc.bg}; color: {rc.color}; border: 1px solid {rc.border}">{invite.role}</span>
+							</Table.Cell>
+							<Table.Cell class="text-xs">
+								{@const sc = statusColor(invite.status)}
+								<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: {sc.bg}; color: {sc.color}; border: 1px solid {sc.border}">{invite.status}</span>
+							</Table.Cell>
+							<Table.Cell class="text-xs">{formatDateTime(invite.expires_at)}</Table.Cell>
+							<Table.Cell class="text-xs">{formatDateTime(invite.created_at)}</Table.Cell>
+							<Table.Cell class="text-xs">
+								{#if invite.status === 'pending'}
+									<Button size="sm" variant="destructive" onclick={() => revokeInvite(invite.id)}>Revoke</Button>
+								{/if}
+							</Table.Cell>
+						</Table.Row>
+					{/each}
+				</Table.Body>
+			</Table.Root>
+			{#if inviteTotalPages > 1}
+				<div class="flex items-center justify-between pt-2">
+					<p class="text-xs text-muted-foreground">{filteredInvites.length} invite{filteredInvites.length === 1 ? '' : 's'}</p>
+					<div class="flex items-center gap-2">
+						<Button variant="outline" size="sm" disabled={invitePage === 0} onclick={() => invitePage--}>Previous</Button>
+						<span class="text-xs text-muted-foreground">{invitePage + 1} / {inviteTotalPages}</span>
+						<Button variant="outline" size="sm" disabled={invitePage >= inviteTotalPages - 1} onclick={() => invitePage++}>Next</Button>
+					</div>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
 	<!-- Invitation Requests -->
 	{#if isAdmin && invRequests.length > 0}
 		<div class="space-y-3 pt-4">
@@ -335,5 +441,6 @@
 				</Table.Body>
 			</Table.Root>
 		</div>
+	{/if}
 	{/if}
 </div>

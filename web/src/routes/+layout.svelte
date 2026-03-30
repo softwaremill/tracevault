@@ -22,7 +22,7 @@
 	$effect(() => {
 		if (!browser || authState.loading) return;
 		const path = $page.url.pathname;
-		if (!path.startsWith('/auth') && !path.startsWith('/health') && !authState.isAuthenticated) {
+		if (!path.startsWith('/auth') && !path.startsWith('/health') && !path.startsWith('/invite') && !authState.isAuthenticated) {
 			goto('/auth/login');
 		}
 	});

@@ -1,10 +1,12 @@
 /target
 .env
+!.env.example
 *.swp
 .DS_Store
 crates/tracevault-server/data/repos
 .playwright-mcp
 docs/plans/
+docs/infra/
 screenshots/
 .idea/
 docs/superpowers/

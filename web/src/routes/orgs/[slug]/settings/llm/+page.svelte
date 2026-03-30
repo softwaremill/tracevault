@@ -6,6 +6,7 @@
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import * as Select from '$lib/components/ui/select/index.js';
 
 	interface LlmSettings {
@@ -105,11 +106,8 @@
 	<p class="text-muted-foreground text-sm">Configure the AI model provider used for story generation across the platform.</p>
 
 	{#if error}
-		<Alert.Root variant="destructive">
-			<Alert.Title>Error</Alert.Title>
-			<Alert.Description>{error}</Alert.Description>
-		</Alert.Root>
-	{/if}
+		<ErrorState message={error} />
+	{:else}
 
 	{#if success}
 		<Alert.Root>
@@ -215,5 +213,6 @@
 				{/if}
 			</div>
 		</div>
+	{/if}
 	{/if}
 </div>

@@ -8,6 +8,7 @@
 	import { Label } from '$lib/components/ui/label/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import { formatDate } from '$lib/utils/date';
 
 	interface ApiKey {
@@ -97,12 +98,8 @@
 	</div>
 
 	{#if error}
-		<Alert.Root variant="destructive">
-			<Alert.Title>Error</Alert.Title>
-			<Alert.Description>{error}</Alert.Description>
-		</Alert.Root>
-	{/if}
-
+		<ErrorState message={error} />
+	{:else}
 	<div class="flex items-center justify-between">
 		<h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">API Keys</h2>
 		<Dialog.Root bind:open={createOpen} onOpenChange={(open) => { if (!open) closeDialog(); }}>
@@ -185,5 +182,6 @@
 				{/each}
 			</Table.Body>
 		</Table.Root>
+	{/if}
 	{/if}
 </div>
