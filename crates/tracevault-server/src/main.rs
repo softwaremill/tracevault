@@ -432,6 +432,8 @@ async fn main() {
             encryption_key: cfg.encryption_key.clone(),
             http_client: http_client.clone(),
             github_webhook_secret: cfg.github_webhook_secret.clone(),
+            cors_origin: cfg.cors_origin.clone(),
+            invite_expiry_minutes: cfg.invite_expiry_minutes,
         });
 
     let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();

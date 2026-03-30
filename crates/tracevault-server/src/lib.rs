@@ -30,4 +30,6 @@ pub struct AppState {
     pub encryption_key: Option<String>,
     pub http_client: reqwest::Client,
     pub github_webhook_secret: String,
+    pub cors_origin: String,
+    pub invite_expiry_minutes: u64,
 }
