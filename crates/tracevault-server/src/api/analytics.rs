@@ -189,8 +189,8 @@ pub async fn get_overview(
             COALESCE(CAST(SUM(s.output_tokens) AS BIGINT), 0),
             COUNT(DISTINCT s.user_id),
             COALESCE(SUM(s.estimated_cost_usd), 0.0),
-            COALESCE(CAST(SUM(s.duration_ms) AS BIGINT), 0),
-            CAST(AVG(s.duration_ms) AS BIGINT),
+            COALESCE(CAST(SUM(COALESCE(NULLIF(s.duration_ms, 0), CASE WHEN s.ended_at IS NOT NULL AND s.started_at IS NOT NULL THEN EXTRACT(EPOCH FROM (s.ended_at - s.started_at))::BIGINT * 1000 ELSE NULL END)) AS BIGINT), 0),
+            CAST(AVG(COALESCE(NULLIF(s.duration_ms, 0), CASE WHEN s.ended_at IS NOT NULL AND s.started_at IS NOT NULL THEN EXTRACT(EPOCH FROM (s.ended_at - s.started_at))::BIGINT * 1000 ELSE NULL END)) AS BIGINT),
             COALESCE(CAST(SUM(s.total_tool_calls) AS BIGINT), 0),
             COALESCE(CAST(SUM(s.cache_read_tokens) AS BIGINT), 0),
             COALESCE(CAST(SUM(s.cache_write_tokens) AS BIGINT), 0)
@@ -678,7 +678,7 @@ pub async fn get_models(
                   s.estimated_cost_usd,
                   COALESCE(s.cache_read_tokens, 0) as cache_read_tokens,
                   COALESCE(s.cache_write_tokens, 0) as cache_write_tokens,
-                  s.duration_ms
+                  COALESCE(NULLIF(s.duration_ms, 0), CASE WHEN s.ended_at IS NOT NULL AND s.started_at IS NOT NULL THEN EXTRACT(EPOCH FROM (s.ended_at - s.started_at))::BIGINT * 1000 ELSE NULL END) as duration_ms
            FROM sessions s
            JOIN repos r ON s.repo_id = r.id
            LEFT JOIN users u ON s.user_id = u.id
@@ -822,7 +822,7 @@ pub async fn get_authors(
                 COALESCE(SUM(s.estimated_cost_usd), 0.0),
                 NULL::float8,
                 MAX(s.created_at),
-                CAST(AVG(s.duration_ms) AS BIGINT),
+                CAST(AVG(COALESCE(NULLIF(s.duration_ms, 0), CASE WHEN s.ended_at IS NOT NULL AND s.started_at IS NOT NULL THEN EXTRACT(EPOCH FROM (s.ended_at - s.started_at))::BIGINT * 1000 ELSE NULL END)) AS BIGINT),
                 COALESCE(CAST(SUM(s.total_tool_calls) AS BIGINT), 0)
          FROM sessions s
          JOIN repos r ON s.repo_id = r.id
@@ -1188,7 +1188,7 @@ pub async fn get_sessions(
     // Aggregates
     let agg = sqlx::query_as::<_, (i64, Option<i64>, Option<f64>)>(
         "SELECT COUNT(s.id),
-                CAST(AVG(COALESCE(NULLIF(s.duration_ms, 0), EXTRACT(EPOCH FROM (COALESCE(s.ended_at, NOW()) - s.started_at))::BIGINT * 1000)) AS BIGINT),
+                CAST(AVG(COALESCE(NULLIF(s.duration_ms, 0), CASE WHEN s.ended_at IS NOT NULL AND s.started_at IS NOT NULL THEN EXTRACT(EPOCH FROM (s.ended_at - s.started_at))::BIGINT * 1000 ELSE NULL END)) AS BIGINT),
                 AVG(
                     CASE WHEN COALESCE(s.user_messages, 0) = 0
                          THEN (SELECT COUNT(*) FROM transcript_chunks tc WHERE tc.session_id = s.id AND tc.data->>'type' = 'human')::INT

@@ -123,7 +123,7 @@ async fn query_kpi_totals(
             COUNT(s.id),
             COALESCE(SUM(s.total_tokens), 0)::int8,
             COUNT(DISTINCT u.email),
-            COALESCE(AVG(s.duration_ms), 0)::int8,
+            COALESCE(AVG(COALESCE(NULLIF(s.duration_ms, 0), CASE WHEN s.ended_at IS NOT NULL AND s.started_at IS NOT NULL THEN EXTRACT(EPOCH FROM (s.ended_at - s.started_at))::BIGINT * 1000 ELSE NULL END)), 0)::int8,
             COALESCE(AVG(s.total_tool_calls), 0)::float8,
             0::float8,
             COALESCE(SUM(s.cache_read_tokens), 0)::int8
