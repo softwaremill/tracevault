@@ -5,7 +5,7 @@
 	import { orgStore } from '$lib/stores/org';
 	import { features } from '$lib/stores/features';
 	import { sidebarExpanded } from '$lib/stores/sidebar';
-	import { ChevronsLeft } from '@lucide/svelte';
+	import { ChevronsLeft, ChevronsRight } from '@lucide/svelte';
 	import SidebarNav from './sidebar/SidebarNav.svelte';
 	import SidebarOrgSwitcher from './sidebar/SidebarOrgSwitcher.svelte';
 	import SidebarFooter from './sidebar/SidebarFooter.svelte';
@@ -63,9 +63,9 @@
 	<div
 		class="flex h-14 items-center border-b px-3 {expanded ? 'justify-between' : 'justify-center'}"
 	>
-		<a href="/orgs/{slug}/repos" class="flex items-center gap-2">
-			<img src="/logo.png" alt="TraceVault" class="h-8 w-8 rounded-lg" />
-			{#if expanded}
+		{#if expanded}
+			<a href="/orgs/{slug}/repos" class="flex items-center gap-2">
+				<img src="/logo.png" alt="TraceVault" class="h-8 w-8 rounded-lg" />
 				<div class="flex flex-col">
 					<span class="text-lg font-semibold leading-tight">TraceVault</span>
 					<span
@@ -74,11 +74,16 @@
 							: 'text-muted-foreground'}">{edition}</span
 					>
 				</div>
-			{/if}
-		</a>
-		{#if expanded}
+			</a>
 			<button onclick={sidebarExpanded.toggle} class="text-muted-foreground hover:text-foreground p-1">
 				<ChevronsLeft class="h-4 w-4" />
+			</button>
+		{:else}
+			<button
+				onclick={sidebarExpanded.toggle}
+				class="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
+			>
+				<ChevronsRight class="h-5 w-5" />
 			</button>
 		{/if}
 	</div>
