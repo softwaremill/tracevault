@@ -62,7 +62,7 @@
 		try {
 			orgs = await api.get<OrgItem[]>('/api/v1/me/orgs');
 			if (orgs.length === 1 && !wantsCreate) {
-				goto(`/orgs/${orgs[0].org_name}/repos`);
+				goto(`/orgs/${orgs[0].org_name}/dashboard`);
 				return;
 			}
 			if (wantsCreate) showCreateForm = true;
