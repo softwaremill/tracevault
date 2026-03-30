@@ -10,6 +10,7 @@ pub mod extensions;
 pub mod extractors;
 pub mod llm;
 pub mod org_signing;
+pub mod password_policy;
 pub mod permissions;
 pub mod pricing;
 pub mod pricing_sync;
@@ -28,4 +29,5 @@ pub struct AppState {
     pub extensions: extensions::ExtensionRegistry,
     pub encryption_key: Option<String>,
     pub http_client: reqwest::Client,
+    pub github_webhook_secret: String,
 }

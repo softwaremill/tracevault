@@ -290,6 +290,9 @@ pub async fn invite_member(
     let user_id = if let Some((id,)) = existing_user {
         id
     } else {
+        if let Err(reason) = crate::password_policy::validate(&req.password) {
+            return Err(AppError::BadRequest(reason.into()));
+        }
         let password_hash = hash_password(&req.password)
             .map_err(|e| AppError::Internal(format!("Failed to hash password: {e}")))?;
 
