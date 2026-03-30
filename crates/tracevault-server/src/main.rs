@@ -139,6 +139,14 @@ async fn main() {
             post(api::auth::request_invitation),
         )
         .route("/api/v1/github/webhook", post(api::github::webhook))
+        .route(
+            "/api/v1/invite/{token}",
+            get(api::invites::get_invite_details),
+        )
+        .route(
+            "/api/v1/invite/{token}/accept",
+            post(api::invites::accept_invite_new_user),
+        )
         .layer(GovernorLayer {
             config: Arc::new(public_rate_limit),
         });
@@ -160,10 +168,7 @@ async fn main() {
             "/api/v1/orgs/{slug}",
             get(api::orgs::get_org).put(api::orgs::update_org),
         )
-        .route(
-            "/api/v1/orgs/{slug}/members",
-            get(api::orgs::list_members).post(api::orgs::invite_member),
-        )
+        .route("/api/v1/orgs/{slug}/members", get(api::orgs::list_members))
         .route(
             "/api/v1/orgs/{slug}/members/{user_id}",
             delete(api::orgs::remove_member),
@@ -184,6 +189,20 @@ async fn main() {
         .route(
             "/api/v1/orgs/{slug}/invitation-requests/{id}/reject",
             post(api::orgs::reject_invitation_request),
+        )
+        // Org-scoped: invites
+        .route(
+            "/api/v1/orgs/{slug}/invites",
+            get(api::invites::list_invites).post(api::invites::create_invite),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/invites/{invite_id}",
+            delete(api::invites::revoke_invite),
+        )
+        // Accept invite for existing authenticated users
+        .route(
+            "/api/v1/invite/{token}/accept/existing",
+            post(api::invites::accept_invite_existing_user),
         )
         .route(
             "/api/v1/orgs/{slug}/llm-settings",
