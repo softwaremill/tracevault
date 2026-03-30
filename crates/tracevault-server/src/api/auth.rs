@@ -8,7 +8,7 @@ use crate::error::AppError;
 use crate::extractors::AuthUser;
 
 /// Basic email format validation: local@domain.tld
-fn is_valid_email(email: &str) -> bool {
+pub fn is_valid_email(email: &str) -> bool {
     let Some((local, domain)) = email.split_once('@') else {
         return false;
     };

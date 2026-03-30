@@ -8,6 +8,7 @@ pub struct ServerConfig {
     pub repos_dir: String,
     pub encryption_key: Option<String>,
     pub github_webhook_secret: String,
+    pub invite_expiry_minutes: u64,
 }
 
 impl ServerConfig {
@@ -27,6 +28,10 @@ impl ServerConfig {
             encryption_key: env::var("TRACEVAULT_ENCRYPTION_KEY").ok(),
             github_webhook_secret: env::var("GITHUB_WEBHOOK_SECRET")
                 .expect("GITHUB_WEBHOOK_SECRET environment variable is required"),
+            invite_expiry_minutes: env::var("INVITE_EXPIRY_MINUTES")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1440),
         }
     }
 
@@ -49,6 +54,7 @@ mod tests {
             repos_dir: ".".into(),
             encryption_key: None,
             github_webhook_secret: "test-secret".into(),
+            invite_expiry_minutes: 1440,
         };
         assert_eq!(cfg.bind_addr(), "127.0.0.1:8080");
     }
@@ -63,6 +69,7 @@ mod tests {
             repos_dir: ".".into(),
             encryption_key: None,
             github_webhook_secret: "test-secret".into(),
+            invite_expiry_minutes: 1440,
         };
         assert_eq!(cfg.cors_origin, "http://localhost:4000");
     }

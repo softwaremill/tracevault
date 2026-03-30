@@ -2,6 +2,31 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 #[allow(dead_code)]
+pub async fn seed_invite(
+    pool: &PgPool,
+    org_id: Uuid,
+    email: &str,
+    role: &str,
+    invited_by: Uuid,
+    token_hash: &str,
+    expires_at: chrono::DateTime<chrono::Utc>,
+) -> Uuid {
+    sqlx::query_scalar::<_, Uuid>(
+        "INSERT INTO org_invites (org_id, email, role, token_hash, invited_by, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+    )
+    .bind(org_id)
+    .bind(email)
+    .bind(role)
+    .bind(token_hash)
+    .bind(invited_by)
+    .bind(expires_at)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[allow(dead_code)]
 pub async fn seed_org(pool: &PgPool) -> Uuid {
     sqlx::query_scalar::<_, Uuid>(
         "INSERT INTO orgs (name) VALUES ('test-org-' || gen_random_uuid()::text) RETURNING id",

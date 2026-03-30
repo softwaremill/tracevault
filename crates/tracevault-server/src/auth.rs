@@ -53,6 +53,14 @@ pub fn generate_device_token() -> String {
     hex::encode(bytes)
 }
 
+/// Generate a random invite token. Returns (raw_hex, sha256_hash).
+pub fn generate_invite_token() -> (String, String) {
+    let bytes = random_bytes_32();
+    let raw = hex::encode(bytes);
+    let hash = sha256_hex(&raw);
+    (raw, hash)
+}
+
 /// SHA-256 hash a string, return hex-encoded.
 pub fn sha256_hex(input: &str) -> String {
     let mut hasher = Sha256::new();
@@ -115,5 +123,14 @@ mod tests {
         let b = sha256_hex("hello");
         assert_eq!(a, b);
         assert_ne!(sha256_hex("hello"), sha256_hex("world"));
+    }
+
+    #[test]
+    fn invite_token_format() {
+        let (raw, hash) = generate_invite_token();
+        assert_eq!(raw.len(), 64);
+        assert!(raw.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(hash.len(), 64);
+        assert_eq!(sha256_hex(&raw), hash);
     }
 }

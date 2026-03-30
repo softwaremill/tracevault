@@ -9,6 +9,7 @@
 	import { Label } from '$lib/components/ui/label/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import * as Select from '$lib/components/ui/select/index.js';
 	import { formatDate } from '$lib/utils/date';
 
@@ -269,11 +270,8 @@
 	</div>
 
 	{#if error}
-		<Alert.Root variant="destructive">
-			<Alert.Title>Error</Alert.Title>
-			<Alert.Description>{error}</Alert.Description>
-		</Alert.Root>
-	{/if}
+		<ErrorState message={error} />
+	{:else}
 
 	{#if success}
 		<Alert.Root>
@@ -527,4 +525,5 @@
 			</form>
 		</Dialog.Content>
 	</Dialog.Root>
+	{/if}
 </div>
