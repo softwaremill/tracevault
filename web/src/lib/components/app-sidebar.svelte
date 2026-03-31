@@ -64,7 +64,7 @@
 		class="flex h-14 items-center border-b px-3 {expanded ? 'justify-between' : 'justify-center'}"
 	>
 		{#if expanded}
-			<a href="/orgs/{slug}/repos" class="flex items-center gap-2">
+			<a href="/orgs/{slug}/dashboard" class="flex items-center gap-2">
 				<img src="/logo.png" alt="TraceVault" class="h-8 w-8 rounded-lg" />
 				<div class="flex flex-col">
 					<span class="text-lg font-semibold leading-tight">TraceVault</span>
