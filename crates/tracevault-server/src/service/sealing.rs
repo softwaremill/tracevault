@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -74,19 +75,12 @@ impl SealingService {
         // 7. Sign
         let signature = svc.sign(&record_hash);
 
-        // 8. Get previous chain hash
-        let prev_chain_hash = SealingRepo::get_latest_commit_chain_hash(pool, org_id).await?;
-
-        // 9. Compute chain hash
-        let chain_hash = svc.chain_hash(prev_chain_hash.as_deref(), &record_hash);
-
-        // 10. Insert commit seal
-        let commit_seal_id = SealingRepo::insert_commit_seal(
+        // 8-10. Atomically get prev chain hash, compute chain hash, and insert commit seal
+        let (commit_seal_id, chain_hash) = SealingRepo::insert_commit_seal_with_chain(
             pool,
             commit_id,
+            org_id,
             &record_hash,
-            &chain_hash,
-            prev_chain_hash.as_deref(),
             &signature,
         )
         .await?;
@@ -164,13 +158,16 @@ impl SealingService {
             }
         };
 
-        // 5. Compute session record hash
-        let record_hash = compute_session_record_hash(pool, session_db_id).await?;
+        // 5. Generate sealed_at before computing hash
+        let sealed_at = Utc::now();
 
-        // 6. Sign
+        // 6. Compute session record hash (includes sealed_at)
+        let record_hash = compute_session_record_hash(pool, session_db_id, sealed_at).await?;
+
+        // 7. Sign
         let signature = svc.sign(&record_hash);
 
-        // 7. Insert session seal
+        // 8. Insert session seal
         SealingRepo::insert_session_seal(
             pool,
             session_db_id,
@@ -178,6 +175,7 @@ impl SealingService {
             &signature,
             seal_type,
             None,
+            sealed_at,
         )
         .await?;
 
@@ -237,13 +235,16 @@ async fn seal_session_snapshot(
         }
     };
 
-    // 2. Compute session record hash
-    let record_hash = compute_session_record_hash(pool, session_db_id).await?;
+    // 2. Generate sealed_at before computing hash
+    let sealed_at = Utc::now();
 
-    // 3. Sign
+    // 3. Compute session record hash (includes sealed_at)
+    let record_hash = compute_session_record_hash(pool, session_db_id, sealed_at).await?;
+
+    // 4. Sign
     let signature = svc.sign(&record_hash);
 
-    // 4. Insert session seal
+    // 5. Insert session seal
     SealingRepo::insert_session_seal(
         pool,
         session_db_id,
@@ -251,6 +252,7 @@ async fn seal_session_snapshot(
         &signature,
         "commit_snapshot",
         Some(commit_seal_id),
+        sealed_at,
     )
     .await?;
 
@@ -286,6 +288,7 @@ fn compute_commit_record_hash(
 async fn compute_session_record_hash(
     pool: &PgPool,
     session_db_id: Uuid,
+    sealed_at: DateTime<Utc>,
 ) -> Result<String, AppError> {
     // 1. Load session data
     let (session_id, repo_id, input_tokens, output_tokens, cache_read, cache_write, cost) =
@@ -354,6 +357,7 @@ async fn compute_session_record_hash(
             "cache_write": cache_write,
         },
         "estimated_cost_usd": cost,
+        "sealed_at": sealed_at.to_rfc3339(),
     });
 
     let mut hasher = Sha256::new();

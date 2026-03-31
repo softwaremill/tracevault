@@ -7,15 +7,51 @@ use crate::error::AppError;
 pub struct SealingRepo;
 
 impl SealingRepo {
-    /// Insert or upsert a commit seal. Returns the seal UUID.
-    pub async fn insert_commit_seal(
+    /// Atomically get prev chain hash, compute chain hash, and insert commit seal.
+    /// Uses an advisory lock to prevent concurrent commits for the same org from
+    /// reading the same prev_chain_hash.
+    pub async fn insert_commit_seal_with_chain(
         pool: &PgPool,
         commit_id: Uuid,
+        org_id: Uuid,
         record_hash: &str,
-        chain_hash: &str,
-        prev_chain_hash: Option<&str>,
         signature: &str,
-    ) -> Result<Uuid, AppError> {
+    ) -> Result<(Uuid, String), AppError> {
+        let mut tx = pool.begin().await?;
+
+        // Advisory lock scoped to this transaction, keyed on org_id
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(org_id.as_u128() as i64)
+            .execute(&mut *tx)
+            .await?;
+
+        // Get previous chain hash
+        let prev_chain_hash = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT cs.chain_hash
+             FROM commit_seals cs
+             JOIN commits c ON c.id = cs.commit_id
+             JOIN repos r ON r.id = c.repo_id
+             WHERE r.org_id = $1
+             ORDER BY cs.sealed_at DESC
+             LIMIT 1",
+        )
+        .bind(org_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+
+        // Compute chain hash
+        let chain_hash = {
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            if let Some(ref prev) = prev_chain_hash {
+                hasher.update(prev.as_bytes());
+            }
+            hasher.update(record_hash.as_bytes());
+            hex::encode(hasher.finalize())
+        };
+
+        // Insert commit seal
         let id: Uuid = sqlx::query_scalar(
             "INSERT INTO commit_seals (commit_id, record_hash, chain_hash, prev_chain_hash, signature)
              VALUES ($1, $2, $3, $4, $5)
@@ -29,13 +65,15 @@ impl SealingRepo {
         )
         .bind(commit_id)
         .bind(record_hash)
-        .bind(chain_hash)
-        .bind(prev_chain_hash)
+        .bind(&chain_hash)
+        .bind(prev_chain_hash.as_deref())
         .bind(signature)
-        .fetch_one(pool)
+        .fetch_one(&mut *tx)
         .await?;
 
-        Ok(id)
+        tx.commit().await?;
+
+        Ok((id, chain_hash))
     }
 
     /// Insert a session seal. Returns the seal UUID.
@@ -47,10 +85,11 @@ impl SealingRepo {
         signature: &str,
         seal_type: &str,
         commit_seal_id: Option<Uuid>,
+        sealed_at: DateTime<Utc>,
     ) -> Result<Uuid, AppError> {
         let id: Uuid = sqlx::query_scalar(
-            "INSERT INTO session_seals (session_id, record_hash, signature, seal_type, commit_seal_id)
-             VALUES ($1, $2, $3, $4, $5)
+            "INSERT INTO session_seals (session_id, record_hash, signature, seal_type, commit_seal_id, sealed_at)
+             VALUES ($1, $2, $3, $4, $5, $6)
              RETURNING id",
         )
         .bind(session_id)
@@ -58,31 +97,11 @@ impl SealingRepo {
         .bind(signature)
         .bind(seal_type)
         .bind(commit_seal_id)
+        .bind(sealed_at)
         .fetch_one(pool)
         .await?;
 
         Ok(id)
-    }
-
-    /// Get the latest commit seal's chain_hash for an org.
-    pub async fn get_latest_commit_chain_hash(
-        pool: &PgPool,
-        org_id: Uuid,
-    ) -> Result<Option<String>, AppError> {
-        let row = sqlx::query_scalar(
-            "SELECT cs.chain_hash
-             FROM commit_seals cs
-             JOIN commits c ON c.id = cs.commit_id
-             JOIN repos r ON r.id = c.repo_id
-             WHERE r.org_id = $1
-             ORDER BY cs.sealed_at DESC
-             LIMIT 1",
-        )
-        .bind(org_id)
-        .fetch_optional(pool)
-        .await?;
-
-        Ok(row)
     }
 
     /// Load commit data for record hash computation.
