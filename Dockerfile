@@ -5,7 +5,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 RUN cargo build --release -p tracevault-server
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 RUN apt-get update && apt-get install -y ca-certificates libssl3 git && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/tracevault-server /usr/local/bin/
 ENV PORT=3000
