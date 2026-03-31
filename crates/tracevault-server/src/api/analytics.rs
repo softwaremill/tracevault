@@ -2017,7 +2017,7 @@ pub async fn get_author_detail(
         "SELECT COUNT(*),
                 COALESCE(CAST(SUM(s.total_tokens) AS BIGINT), 0),
                 COALESCE(SUM(s.estimated_cost_usd), 0.0),
-                CAST(AVG(s.duration_ms) AS BIGINT),
+                CAST(AVG(COALESCE(NULLIF(s.duration_ms, 0), CASE WHEN s.ended_at IS NOT NULL AND s.started_at IS NOT NULL THEN EXTRACT(EPOCH FROM (s.ended_at - s.started_at))::BIGINT * 1000 ELSE NULL END)) AS BIGINT),
                 COALESCE(CAST(SUM(s.total_tool_calls) AS BIGINT), 0)
          FROM sessions s
          JOIN repos r ON s.repo_id = r.id

@@ -19,6 +19,7 @@ pub struct DashboardQuery {
 
 #[derive(Debug, Serialize)]
 pub struct TopAuthor {
+    pub user_id: Uuid,
     pub author: String,
     pub sessions: i64,
     pub tokens: i64,
@@ -254,8 +255,9 @@ async fn query_top_authors(
     from: chrono::DateTime<Utc>,
     to: chrono::DateTime<Utc>,
 ) -> Result<Vec<TopAuthor>, AppError> {
-    let rows: Vec<(String, i64, i64, f64)> = sqlx::query_as(
+    let rows: Vec<(Uuid, String, i64, i64, f64)> = sqlx::query_as(
         "SELECT
+            u.id,
             u.email,
             COUNT(s.id)::int8,
             COALESCE(SUM(s.total_tokens), 0)::int8,
@@ -266,7 +268,7 @@ async fn query_top_authors(
         WHERE r.org_id = $1
           AND s.started_at >= $2
           AND s.started_at < $3
-        GROUP BY u.email
+        GROUP BY u.id, u.email
         ORDER BY SUM(s.estimated_cost_usd) DESC NULLS LAST
         LIMIT 5",
     )
@@ -278,7 +280,8 @@ async fn query_top_authors(
 
     Ok(rows
         .into_iter()
-        .map(|(author, sessions, tokens, cost)| TopAuthor {
+        .map(|(user_id, author, sessions, tokens, cost)| TopAuthor {
+            user_id,
             author,
             sessions,
             tokens,
