@@ -327,8 +327,14 @@ pub async fn get_blob(
         .map_err(|e| AppError::BadRequest(format!("Ref is not a commit: {e}")))?;
     let tree = commit.tree()?;
 
+    // Prevent path traversal attacks by rejecting paths containing '..'.
+    let path = std::path::Path::new(&query.path);
+    if path.components().any(|c| c == std::path::Component::ParentDir) {
+        return Err(AppError::BadRequest(format!("Invalid input: {}", path.display())));
+    }
+
     let entry = tree
-        .get_path(std::path::Path::new(&query.path))
+        .get_path(path)
         .map_err(|e| AppError::NotFound(format!("File not found: {e}")))?;
     let blob_obj = entry.to_object(&repo)?;
     let blob = blob_obj
