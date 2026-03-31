@@ -1,9 +1,10 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use ed25519_dalek::{Signature, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 
 #[derive(Clone)]
 pub struct SigningService {
+    signing_key: SigningKey,
     verifying_key: VerifyingKey,
 }
 
@@ -21,7 +22,16 @@ impl SigningService {
             SigningKey::generate(&mut rand::thread_rng())
         };
         let verifying_key = signing_key.verifying_key();
-        Self { verifying_key }
+        Self {
+            signing_key,
+            verifying_key,
+        }
+    }
+
+    /// Sign a record hash and return the signature as base64.
+    pub fn sign(&self, record_hash: &str) -> String {
+        let sig = self.signing_key.sign(record_hash.as_bytes());
+        BASE64.encode(sig.to_bytes())
     }
 
     /// Compute chain hash: SHA-256(prev_chain_hash || record_hash).
@@ -58,7 +68,6 @@ impl SigningService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ed25519_dalek::Signer;
 
     fn test_seed() -> String {
         BASE64.encode([42u8; 32])
@@ -127,5 +136,14 @@ mod tests {
     fn verify_invalid_base64() {
         let svc = SigningService::new(None);
         assert!(!svc.verify("hash", "not-valid-base64!!!"));
+    }
+
+    #[test]
+    fn sign_and_verify_roundtrip() {
+        let seed = test_seed();
+        let svc = SigningService::new(Some(&seed));
+        let sig = svc.sign("test_hash");
+        assert!(svc.verify("test_hash", &sig));
+        assert!(!svc.verify("wrong_hash", &sig));
     }
 }
