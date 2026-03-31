@@ -34,6 +34,7 @@ pub struct CommitVerifyResult {
     pub sealed: bool,
     pub signature_valid: bool,
     pub chain_valid: bool,
+    pub attributed_sessions_sealed: bool,
     pub policy_results: Vec<PolicyResult>,
 }
 
@@ -100,6 +101,7 @@ pub async fn verify_commits(
                 sealed: false,
                 signature_valid: false,
                 chain_valid: false,
+                attributed_sessions_sealed: false,
                 policy_results: vec![],
             });
             continue;
@@ -115,6 +117,7 @@ pub async fn verify_commits(
                 sealed: false,
                 signature_valid: false,
                 chain_valid: false,
+                attributed_sessions_sealed: false,
                 policy_results: vec![],
             });
             continue;
@@ -160,6 +163,23 @@ pub async fn verify_commits(
         .await?;
 
         let sids: Vec<Uuid> = session_ids.into_iter().map(|(id,)| id).collect();
+
+        // Check if all attributed sessions have at least one seal
+        let attributed_sessions_sealed = if sids.is_empty() {
+            true // No sessions = vacuously true
+        } else {
+            let sealed_session_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(DISTINCT ca.session_id)
+                 FROM commit_attributions ca
+                 WHERE ca.commit_id = $1
+                   AND EXISTS (SELECT 1 FROM session_seals ss WHERE ss.session_id = ca.session_id)",
+            )
+            .bind(commit_id)
+            .fetch_one(&state.pool)
+            .await?;
+
+            sealed_session_count as usize == sids.len()
+        };
 
         // Aggregate tool_calls from events table
         let mut all_tool_calls: std::collections::HashMap<String, i64> =
@@ -229,6 +249,7 @@ pub async fn verify_commits(
             sealed: true,
             signature_valid,
             chain_valid,
+            attributed_sessions_sealed,
             policy_results,
         });
     }

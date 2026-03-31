@@ -276,6 +276,19 @@ impl StreamService {
                     SessionRepo::complete_minimal(&state.pool, session_db_id, Some(req.timestamp))
                         .await?;
                 }
+
+                // Seal session if signing is enabled
+                if let Err(e) = crate::service::sealing::SealingService::seal_session_final(
+                    &state.pool,
+                    session_db_id,
+                    org_id,
+                    state.encryption_key.as_deref(),
+                    "session_end",
+                )
+                .await
+                {
+                    tracing::warn!("Failed to seal session {session_db_id} on end: {e}");
+                }
             }
 
             // 8. SessionStart -- session already upserted above

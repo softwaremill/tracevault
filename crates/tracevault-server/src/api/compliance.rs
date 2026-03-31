@@ -172,6 +172,8 @@ pub struct ChainStatusResponse {
     pub status: String,
     pub total_commits: i32,
     pub verified_commits: i32,
+    pub total_sessions: i32,
+    pub verified_sessions: i32,
     pub errors: Option<serde_json::Value>,
     pub last_verified_at: Option<chrono::DateTime<chrono::Utc>>,
 }
@@ -191,14 +193,18 @@ pub async fn get_chain_status(
             status: r.0,
             total_commits: r.1,
             verified_commits: r.2,
-            errors: r.3,
-            last_verified_at: r.4,
+            total_sessions: r.3,
+            verified_sessions: r.4,
+            errors: r.5,
+            last_verified_at: r.6,
         }))
     } else {
         Ok(Json(ChainStatusResponse {
             status: "never_run".into(),
             total_commits: 0,
             verified_commits: 0,
+            total_sessions: 0,
+            verified_sessions: 0,
             errors: None,
             last_verified_at: None,
         }))
@@ -265,6 +271,39 @@ pub async fn verify_chain(
         prev_hash = Some(ch.clone());
     }
 
+    // Verify session seals
+    let session_seals =
+        crate::repo::sealing::SealingRepo::get_session_seals_for_verification(&state.pool, org_id)
+            .await?;
+
+    let total_sessions = session_seals.len() as i32;
+    let mut verified_sessions = 0i32;
+
+    for (seal_id, session_db_id, record_hash, signature, _seal_type, sealed_at) in &session_seals {
+        let svc = crate::org_signing::load_at_time(&state.pool, org_id, sealed_at, encryption_key)
+            .await
+            .map_err(AppError::internal)?;
+
+        let Some(svc) = svc else {
+            errors.push(
+                serde_json::json!({"session_seal_id": seal_id, "error": "no signing key found"}),
+            );
+            continue;
+        };
+
+        if let Some(sig) = signature {
+            if svc.verify(record_hash, sig) {
+                verified_sessions += 1;
+            } else {
+                errors.push(serde_json::json!({"session_seal_id": seal_id, "session_id": session_db_id, "error": "signature verification failed"}));
+            }
+        } else {
+            errors.push(
+                serde_json::json!({"session_seal_id": seal_id, "error": "missing signature"}),
+            );
+        }
+    }
+
     let status = if errors.is_empty() { "pass" } else { "fail" };
     let errors_json = if errors.is_empty() {
         None
@@ -278,6 +317,8 @@ pub async fn verify_chain(
         status,
         total,
         verified,
+        total_sessions,
+        verified_sessions,
         &errors_json,
     )
     .await?;
@@ -290,7 +331,7 @@ pub async fn verify_chain(
             "chain.verify",
             "org",
             Some(org_id),
-            Some(serde_json::json!({"status": status, "total": total, "verified": verified})),
+            Some(serde_json::json!({"status": status, "total": total, "verified": verified, "total_sessions": total_sessions, "verified_sessions": verified_sessions})),
         ),
     )
     .await;
@@ -299,6 +340,8 @@ pub async fn verify_chain(
         status: status.into(),
         total_commits: total,
         verified_commits: verified,
+        total_sessions,
+        verified_sessions,
         errors: errors_json,
         last_verified_at: Some(chrono::Utc::now()),
     }))
