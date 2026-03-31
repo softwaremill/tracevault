@@ -114,6 +114,25 @@ async fn main() {
         });
     }
 
+    // Background stale session sealing (every 5 minutes)
+    {
+        let pool = pool.clone();
+        let encryption_key = cfg.encryption_key.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            interval.tick().await; // skip immediate tick
+            loop {
+                interval.tick().await;
+                tracevault_server::service::sealing::SealingService::sweep_stale_sessions(
+                    &pool,
+                    encryption_key.as_deref(),
+                    30, // inactive for 30 minutes
+                )
+                .await;
+            }
+        });
+    }
+
     let bind_addr = cfg.bind_addr();
 
     // Auth routes (strict: 10 req/min per IP)
