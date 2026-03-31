@@ -127,6 +127,19 @@ pub async fn create_org(
         .execute(&state.pool)
         .await?;
 
+    crate::audit::log(
+        &state.pool,
+        crate::audit::user_action(
+            org_id,
+            auth.user_id,
+            "org.create",
+            "org",
+            Some(org_id),
+            Some(serde_json::json!({"name": &req_name})),
+        ),
+    )
+    .await;
+
     Ok((
         StatusCode::CREATED,
         Json(CreateOrgResponse {
@@ -274,6 +287,19 @@ pub async fn remove_member(
         .bind(auth.org_id)
         .execute(&state.pool)
         .await?;
+
+    crate::audit::log(
+        &state.pool,
+        crate::audit::user_action(
+            auth.org_id,
+            auth.user_id,
+            "member.remove",
+            "user",
+            Some(user_id),
+            None,
+        ),
+    )
+    .await;
 
     Ok(StatusCode::OK)
 }
@@ -585,6 +611,19 @@ pub async fn approve_invitation_request(
     .execute(&state.pool)
     .await?;
 
+    crate::audit::log(
+        &state.pool,
+        crate::audit::user_action(
+            auth.org_id,
+            auth.user_id,
+            "invitation_request.approve",
+            "user",
+            Some(user_id),
+            Some(serde_json::json!({"email": &email})),
+        ),
+    )
+    .await;
+
     Ok(StatusCode::OK)
 }
 
@@ -609,6 +648,19 @@ pub async fn reject_invitation_request(
             "Request not found or already processed".into(),
         ));
     }
+
+    crate::audit::log(
+        &state.pool,
+        crate::audit::user_action(
+            auth.org_id,
+            auth.user_id,
+            "invitation_request.reject",
+            "invitation_request",
+            Some(request_id),
+            None,
+        ),
+    )
+    .await;
 
     Ok(StatusCode::OK)
 }

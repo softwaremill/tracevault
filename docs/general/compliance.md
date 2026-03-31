@@ -84,14 +84,36 @@ Every seal captures a complete, verifiable record:
 
 ## Audit Log
 
-All compliance-relevant actions are recorded in an immutable audit log:
+All compliance-relevant actions are recorded in an immutable audit log, filterable by action type, actor, resource, and date range.
 
-- Compliance settings changes
-- Signing key generation and rotation
-- Chain verification runs and results
-- User and role changes
+**Organization management:**
+- `org.create` — Organization created
+- `llm_settings.update` — LLM provider/model settings changed
 
-The audit log is filterable by action type, actor, resource, and date range.
+**User and role management:**
+- `user.register` — New user registered (with org creation)
+- `role.change` — Member role changed
+- `member.remove` — Member removed from organization
+- `invite.create` — Invite sent to email
+- `invite.revoke` — Pending invite revoked
+- `invite.accept` — User joined organization via invite (new or existing account)
+- `invitation_request.approve` — Admin approved a join request
+- `invitation_request.reject` — Admin rejected a join request
+
+**Compliance and sealing:**
+- `org.compliance.update` — Compliance mode or retention changed
+- `chain.verify` — Hash chain verification run
+- `ci.verify` — CI commit verification run
+- `commit.sealed` — Commit cryptographically sealed
+
+**Policies:**
+- `policy.create` — Policy created
+- `policy.update` — Policy updated
+- `policy.delete` — Policy deleted
+- `policy.check` — Policy check executed
+
+**Model pricing:**
+- `create` / `update` / `pricing_sync` — Model pricing configuration changes
 
 ## Integration
 

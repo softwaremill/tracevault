@@ -93,6 +93,19 @@ pub async fn create_invite(
 
     let invite_url = format!("{}/invite/{}", state.cors_origin, raw_token);
 
+    crate::audit::log(
+        &state.pool,
+        crate::audit::user_action(
+            auth.org_id,
+            auth.user_id,
+            "invite.create",
+            "invite",
+            Some(id),
+            Some(serde_json::json!({"email": &req.email, "role": &req.role})),
+        ),
+    )
+    .await;
+
     Ok((
         StatusCode::CREATED,
         Json(CreateInviteResponse {
@@ -194,6 +207,19 @@ pub async fn revoke_invite(
             "Invite not found or already processed".into(),
         ));
     }
+
+    crate::audit::log(
+        &state.pool,
+        crate::audit::user_action(
+            auth.org_id,
+            auth.user_id,
+            "invite.revoke",
+            "invite",
+            Some(invite_id),
+            None,
+        ),
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -345,6 +371,19 @@ pub async fn accept_invite_new_user(
 
     tx.commit().await?;
 
+    crate::audit::log(
+        &state.pool,
+        crate::audit::user_action(
+            org_id,
+            user_id,
+            "invite.accept",
+            "user",
+            Some(user_id),
+            Some(serde_json::json!({"email": &email, "method": "new_user"})),
+        ),
+    )
+    .await;
+
     Ok(Json(AcceptInviteNewUserResponse {
         token: raw_token,
         user_id,
@@ -418,6 +457,19 @@ pub async fn accept_invite_existing_user(
         .await?;
 
     tx.commit().await?;
+
+    crate::audit::log(
+        &state.pool,
+        crate::audit::user_action(
+            org_id,
+            auth.user_id,
+            "invite.accept",
+            "user",
+            Some(auth.user_id),
+            Some(serde_json::json!({"email": &email, "method": "existing_user"})),
+        ),
+    )
+    .await;
 
     Ok(Json(AcceptInviteExistingUserResponse {
         message: "Membership created".into(),
