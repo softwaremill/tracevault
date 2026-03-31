@@ -22,6 +22,8 @@
 		status: string;
 		total_commits: number;
 		verified_commits: number;
+		total_sessions: number;
+		verified_sessions: number;
 		errors: unknown[] | null;
 		last_verified_at: string | null;
 	}
@@ -152,6 +154,9 @@
 						{#if chainStatus.status !== 'never_run'}
 							<p class="text-xs text-muted-foreground">
 								{chainStatus.verified_commits}/{chainStatus.total_commits} commits verified
+							</p>
+							<p class="text-xs text-muted-foreground">
+								{chainStatus.verified_sessions}/{chainStatus.total_sessions} session snapshots verified
 							</p>
 						{/if}
 						{#if chainStatus.last_verified_at}
