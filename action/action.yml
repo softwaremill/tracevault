@@ -21,8 +21,9 @@ runs:
   steps:
     - name: Install TraceVault CLI
       shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
       run: |
-        VERSION="${{ inputs.version }}"
         if [ "$VERSION" = "latest" ]; then
           DOWNLOAD_URL=$(curl -s https://api.github.com/repos/softwaremill/tracevault/releases/latest \
             | grep "browser_download_url.*tracevault-.*linux-x86_64" \
