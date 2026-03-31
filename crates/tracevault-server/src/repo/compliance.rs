@@ -114,6 +114,8 @@ impl ComplianceRepo {
             String,                    // status
             i32,                       // total_commits
             i32,                       // verified_commits
+            i32,                       // total_sessions
+            i32,                       // verified_sessions
             Option<serde_json::Value>, // errors
             Option<DateTime<Utc>>,     // completed_at
         )>,
@@ -125,11 +127,13 @@ impl ComplianceRepo {
                 String,
                 i32,
                 i32,
+                i32,
+                i32,
                 Option<serde_json::Value>,
                 Option<DateTime<Utc>>,
             ),
         >(
-            "SELECT status, total_commits, verified_commits, errors, completed_at
+            "SELECT status, total_commits, verified_commits, total_sessions, verified_sessions, errors, completed_at
              FROM chain_verifications WHERE org_id = $1
              ORDER BY created_at DESC LIMIT 1",
         )
@@ -181,22 +185,27 @@ impl ComplianceRepo {
     }
 
     /// Insert a chain verification result.
+    #[allow(clippy::too_many_arguments)]
     pub async fn insert_chain_verification(
         pool: &PgPool,
         org_id: Uuid,
         status: &str,
         total: i32,
         verified: i32,
+        total_sessions: i32,
+        verified_sessions: i32,
         errors: &Option<serde_json::Value>,
     ) -> Result<(), AppError> {
         sqlx::query(
-            "INSERT INTO chain_verifications (org_id, status, total_commits, verified_commits, errors, started_at, completed_at)
-             VALUES ($1, $2, $3, $4, $5, NOW(), NOW())",
+            "INSERT INTO chain_verifications (org_id, status, total_commits, verified_commits, total_sessions, verified_sessions, errors, started_at, completed_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())",
         )
         .bind(org_id)
         .bind(status)
         .bind(total)
         .bind(verified)
+        .bind(total_sessions)
+        .bind(verified_sessions)
         .bind(errors)
         .execute(pool)
         .await?;

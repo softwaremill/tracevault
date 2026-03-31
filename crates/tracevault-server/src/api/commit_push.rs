@@ -72,7 +72,9 @@ pub async fn handle_commit_push(
         &state.pool,
         commit_db_id,
         state.encryption_key.as_deref(),
-    ).await {
+    )
+    .await
+    {
         tracing::warn!("Failed to seal commit {}: {e}", req.commit_sha);
     }
 
