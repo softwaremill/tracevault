@@ -67,6 +67,15 @@ pub async fn handle_commit_push(
         .await?;
     }
 
+    // 4. Seal commit (if signing enabled for this org)
+    if let Err(e) = crate::service::sealing::SealingService::seal_commit(
+        &state.pool,
+        commit_db_id,
+        state.encryption_key.as_deref(),
+    ).await {
+        tracing::warn!("Failed to seal commit {}: {e}", req.commit_sha);
+    }
+
     Ok(Json(CommitPushResponse {
         commit_db_id,
         attributions_count,
