@@ -16,7 +16,7 @@
 	let transcriptFilters = $state(new Set<string>());
 	let transcriptSearch = $state('');
 	let sectionsOpen = $state({
-		events: true,
+		events: false,
 		files: false,
 		transcript: false,
 		commits: false
@@ -281,58 +281,6 @@
 
 		<!-- Accordion sections -->
 		<div class="space-y-3">
-			<!-- Events Timeline -->
-			<div class="border-border overflow-hidden rounded-lg border">
-				<button
-					class="hover:bg-muted/40 flex w-full items-center gap-3 px-4 py-3 text-left transition-colors"
-					onclick={() => toggleSection('events')}
-				>
-					<span class="text-muted-foreground/50 text-xs">{sectionsOpen.events ? '▼' : '▶'}</span>
-					<span class="text-sm font-semibold">Events Timeline</span>
-					<span class="text-muted-foreground ml-auto text-xs">{data.events.length} events</span>
-				</button>
-				{#if sectionsOpen.events}
-					<div class="border-border border-t">
-						{#if data.events.length === 0}
-							<p class="text-muted-foreground px-4 py-4 text-sm">No events recorded.</p>
-						{:else}
-							<div class="divide-border divide-y">
-								{#each data.events as event (event.id)}
-									{@const color = getToolColor(event.tool_name)}
-									<div>
-										<button
-											class="hover:bg-muted/30 flex w-full items-center gap-3 px-4 py-2 text-left text-xs transition-colors"
-											onclick={() => toggleEvent(event.id)}
-										>
-											<span class="h-2.5 w-2.5 shrink-0 rounded-full {color}"></span>
-											<span class="w-16 shrink-0 font-mono font-medium">{event.tool_name ?? event.event_type}</span>
-											<span class="text-muted-foreground min-w-0 flex-1 truncate font-mono">{eventSummary(event)}</span>
-											<span class="text-muted-foreground shrink-0">{fmtRelativeTime(event.timestamp)}</span>
-										</button>
-										{#if expandedEvents.has(event.id)}
-											<div class="border-border border-t px-4 py-3">
-												{#if event.tool_input}
-													<div class="mb-2">
-														<span class="text-muted-foreground text-[10px] uppercase tracking-wide">Input</span>
-														<pre class="bg-muted/20 mt-1 max-h-60 overflow-auto rounded p-3 font-mono text-[11px] leading-relaxed">{formatJson(event.tool_input)}</pre>
-													</div>
-												{/if}
-												{#if event.tool_response}
-													<div>
-														<span class="text-muted-foreground text-[10px] uppercase tracking-wide">Response</span>
-														<pre class="bg-muted/20 mt-1 max-h-60 overflow-auto rounded p-3 font-mono text-[11px] leading-relaxed">{formatJson(event.tool_response)}</pre>
-													</div>
-												{/if}
-											</div>
-										{/if}
-									</div>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				{/if}
-			</div>
-
 			<!-- File Changes -->
 			<div class="border-border overflow-hidden rounded-lg border">
 				<button
@@ -535,6 +483,58 @@
 									{/each}
 								</Table.Body>
 							</Table.Root>
+						{/if}
+					</div>
+				{/if}
+			</div>
+
+			<!-- Events Timeline -->
+			<div class="border-border overflow-hidden rounded-lg border">
+				<button
+					class="hover:bg-muted/40 flex w-full items-center gap-3 px-4 py-3 text-left transition-colors"
+					onclick={() => toggleSection('events')}
+				>
+					<span class="text-muted-foreground/50 text-xs">{sectionsOpen.events ? '▼' : '▶'}</span>
+					<span class="text-sm font-semibold">Events Timeline</span>
+					<span class="text-muted-foreground ml-auto text-xs">{data.events.length} events</span>
+				</button>
+				{#if sectionsOpen.events}
+					<div class="border-border border-t">
+						{#if data.events.length === 0}
+							<p class="text-muted-foreground px-4 py-4 text-sm">No events recorded.</p>
+						{:else}
+							<div class="divide-border divide-y">
+								{#each data.events as event (event.id)}
+									{@const color = getToolColor(event.tool_name)}
+									<div>
+										<button
+											class="hover:bg-muted/30 flex w-full items-center gap-3 px-4 py-2 text-left text-xs transition-colors"
+											onclick={() => toggleEvent(event.id)}
+										>
+											<span class="h-2.5 w-2.5 shrink-0 rounded-full {color}"></span>
+											<span class="w-16 shrink-0 font-mono font-medium">{event.tool_name ?? event.event_type}</span>
+											<span class="text-muted-foreground min-w-0 flex-1 truncate font-mono">{eventSummary(event)}</span>
+											<span class="text-muted-foreground shrink-0">{fmtRelativeTime(event.timestamp)}</span>
+										</button>
+										{#if expandedEvents.has(event.id)}
+											<div class="border-border border-t px-4 py-3">
+												{#if event.tool_input}
+													<div class="mb-2">
+														<span class="text-muted-foreground text-[10px] uppercase tracking-wide">Input</span>
+														<pre class="bg-muted/20 mt-1 max-h-60 overflow-auto rounded p-3 font-mono text-[11px] leading-relaxed">{formatJson(event.tool_input)}</pre>
+													</div>
+												{/if}
+												{#if event.tool_response}
+													<div>
+														<span class="text-muted-foreground text-[10px] uppercase tracking-wide">Response</span>
+														<pre class="bg-muted/20 mt-1 max-h-60 overflow-auto rounded p-3 font-mono text-[11px] leading-relaxed">{formatJson(event.tool_response)}</pre>
+													</div>
+												{/if}
+											</div>
+										{/if}
+									</div>
+								{/each}
+							</div>
 						{/if}
 					</div>
 				{/if}
