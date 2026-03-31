@@ -355,6 +355,10 @@ async fn main() {
             "/api/v1/orgs/{slug}/audit-log",
             get(api::compliance::list_audit_log),
         )
+        .route(
+            "/api/v1/orgs/{slug}/audit-log/actions",
+            get(api::compliance::audit_log_actions),
+        )
         // Org-scoped: pricing
         .route(
             "/api/v1/orgs/{slug}/pricing",

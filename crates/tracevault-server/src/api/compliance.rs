@@ -349,6 +349,15 @@ pub async fn verify_chain(
 
 // --- Audit Log ---
 
+pub async fn audit_log_actions(
+    State(state): State<AppState>,
+    auth: OrgAuth,
+) -> Result<Json<Vec<String>>, AppError> {
+    error::require_permission(&state.extensions, &auth.role, Permission::AuditLogView)?;
+    let actions = ComplianceRepo::distinct_audit_actions(&state.pool, auth.org_id).await?;
+    Ok(Json(actions))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct AuditLogQuery {
     pub action: Option<String>,

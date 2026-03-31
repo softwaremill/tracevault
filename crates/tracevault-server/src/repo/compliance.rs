@@ -215,6 +215,21 @@ impl ComplianceRepo {
 
     // ── Audit Log ────────────────────────────────────────────────────
 
+    /// List distinct action values from the audit log for an org.
+    pub async fn distinct_audit_actions(
+        pool: &PgPool,
+        org_id: Uuid,
+    ) -> Result<Vec<String>, AppError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT action FROM audit_log WHERE org_id = $1 ORDER BY action",
+        )
+        .bind(org_id)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
     /// Count audit log entries with optional filters.
     pub async fn count_audit_log(
         pool: &PgPool,
