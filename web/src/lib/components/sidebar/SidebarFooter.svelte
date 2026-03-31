@@ -1,29 +1,20 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { LogOut, ChevronsRight } from '@lucide/svelte';
+	import { LogOut } from '@lucide/svelte';
 
 	let {
 		expanded,
 		userEmail,
-		onLogout,
-		onExpand
+		onLogout
 	}: {
 		expanded: boolean;
 		userEmail: string | null;
 		onLogout: () => void;
-		onExpand: () => void;
 	} = $props();
 </script>
 
-<div class="border-t p-2">
-	{#if !expanded}
-		<button
-			onclick={onExpand}
-			class="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent mx-auto"
-		>
-			<ChevronsRight class="h-4 w-4" />
-		</button>
-	{:else}
+{#if expanded}
+	<div class="border-t p-2">
 		{#if userEmail}
 			<p class="text-xs text-muted-foreground truncate px-3 py-1">{userEmail}</p>
 		{/if}
@@ -31,5 +22,5 @@
 			<LogOut class="h-4 w-4" />
 			Log out
 		</Button>
-	{/if}
-</div>
+	</div>
+{/if}
