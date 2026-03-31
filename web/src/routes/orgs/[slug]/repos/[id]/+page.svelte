@@ -3,6 +3,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { api } from '$lib/api';
 	import * as Table from '$lib/components/ui/table/index.js';
+	import DataTable from '$lib/components/DataTable.svelte';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -253,6 +254,16 @@
 		if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
 		return String(n);
 	}
+
+	const commitColumns = [
+		{ key: 'commit_sha', label: 'Commit', sortable: true },
+		{ key: 'message', label: 'Message', sortable: true },
+		{ key: 'author', label: 'Author', sortable: true },
+		{ key: 'branch', label: 'Branch', sortable: true },
+		{ key: 'ai_sessions_count', label: 'AI Sessions', sortable: true },
+		{ key: 'files_changed', label: 'Files', sortable: true },
+		{ key: 'committed_at', label: 'Date', sortable: true }
+	];
 </script>
 
 <svelte:head>
@@ -474,72 +485,66 @@
 	</div>
 
 	<!-- Commits Section -->
-	<div class="border-border overflow-hidden rounded-lg border">
-		<div class="bg-muted/30 px-4 py-3 text-sm font-semibold">Commits</div>
-		<div class="p-4">
-			{#if loading}
-				<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
-					<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-					Loading...
-				</div>
-			{:else if error}
-				<p class="text-destructive">{error}</p>
-			{:else if commits.length === 0}
-				<p class="text-muted-foreground text-sm">No commits found for this repo.</p>
-			{:else}
-				<Table.Root>
-					<Table.Header>
-						<Table.Row>
-							<Table.Head class="text-xs">Commit</Table.Head>
-							<Table.Head class="text-xs">Message</Table.Head>
-							<Table.Head class="text-xs">Author</Table.Head>
-							<Table.Head class="text-xs">Branch</Table.Head>
-							<Table.Head class="text-xs">AI Sessions</Table.Head>
-							<Table.Head class="text-xs">Files</Table.Head>
-							<Table.Head class="text-xs">Date</Table.Head>
-						</Table.Row>
-					</Table.Header>
-					<Table.Body>
-						{#each commits as commit}
-							<Table.Row
-								class="hover:bg-muted/40 cursor-pointer transition-colors"
-								onclick={() => toggleCommitExpand(commit.id)}
-							>
-								<Table.Cell class="text-xs">
-									<a
-										href="/orgs/{slug}/traces/commits/{commit.id}"
-										class="font-mono text-sm underline"
-										onclick={(e) => e.stopPropagation()}
-									>
-										{commit.commit_sha.slice(0, 8)}
-									</a>
-								</Table.Cell>
-								<Table.Cell class="text-xs max-w-xs truncate text-muted-foreground"
-									>{firstLine(commit.message)}</Table.Cell
-								>
-								<Table.Cell class="text-xs">{commit.author}</Table.Cell>
-								<Table.Cell class="text-xs">
-									{#if commit.branch}
-										<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">{commit.branch}</span>
-									{:else}
-										<span class="text-muted-foreground">-</span>
-									{/if}
-								</Table.Cell>
-								<Table.Cell class="text-xs">{commit.ai_sessions_count ?? 0}</Table.Cell>
-								<Table.Cell class="text-xs font-mono">{commit.files_changed ?? 0}</Table.Cell>
-								<Table.Cell class="text-xs">{commit.committed_at ? formatDate(commit.committed_at) : '-'}</Table.Cell>
-							</Table.Row>
-							{#if expandedCommitId === commit.id && commit.message}
-								<Table.Row class="bg-muted/20">
-									<Table.Cell colspan={7} class="py-3 px-4">
-										<pre class="whitespace-pre-wrap text-xs text-muted-foreground font-mono">{commit.message.trim()}</pre>
-									</Table.Cell>
-								</Table.Row>
-							{/if}
-						{/each}
-					</Table.Body>
-				</Table.Root>
-			{/if}
-		</div>
+	<div class="space-y-2">
+		<h2 class="text-sm font-semibold">Commits</h2>
+		{#if loading}
+			<div class="text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm">
+				<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+				Loading...
+			</div>
+		{:else if error}
+			<p class="text-destructive">{error}</p>
+		{:else if commits.length === 0}
+			<p class="text-muted-foreground text-sm">No commits found for this repo.</p>
+		{:else}
+			<DataTable
+				columns={commitColumns}
+				rows={commits}
+				searchKeys={['commit_sha', 'message', 'author', 'branch']}
+				defaultSort="committed_at"
+				defaultSortDir="desc"
+				rowIdKey="id"
+				onRowClick={(row) => {
+					const id = row.id as string;
+					expandedCommitId = expandedCommitId === id ? null : id;
+				}}
+				expandedRowId={expandedCommitId}
+			>
+				{#snippet children({ row, col })}
+					{#if col.key === 'commit_sha'}
+						<a
+							href="/orgs/{slug}/traces/commits/{row.id}"
+							class="font-mono text-sm underline"
+							onclick={(e) => e.stopPropagation()}
+						>
+							{(row.commit_sha as string).slice(0, 8)}
+						</a>
+					{:else if col.key === 'message'}
+						<span class="max-w-xs truncate text-muted-foreground">{firstLine(row.message as string | null)}</span>
+					{:else if col.key === 'branch'}
+						{#if row.branch}
+							<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.25)">{row.branch}</span>
+						{:else}
+							<span class="text-muted-foreground">-</span>
+						{/if}
+					{:else if col.key === 'ai_sessions_count'}
+						{row.ai_sessions_count ?? 0}
+					{:else if col.key === 'files_changed'}
+						<span class="font-mono">{row.files_changed ?? 0}</span>
+					{:else if col.key === 'committed_at'}
+						{row.committed_at ? formatDate(row.committed_at as string) : '-'}
+					{:else}
+						{row[col.key] ?? '-'}
+					{/if}
+				{/snippet}
+				{#snippet expandedRow({ row })}
+					{#if row.message}
+						<div class="py-3 px-4 bg-muted/20">
+							<pre class="whitespace-pre-wrap text-xs text-muted-foreground font-mono">{(row.message as string).trim()}</pre>
+						</div>
+					{/if}
+				{/snippet}
+			</DataTable>
+		{/if}
 	</div>
 </div>

@@ -13,6 +13,7 @@
 	import * as Table from '$lib/components/ui/table/index.js';
 
 	interface TopAuthor {
+		user_id: string;
 		author: string;
 		sessions: number;
 		tokens: number;
@@ -84,7 +85,7 @@
 					</Table.Header>
 					<Table.Body>
 						{#each data.top_authors as author, i}
-							<Table.Row class="cursor-pointer border-l-[3px] border-l-transparent transition-colors hover:border-l-primary" onclick={() => goto(`/orgs/${slug}/analytics/authors`)}>
+							<Table.Row class="cursor-pointer border-l-[3px] border-l-transparent transition-colors hover:border-l-primary" onclick={() => goto(`/orgs/${slug}/analytics/authors/${author.user_id}`)}>
 								<Table.Cell class="text-muted-foreground font-mono">{i + 1}</Table.Cell>
 								<Table.Cell class="font-medium">{author.author}</Table.Cell>
 								<Table.Cell class="text-right font-mono">{fmtNum(author.sessions)}</Table.Cell>
