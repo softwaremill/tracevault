@@ -8,6 +8,7 @@
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
+	import { BUILD_TIME, COMMIT_HASH } from '$lib/build-info';
 
 	let email = $state('');
 	let password = $state('');
@@ -91,10 +92,11 @@
 					</Button>
 				</form>
 			</Card.Content>
-			<Card.Footer class="justify-center">
+			<Card.Footer class="flex-col items-center gap-2">
 				<p class="text-sm text-muted-foreground">
 					Need access? <a href="/auth/setup" class="underline">Request an invitation</a>
 				</p>
+				<p class="text-[10px] text-muted-foreground/50">Built at: {BUILD_TIME} ({COMMIT_HASH})</p>
 			</Card.Footer>
 		</Card.Root>
 		</div>
