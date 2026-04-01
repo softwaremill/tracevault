@@ -211,6 +211,7 @@ pub struct RepoSettingsResponse {
     pub github_url: Option<String>,
     pub clone_status: String,
     pub has_deploy_key: bool,
+    pub has_webhook_secret: bool,
     pub last_fetched_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -219,8 +220,8 @@ pub async fn get_settings(
     auth: OrgAuth,
     Path((_slug, id)): Path<(String, Uuid)>,
 ) -> Result<Json<RepoSettingsResponse>, AppError> {
-    let row = sqlx::query_as::<_, (Option<String>, String, Option<String>, Option<chrono::DateTime<chrono::Utc>>)>(
-        "SELECT github_url, clone_status, deploy_key_encrypted, last_fetched_at FROM repos WHERE id = $1 AND org_id = $2",
+    let row = sqlx::query_as::<_, (Option<String>, String, Option<String>, Option<String>, Option<chrono::DateTime<chrono::Utc>>)>(
+        "SELECT github_url, clone_status, deploy_key_encrypted, webhook_secret_encrypted, last_fetched_at FROM repos WHERE id = $1 AND org_id = $2",
     )
     .bind(id)
     .bind(auth.org_id)
@@ -232,7 +233,8 @@ pub async fn get_settings(
         github_url: row.0,
         clone_status: row.1,
         has_deploy_key: row.2.is_some(),
-        last_fetched_at: row.3,
+        has_webhook_secret: row.3.is_some(),
+        last_fetched_at: row.4,
     }))
 }
 
@@ -240,6 +242,7 @@ pub async fn get_settings(
 pub struct UpdateSettingsRequest {
     pub github_url: Option<String>,
     pub deploy_key: Option<String>,
+    pub webhook_secret: Option<String>,
 }
 
 pub async fn update_settings(
@@ -288,9 +291,27 @@ pub async fn update_settings(
         .await?;
     }
 
+    // Encrypt and store webhook secret if provided (ignore empty strings)
+    if let Some(ref secret) = req.webhook_secret.filter(|s| !s.trim().is_empty()) {
+        let (ct, nonce) = state
+            .extensions
+            .encryption
+            .encrypt(secret)
+            .map_err(|e| AppError::Internal(format!("Encryption failed: {e}")))?;
+
+        sqlx::query(
+            "UPDATE repos SET webhook_secret_encrypted = $1, webhook_secret_nonce = $2 WHERE id = $3",
+        )
+        .bind(&ct)
+        .bind(&nonce)
+        .bind(id)
+        .execute(&state.pool)
+        .await?;
+    }
+
     // Read back current state to decide whether to trigger clone
-    let row = sqlx::query_as::<_, (Option<String>, String, Option<String>, Option<String>, Option<chrono::DateTime<chrono::Utc>>)>(
-        "SELECT github_url, clone_status, deploy_key_encrypted, deploy_key_nonce, last_fetched_at FROM repos WHERE id = $1",
+    let row = sqlx::query_as::<_, (Option<String>, String, Option<String>, Option<String>, Option<String>, Option<chrono::DateTime<chrono::Utc>>)>(
+        "SELECT github_url, clone_status, deploy_key_encrypted, deploy_key_nonce, webhook_secret_encrypted, last_fetched_at FROM repos WHERE id = $1",
     )
     .bind(id)
     .fetch_one(&state.pool)
@@ -299,7 +320,8 @@ pub async fn update_settings(
     let github_url = row.0.clone();
     let clone_status = row.1.clone();
     let has_deploy_key = row.2.is_some();
-    let last_fetched_at = row.4;
+    let has_webhook_secret = row.4.is_some();
+    let last_fetched_at = row.5;
 
     // Auto-trigger clone/sync if both github_url and deploy_key are set
     if let Some(url) = &github_url {
@@ -322,6 +344,7 @@ pub async fn update_settings(
                     github_url,
                     clone_status: "cloning".into(),
                     has_deploy_key,
+                    has_webhook_secret,
                     last_fetched_at,
                 }));
             }
@@ -347,6 +370,7 @@ pub async fn update_settings(
         github_url,
         clone_status,
         has_deploy_key,
+        has_webhook_secret,
         last_fetched_at,
     }))
 }
