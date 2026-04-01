@@ -66,10 +66,29 @@ export interface LinkedCommit {
 	confidence: number | null;
 }
 
+export interface TranscriptRecordUsage {
+	input_tokens: number;
+	output_tokens: number;
+	cache_read_tokens: number;
+	cache_write_tokens: number;
+	cost_usd: number;
+}
+
+export interface TranscriptRecordData {
+	record_type: string;
+	timestamp: string | null;
+	content_types: string[];
+	tool_name: string | null;
+	text: string | null;
+	usage: TranscriptRecordUsage | null;
+	model: string | null;
+}
+
 export interface SessionDetailResponse {
 	session: SessionInfo;
 	events: EventItem[];
 	file_changes: FileChange[];
 	transcript_chunks: TranscriptChunk[];
+	transcript_records: TranscriptRecordData[];
 	linked_commits: LinkedCommit[];
 }

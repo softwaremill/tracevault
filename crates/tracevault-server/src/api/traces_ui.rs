@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::AppError;
+use crate::pricing;
 use crate::{extractors::OrgAuth, AppState};
+
+use super::session_detail::{parse_transcript, TranscriptRecord};
 
 // ── Query param types ───────────────────────────────────────────────
 
@@ -124,6 +127,7 @@ pub struct SessionDetailResponse {
     pub events: Vec<EventRow>,
     pub file_changes: Vec<FileChangeRow>,
     pub transcript_chunks: Vec<TranscriptChunkRow>,
+    pub transcript_records: Vec<TranscriptRecord>,
     pub linked_commits: Vec<LinkedCommitRow>,
 }
 
@@ -346,11 +350,24 @@ pub async fn get_session(
     .fetch_all(&state.pool)
     .await?;
 
+    let pricing = pricing::fetch_pricing_for_model(
+        &state.pool,
+        session.model.as_deref().unwrap_or("sonnet"),
+        session.started_at,
+    )
+    .await;
+
+    let transcript_array: Vec<serde_json::Value> =
+        transcript_chunks.iter().map(|c| c.data.clone()).collect();
+    let transcript_val = serde_json::Value::Array(transcript_array);
+    let (_, transcript_records, _, _, _) = parse_transcript(&transcript_val, &pricing);
+
     Ok(Json(SessionDetailResponse {
         session,
         events,
         file_changes,
         transcript_chunks,
+        transcript_records,
         linked_commits,
     }))
 }
