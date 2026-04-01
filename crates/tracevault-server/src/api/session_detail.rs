@@ -71,7 +71,7 @@ pub struct TokenDistribution {
     pub cache_write_tokens: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct RecordUsage {
     pub input_tokens: i64,
     pub output_tokens: i64,
@@ -80,7 +80,7 @@ pub struct RecordUsage {
     pub cost_usd: f64,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct TranscriptRecord {
     pub record_type: String,
     pub timestamp: Option<String>,

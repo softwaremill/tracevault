@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { locale } from '$lib/utils/date';
+
 	interface TranscriptRecordData {
 		record_type: string;
 		timestamp: string | null;
@@ -20,6 +22,15 @@
 	}
 
 	let { records }: Props = $props();
+
+	function fmtTime(ts: string | null): string {
+		if (!ts) return '';
+		try {
+			return new Date(ts).toLocaleTimeString(locale, { hour12: false });
+		} catch {
+			return '';
+		}
+	}
 
 	const TYPE_COLORS: Record<string, string> = {
 		user: '#3ecf8e',
@@ -108,7 +119,12 @@
 						? 'bg-muted ml-auto'
 						: 'bg-muted/50 mr-auto'}"
 			>
-				<div class="text-muted-foreground mb-1 text-[10px] font-medium uppercase">{record.record_type}</div>
+				<div class="text-muted-foreground mb-1 flex items-center gap-2 text-[10px] font-medium uppercase">
+					<span>{record.record_type}</span>
+					{#if record.timestamp}
+						<span class="font-mono normal-case">{fmtTime(record.timestamp)}</span>
+					{/if}
+				</div>
 				<div class="whitespace-pre-wrap break-words">{record.text?.trim()}</div>
 			</div>
 		{/each}

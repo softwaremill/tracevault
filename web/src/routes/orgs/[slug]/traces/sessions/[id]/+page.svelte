@@ -4,17 +4,16 @@
 	import { fmtNum, fmtCost, fmtRelativeTime } from '$lib/utils/format';
 	import { sessionStatus } from '$lib/utils/status';
 	import { getToolColor } from '$lib/utils/colors';
-	import type { SessionDetailResponse, EventItem, TranscriptChunk } from '$lib/types';
+	import type { SessionDetailResponse, EventItem } from '$lib/types';
 	import { formatDateTime } from '$lib/utils/date';
 	import * as Table from '$lib/components/ui/table/index.js';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import LoadingState from '$lib/components/LoadingState.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
+	import SessionTranscript from '$lib/components/session-detail/SessionTranscript.svelte';
 
 	let expandedEvents = $state(new Set<string>());
 	let expandedFiles = $state(new Set<string>());
-	let transcriptFilters = $state(new Set<string>());
-	let transcriptSearch = $state('');
 	let sectionsOpen = $state({
 		events: false,
 		files: false,
@@ -68,18 +67,6 @@
 		expandedFiles = next;
 	}
 
-	function toggleTranscriptFilter(role: string) {
-		const next = new Set(transcriptFilters);
-		if (next.has(role)) next.delete(role);
-		else next.add(role);
-		transcriptFilters = next;
-	}
-
-	const ROLE_COLORS: Record<string, string> = {
-		user: '#3ecf8e',
-		assistant: '#a78bfa'
-	};
-
 	interface DiffLine {
 		type: 'add' | 'remove' | 'header';
 		content: string;
@@ -102,93 +89,6 @@
 		return lines;
 	}
 
-	interface TranscriptTurn {
-		role: string;
-		content: string;
-	}
-
-	function extractTurns(chunks: TranscriptChunk[]): TranscriptTurn[] {
-		const turns: TranscriptTurn[] = [];
-		for (const chunk of chunks) {
-			if (!chunk.data) continue;
-			const obj = chunk.data as Record<string, unknown>;
-
-			// Claude Code JSONL format: { type: "user"|"assistant", message: { role, content } }
-			const type = obj.type as string | undefined;
-			if (type === 'user' || type === 'assistant') {
-				const msg = obj.message as Record<string, unknown> | undefined;
-				if (msg) {
-					turns.push({
-						role: type,
-						content: extractContent(msg.content)
-					});
-				} else if (obj.content) {
-					turns.push({
-						role: type,
-						content: extractContent(obj.content)
-					});
-				}
-			}
-			// Also handle standard { role, content } format
-			else if (obj.role && (obj.role === 'user' || obj.role === 'assistant')) {
-				turns.push({
-					role: String(obj.role),
-					content: extractContent(obj.content)
-				});
-			}
-		}
-		return turns;
-	}
-
-	function extractContent(content: unknown): string {
-		if (typeof content === 'string') return content;
-		if (Array.isArray(content)) {
-			return content
-				.map((c) => {
-					if (typeof c === 'string') return c;
-					if (c && typeof c === 'object') {
-						const block = c as Record<string, unknown>;
-						if (block.type === 'text' && block.text) return String(block.text);
-						if (block.type === 'tool_use') {
-							const input = (block.input as Record<string, unknown>) ?? {};
-							const summary = input.file_path
-								? String(input.file_path)
-								: input.command
-									? String(input.command).slice(0, 80)
-									: input.description
-										? String(input.description).slice(0, 80)
-										: input.pattern
-											? String(input.pattern)
-											: input.skill
-												? String(input.skill)
-												: '';
-							return summary ? `[${block.name}: ${summary}]` : `[${block.name}]`;
-						}
-						if (block.type === 'tool_result') {
-							const resultContent = block.content;
-							if (typeof resultContent === 'string') return resultContent.length > 200 ? resultContent.slice(0, 200) + '...' : resultContent;
-							if (Array.isArray(resultContent)) {
-								return resultContent
-									.filter((r: Record<string, unknown>) => r.type === 'text')
-									.map((r: Record<string, unknown>) => {
-										const txt = String(r.text ?? '');
-										return txt.length > 200 ? txt.slice(0, 200) + '...' : txt;
-									})
-									.join('\n');
-							}
-							return '[Tool result]';
-						}
-					}
-					return '';
-				})
-				.filter(Boolean)
-				.join('\n');
-		}
-		if (content && typeof content === 'object') {
-			return JSON.stringify(content, null, 2);
-		}
-		return String(content ?? '');
-	}
 </script>
 
 <svelte:head>
@@ -369,59 +269,14 @@
 				>
 					<span class="text-muted-foreground/50 text-xs">{sectionsOpen.transcript ? '▼' : '▶'}</span>
 					<span class="text-sm font-semibold">Transcript</span>
-					<span class="text-muted-foreground ml-auto text-xs">{data.transcript_chunks.length} chunks</span>
+					<span class="text-muted-foreground ml-auto text-xs">{data.transcript_records.length} records</span>
 				</button>
 				{#if sectionsOpen.transcript}
-					<div class="border-border border-t">
-						{#if data.transcript_chunks.length === 0}
-							<p class="text-muted-foreground px-4 py-4 text-sm">No transcript data.</p>
+					<div class="border-border border-t px-4 py-4">
+						{#if data.transcript_records.length === 0}
+							<p class="text-muted-foreground text-sm">No transcript data.</p>
 						{:else}
-							{@const turns = extractTurns(data.transcript_chunks)}
-							{@const roleCounts = turns.reduce((acc, t) => { acc[t.role] = (acc[t.role] || 0) + 1; return acc; }, {} as Record<string, number>)}
-							{#if turns.length === 0}
-								<div class="divide-border divide-y">
-									{#each data.transcript_chunks as chunk (chunk.chunk_index)}
-										<pre class="max-h-60 overflow-auto px-4 py-3 font-mono text-[11px] leading-relaxed">{formatJson(chunk.data)}</pre>
-									{/each}
-								</div>
-							{:else}
-								<div class="px-4 pt-3">
-									<input
-										type="text"
-										placeholder="Search transcript..."
-										bind:value={transcriptSearch}
-										class="border-border bg-background text-foreground placeholder:text-muted-foreground w-full rounded-md border px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-									/>
-								</div>
-								<div class="flex flex-wrap gap-2 px-4 pt-3">
-									{#each Object.entries(roleCounts) as [role, count]}
-										{@const color = ROLE_COLORS[role] || '#6b7594'}
-										{@const isActive = transcriptFilters.size === 0 || transcriptFilters.has(role)}
-										<button
-											class="rounded-full border px-2.5 py-1 text-[11px] transition-opacity"
-											style="background: {color}15; color: {color}; border-color: {color}30; opacity: {isActive ? 1 : 0.4}"
-											onclick={() => toggleTranscriptFilter(role)}
-										>
-											{role} ({count})
-										</button>
-									{/each}
-								</div>
-								<div class="space-y-2 p-4">
-									{#each turns.filter(t => (transcriptFilters.size === 0 || transcriptFilters.has(t.role)) && (!transcriptSearch.trim() || t.content.toLowerCase().includes(transcriptSearch.toLowerCase()) || t.role.toLowerCase().includes(transcriptSearch.toLowerCase()))) as turn}
-										<div
-											class="max-w-[85%] rounded-lg px-3 py-2 text-xs
-												{turn.role === 'user'
-													? 'bg-primary/10 mr-auto'
-													: turn.role === 'assistant'
-														? 'bg-muted ml-auto'
-														: 'bg-muted/50 mr-auto'}"
-										>
-											<div class="text-muted-foreground mb-1 text-[10px] font-medium uppercase">{turn.role}</div>
-											<div class="whitespace-pre-wrap break-words">{turn.content}</div>
-										</div>
-									{/each}
-								</div>
-							{/if}
+							<SessionTranscript records={data.transcript_records} />
 						{/if}
 					</div>
 				{/if}
