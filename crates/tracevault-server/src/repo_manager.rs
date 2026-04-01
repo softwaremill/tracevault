@@ -17,7 +17,13 @@ fn write_temp_key(deploy_key_pem: &str) -> Result<PathBuf, String> {
     let path = dir.join(format!("dk-{}", uuid::Uuid::new_v4()));
     let mut file =
         std::fs::File::create(&path).map_err(|e| format!("failed to create temp key file: {e}"))?;
-    file.write_all(deploy_key_pem.as_bytes())
+    // SSH requires PEM files to end with a newline
+    let normalized = if deploy_key_pem.ends_with('\n') {
+        deploy_key_pem.to_string()
+    } else {
+        format!("{deploy_key_pem}\n")
+    };
+    file.write_all(normalized.as_bytes())
         .map_err(|e| format!("failed to write temp key: {e}"))?;
     #[cfg(unix)]
     {
@@ -124,8 +130,8 @@ impl RepoManager {
                 &path.to_string_lossy(),
                 "fetch",
                 "origin",
-                "refs/heads/*:refs/heads/*",
-                "refs/tags/*:refs/tags/*",
+                "+refs/heads/*:refs/heads/*",
+                "+refs/tags/*:refs/tags/*",
             ])
             .output()
             .map_err(|e| format!("failed to run git fetch: {e}"));
