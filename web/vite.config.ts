@@ -1,6 +1,6 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
-import { execSync } from 'child_process';
+import { execSync } from 'node:child_process';
 import { defineConfig } from 'vite';
 
 const commitHash = execSync('git rev-parse --short HEAD').toString().trim();
