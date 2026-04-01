@@ -84,7 +84,10 @@ pub async fn webhook(
     };
 
     let Some((repo_id, secret)) = resolve_repo_with_secret(&state, &json_body).await else {
-        return (StatusCode::OK, "repo not tracked or no webhook secret configured");
+        return (
+            StatusCode::OK,
+            "repo not tracked or no webhook secret configured",
+        );
     };
 
     if !verify_webhook_signature(&secret, &body, signature) {
