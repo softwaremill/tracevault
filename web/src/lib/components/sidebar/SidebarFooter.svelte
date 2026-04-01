@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { LogOut } from '@lucide/svelte';
-	import { BUILD_TIME } from '$lib/build-info';
 
 	let {
 		expanded,
@@ -23,6 +22,5 @@
 			<LogOut class="h-4 w-4" />
 			Log out
 		</Button>
-		<p class="text-[10px] text-muted-foreground/50 truncate px-3 pt-1">{BUILD_TIME}</p>
 	</div>
 {/if}
