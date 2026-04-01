@@ -22,5 +22,6 @@
 			<LogOut class="h-4 w-4" />
 			Log out
 		</Button>
+		<p class="text-[10px] text-muted-foreground/50 truncate px-3 pt-1">{__BUILD_TIME__}</p>
 	</div>
 {/if}
