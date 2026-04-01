@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2](https://github.com/softwaremill/tracevault/compare/v0.6.1...v0.6.2) - 2026-04-01
+
+### Fixed
+
+- use rustls-tls for CLI and macos-latest for x86_64 builds
+
 ## [0.6.1](https://github.com/softwaremill/tracevault/compare/v0.6.0...v0.6.1) - 2026-03-29
 
 ### Test
