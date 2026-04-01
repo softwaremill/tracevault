@@ -272,7 +272,7 @@ impl SealingRepo {
              JOIN org_compliance_settings ocs ON ocs.org_id = r.org_id
              WHERE ocs.signing_enabled = true
                AND s.status = 'active'
-               AND s.updated_at < NOW() - make_interval(mins => $1)
+               AND s.updated_at < NOW() - make_interval(mins => $1::double precision)
                AND NOT EXISTS (
                    SELECT 1 FROM session_seals ss
                    WHERE ss.session_id = s.id

@@ -31,6 +31,39 @@ fn verify_webhook_signature(secret: &str, body: &[u8], signature_header: Option<
     mac.verify_slice(&sig_bytes).is_ok()
 }
 
+/// Look up the repo and its webhook secret from the `repos` table by matching
+/// the repository URL from the webhook payload.
+async fn resolve_repo_with_secret(
+    state: &AppState,
+    body: &serde_json::Value,
+) -> Option<(Uuid, String)> {
+    let html_url = body
+        .get("repository")
+        .and_then(|r| r.get("html_url"))
+        .and_then(|v| v.as_str())?;
+
+    let row = sqlx::query_as::<_, (Uuid, Option<String>, Option<String>)>(
+        "SELECT id, webhook_secret_encrypted, webhook_secret_nonce FROM repos WHERE github_url = $1",
+    )
+    .bind(html_url)
+    .fetch_optional(&state.pool)
+    .await
+    .ok()
+    .flatten()?;
+
+    let (repo_id, Some(encrypted), Some(nonce)) = row else {
+        return None;
+    };
+
+    let secret = state
+        .extensions
+        .encryption
+        .decrypt(&encrypted, &nonce)
+        .ok()?;
+
+    Some((repo_id, secret))
+}
+
 /// POST /api/v1/github/webhook
 ///
 /// Handles GitHub webhook events:
@@ -45,13 +78,18 @@ pub async fn webhook(
         .get("x-hub-signature-256")
         .and_then(|v| v.to_str().ok());
 
-    if !verify_webhook_signature(&state.github_webhook_secret, &body, signature) {
-        return (StatusCode::UNAUTHORIZED, "invalid webhook signature");
-    }
-
-    let Ok(body) = serde_json::from_slice::<serde_json::Value>(&body) else {
+    // Parse body first so we can look up the per-repo webhook secret
+    let Ok(json_body) = serde_json::from_slice::<serde_json::Value>(&body) else {
         return (StatusCode::BAD_REQUEST, "invalid JSON body");
     };
+
+    let Some((repo_id, secret)) = resolve_repo_with_secret(&state, &json_body).await else {
+        return (StatusCode::OK, "repo not tracked or no webhook secret configured");
+    };
+
+    if !verify_webhook_signature(&secret, &body, signature) {
+        return (StatusCode::UNAUTHORIZED, "invalid webhook signature");
+    }
 
     let event_type = headers
         .get("x-github-event")
@@ -59,26 +97,10 @@ pub async fn webhook(
         .unwrap_or("");
 
     match event_type {
-        "push" => handle_push(&state.pool, &body).await,
-        "create" => handle_create(&state.pool, &body).await,
+        "push" => handle_push(&state.pool, &json_body, repo_id).await,
+        "create" => handle_create(&state.pool, &json_body, repo_id).await,
         _ => (StatusCode::OK, "event ignored"),
     }
-}
-
-/// Look up the repo_id from the `repos` table by matching the repository URL
-/// from the webhook payload.
-async fn resolve_repo_id(pool: &sqlx::PgPool, body: &serde_json::Value) -> Option<Uuid> {
-    let html_url = body
-        .get("repository")
-        .and_then(|r| r.get("html_url"))
-        .and_then(|v| v.as_str())?;
-
-    sqlx::query_scalar::<_, Uuid>("SELECT id FROM repos WHERE github_url = $1")
-        .bind(html_url)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten()
 }
 
 /// Extract the branch name from a push event's `ref` field.
@@ -87,11 +109,11 @@ fn extract_branch(git_ref: &str) -> Option<&str> {
     git_ref.strip_prefix("refs/heads/")
 }
 
-async fn handle_push(pool: &sqlx::PgPool, body: &serde_json::Value) -> (StatusCode, &'static str) {
-    let Some(repo_id) = resolve_repo_id(pool, body).await else {
-        return (StatusCode::OK, "repo not tracked");
-    };
-
+async fn handle_push(
+    pool: &sqlx::PgPool,
+    body: &serde_json::Value,
+    repo_id: Uuid,
+) -> (StatusCode, &'static str) {
     let git_ref = body.get("ref").and_then(|v| v.as_str()).unwrap_or("");
     let Some(branch) = extract_branch(git_ref) else {
         return (StatusCode::OK, "not a branch push");
@@ -122,31 +144,23 @@ async fn handle_push(pool: &sqlx::PgPool, body: &serde_json::Value) -> (StatusCo
 async fn handle_create(
     pool: &sqlx::PgPool,
     body: &serde_json::Value,
+    repo_id: Uuid,
 ) -> (StatusCode, &'static str) {
     let ref_type = body.get("ref_type").and_then(|v| v.as_str()).unwrap_or("");
     if ref_type != "tag" {
         return (StatusCode::OK, "non-tag create event ignored");
     }
 
-    let Some(repo_id) = resolve_repo_id(pool, body).await else {
-        return (StatusCode::OK, "repo not tracked");
-    };
-
     let Some(tag) = body.get("ref").and_then(|v| v.as_str()) else {
         return (StatusCode::OK, "missing ref");
     };
 
     // GitHub create events for tags don't include the commit SHA directly.
-    // We need to get it from the `master_branch` or the head commit.
-    // The `create` event has a `master_branch` field but not the tagged SHA.
-    // We'll look for it in the sender info or use the repo's default.
-    // Actually, the GitHub API `create` event for tags does NOT include the SHA.
     // We check `head_commit` (present in some webhook configs) or fall back.
     let sha = body
         .get("head_commit")
         .and_then(|c| c.get("id"))
         .and_then(|v| v.as_str())
-        // Some webhook payloads include sha at top level
         .or_else(|| body.get("sha").and_then(|v| v.as_str()));
 
     let Some(sha) = sha else {
