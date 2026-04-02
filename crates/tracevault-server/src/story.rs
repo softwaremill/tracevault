@@ -288,7 +288,16 @@ pub async fn gather_function_sessions(
             continue;
         };
 
-        let session_rows = sqlx::query_as::<_, (Uuid, String, Option<String>, Option<String>, Option<chrono::DateTime<chrono::Utc>>)>(
+        let session_rows = sqlx::query_as::<
+            _,
+            (
+                Uuid,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<chrono::DateTime<chrono::Utc>>,
+            ),
+        >(
             "SELECT DISTINCT s.id, s.session_id, s.model, u.email, s.started_at \
              FROM sessions s \
              JOIN commit_attributions ca ON ca.session_id = s.id \
