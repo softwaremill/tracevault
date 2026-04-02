@@ -38,6 +38,59 @@ struct GitCommitInfo {
     message: String,
 }
 
+/// Walk git log and return SHAs of commits that touched a given file.
+/// Returns up to `limit` SHAs in chronological order (oldest first).
+pub fn collect_file_commit_shas(
+    repo_manager: &RepoManager,
+    repo_id: Uuid,
+    git_ref: &str,
+    file_path: &str,
+    limit: usize,
+) -> Result<Vec<String>, String> {
+    let repo = repo_manager.open_repo(repo_id)?;
+
+    let obj = repo.revparse_single(git_ref).map_err(|e| e.to_string())?;
+    let commit = obj.peel_to_commit().map_err(|e| e.to_string())?;
+
+    let mut revwalk = repo.revwalk().map_err(|e| e.to_string())?;
+    revwalk.push(commit.id()).map_err(|e| e.to_string())?;
+    revwalk
+        .set_sorting(git2::Sort::TIME | git2::Sort::REVERSE)
+        .map_err(|e| e.to_string())?;
+
+    let mut shas = Vec::new();
+    for oid in revwalk.take(limit) {
+        let oid = oid.map_err(|e| e.to_string())?;
+        let c = repo.find_commit(oid).map_err(|e| e.to_string())?;
+
+        let touches_file = c
+            .parent(0)
+            .ok()
+            .and_then(|parent| {
+                let old_tree = parent.tree().ok()?;
+                let new_tree = c.tree().ok()?;
+                let diff = repo
+                    .diff_tree_to_tree(Some(&old_tree), Some(&new_tree), None)
+                    .ok()?;
+                Some(diff.deltas().any(|d| {
+                    d.new_file()
+                        .path()
+                        .map(|p| p.to_string_lossy() == file_path)
+                        .unwrap_or(false)
+                }))
+            })
+            .unwrap_or(true);
+
+        if !touches_file {
+            continue;
+        }
+
+        shas.push(oid.to_string());
+    }
+
+    Ok(shas)
+}
+
 pub async fn gather_story_context(
     repo_manager: &RepoManager,
     pool: &PgPool,
@@ -46,10 +99,9 @@ pub async fn gather_story_context(
     file_path: &str,
     scope: &CodeScope,
 ) -> Result<StoryContext, String> {
-    // 1. Extract all git data synchronously (git2 types are !Send)
-    let (function_source, git_commits) = {
+    // 1a. Extract function source (git2 types are !Send, scoped block)
+    let function_source = {
         let repo = repo_manager.open_repo(repo_id)?;
-
         let obj = repo.revparse_single(git_ref).map_err(|e| e.to_string())?;
         let commit = obj.peel_to_commit().map_err(|e| e.to_string())?;
         let tree = commit.tree().map_err(|e| e.to_string())?;
@@ -62,51 +114,29 @@ pub async fn gather_story_context(
         let lines: Vec<&str> = source.lines().collect();
         let func_lines =
             &lines[scope.start_line.saturating_sub(1)..scope.end_line.min(lines.len())];
-        let function_source = func_lines.join("\n");
+        func_lines.join("\n")
+    };
 
-        // Walk git log for commits touching this file
-        let mut revwalk = repo.revwalk().map_err(|e| e.to_string())?;
-        revwalk.push(commit.id()).map_err(|e| e.to_string())?;
-        revwalk
-            .set_sorting(git2::Sort::TIME | git2::Sort::REVERSE)
-            .map_err(|e| e.to_string())?;
+    // 1b. Collect commit SHAs touching this file
+    let commit_shas = collect_file_commit_shas(repo_manager, repo_id, git_ref, file_path, 200)?;
 
-        let mut git_commits = Vec::new();
-        for oid in revwalk.take(200) {
-            let oid = oid.map_err(|e| e.to_string())?;
-            let c = repo.find_commit(oid).map_err(|e| e.to_string())?;
-
-            let touches_file = c
-                .parent(0)
-                .ok()
-                .and_then(|parent| {
-                    let old_tree = parent.tree().ok()?;
-                    let new_tree = c.tree().ok()?;
-                    let diff = repo
-                        .diff_tree_to_tree(Some(&old_tree), Some(&new_tree), None)
-                        .ok()?;
-                    Some(diff.deltas().any(|d| {
-                        d.new_file()
-                            .path()
-                            .map(|p| p.to_string_lossy() == file_path)
-                            .unwrap_or(false)
-                    }))
-                })
-                .unwrap_or(true);
-
-            if !touches_file {
-                continue;
-            }
-
-            git_commits.push(GitCommitInfo {
-                sha: oid.to_string(),
-                author: c.author().name().unwrap_or("unknown").to_string(),
-                date: c.time().seconds().to_string(),
-                message: c.message().unwrap_or("").trim().to_string(),
-            });
-        }
-
-        (function_source, git_commits)
+    // 1c. Extract commit metadata (git2 types are !Send, scoped block)
+    let git_commits: Vec<GitCommitInfo> = {
+        let repo = repo_manager.open_repo(repo_id)?;
+        commit_shas
+            .iter()
+            .filter_map(|sha| {
+                let oid = git2::Oid::from_str(sha).ok()?;
+                let c = repo.find_commit(oid).ok()?;
+                let info = GitCommitInfo {
+                    sha: sha.clone(),
+                    author: c.author().name().unwrap_or("unknown").to_string(),
+                    date: c.time().seconds().to_string(),
+                    message: c.message().unwrap_or("").trim().to_string(),
+                };
+                Some(info)
+            })
+            .collect()
     };
     // All git2 objects are now dropped — safe to .await
 
