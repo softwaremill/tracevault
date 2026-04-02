@@ -53,14 +53,14 @@ const BREACHED_PASSWORDS: &[&str] = &[
     "abcdefg12345",
 ];
 
-const MIN_LENGTH: usize = 12;
+const MIN_LENGTH: usize = 10;
 const MAX_LENGTH: usize = 128;
 
 /// Validate a password against the NIST 800-63B-inspired policy.
 /// Returns `Ok(())` if the password is acceptable, or `Err(reason)` if not.
 pub fn validate(password: &str) -> Result<(), &'static str> {
     if password.len() < MIN_LENGTH {
-        return Err("Password must be at least 12 characters");
+        return Err("Password must be at least 10 characters");
     }
     if password.len() > MAX_LENGTH {
         return Err("Password must be at most 128 characters");
@@ -79,13 +79,13 @@ mod tests {
     #[test]
     fn rejects_short_passwords() {
         assert!(validate("short").is_err());
-        assert!(validate("11charssss1").is_err());
+        assert!(validate("9charssss").is_err());
     }
 
     #[test]
     fn accepts_minimum_length() {
-        assert!(validate("12characters").is_ok());
-        assert!(validate("exactly12chr").is_ok());
+        assert!(validate("10charssss").is_ok());
+        assert!(validate("exactly10c").is_ok());
     }
 
     #[test]
