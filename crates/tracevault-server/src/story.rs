@@ -17,6 +17,23 @@ pub struct SessionRef {
 }
 
 #[derive(Debug, serde::Serialize)]
+pub struct FunctionSessions {
+    pub function_name: String,
+    pub line_range: (usize, usize),
+    pub sessions: Vec<FunctionSessionRef>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct FunctionSessionRef {
+    pub id: Uuid,
+    pub session_id: String,
+    pub model: Option<String>,
+    pub user_email: Option<String>,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub commit_shas: Vec<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
 pub struct ChangeEntry {
     pub commit_sha: String,
     pub commit_uuid: Option<Uuid>,
@@ -239,6 +256,77 @@ pub async fn gather_story_context(
     Ok(StoryContext {
         function_source,
         changes,
+    })
+}
+
+pub async fn gather_function_sessions(
+    repo_manager: &RepoManager,
+    pool: &PgPool,
+    repo_id: Uuid,
+    git_ref: &str,
+    file_path: &str,
+    scope: &CodeScope,
+) -> Result<FunctionSessions, String> {
+    let commit_shas = collect_file_commit_shas(repo_manager, repo_id, git_ref, file_path, 200)?;
+
+    // For each commit in the DB, find linked sessions
+    use std::collections::HashMap;
+    let mut session_map: HashMap<Uuid, FunctionSessionRef> = HashMap::new();
+
+    for sha in &commit_shas {
+        let commit_row = sqlx::query_as::<_, (Uuid,)>(
+            "SELECT id FROM commits WHERE repo_id = $1 AND commit_sha = $2 LIMIT 1",
+        )
+        .bind(repo_id)
+        .bind(sha)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+
+        let Some((commit_id,)) = commit_row else {
+            continue;
+        };
+
+        let session_rows = sqlx::query_as::<_, (Uuid, String, Option<String>, Option<String>, Option<chrono::DateTime<chrono::Utc>>)>(
+            "SELECT DISTINCT s.id, s.session_id, s.model, u.email, s.started_at \
+             FROM sessions s \
+             JOIN commit_attributions ca ON ca.session_id = s.id \
+             LEFT JOIN users u ON u.id = s.user_id \
+             WHERE ca.commit_id = $1 \
+             ORDER BY s.id",
+        )
+        .bind(commit_id)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+        for (sid, session_id, model, email, started_at) in session_rows {
+            session_map
+                .entry(sid)
+                .and_modify(|entry| {
+                    if !entry.commit_shas.contains(sha) {
+                        entry.commit_shas.push(sha.clone());
+                    }
+                })
+                .or_insert(FunctionSessionRef {
+                    id: sid,
+                    session_id,
+                    model,
+                    user_email: email,
+                    started_at,
+                    commit_shas: vec![sha.clone()],
+                });
+        }
+    }
+
+    let mut sessions: Vec<FunctionSessionRef> = session_map.into_values().collect();
+    sessions.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+
+    Ok(FunctionSessions {
+        function_name: scope.name.clone(),
+        line_range: (scope.start_line, scope.end_line),
+        sessions,
     })
 }
 
