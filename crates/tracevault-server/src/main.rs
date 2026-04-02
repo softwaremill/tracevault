@@ -288,6 +288,22 @@ async fn main() {
             get(api::traces_ui::get_session),
         )
         .route(
+            "/api/v1/orgs/{slug}/traces/sessions/{id}/events",
+            get(api::traces_ui::get_session_events),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/traces/sessions/{id}/file-changes",
+            get(api::traces_ui::get_session_file_changes),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/traces/sessions/{id}/transcript",
+            get(api::traces_ui::get_session_transcript),
+        )
+        .route(
+            "/api/v1/orgs/{slug}/traces/sessions/{id}/linked-commits",
+            get(api::traces_ui::get_session_linked_commits),
+        )
+        .route(
             "/api/v1/orgs/{slug}/traces/commits",
             get(api::traces_ui::list_commits),
         )

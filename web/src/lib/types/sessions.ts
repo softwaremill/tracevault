@@ -84,11 +84,19 @@ export interface TranscriptRecordData {
 	model: string | null;
 }
 
-export interface SessionDetailResponse {
+export interface SessionCounts {
+	events: number;
+	file_changes: number;
+	transcript_records: number;
+	linked_commits: number;
+}
+
+export interface SessionMetadataResponse {
 	session: SessionInfo;
-	events: EventItem[];
-	file_changes: FileChange[];
+	counts: SessionCounts;
+}
+
+export interface TranscriptResponse {
 	transcript_chunks: TranscriptChunk[];
 	transcript_records: TranscriptRecordData[];
-	linked_commits: LinkedCommit[];
 }
