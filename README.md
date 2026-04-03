@@ -268,13 +268,13 @@ That's it. From this point on, every Claude Code session in this repo is automat
 
 ## Using with Codex CLI
 
-[Codex CLI](https://github.com/openai/codex) (OpenAI's coding agent) is also supported. Initialize with the `--codex` flag to install Codex hooks:
+[Codex CLI](https://github.com/openai/codex) (OpenAI's coding agent) is also supported. Initialize with the `--agent codex` flag to install Codex hooks:
 
 ```sh
 npm install -g @openai/codex
 cd /path/to/your/repo
 tracevault login --server-url https://your-tracevault-server.example.com
-tracevault init --codex
+tracevault init --agent codex
 ```
 
 This installs hooks in `.codex/hooks.json` in addition to the Claude Code hooks. Codex sessions are traced including transcript parsing, token usage, and file changes via `apply_patch`. The session detail view shows a Codex badge to distinguish agent types.
@@ -331,7 +331,7 @@ export DATABASE_URL=postgres://user:password@host:5432/tracevault?sslmode=requir
 
 | Command | Description |
 |---------|-------------|
-| `tracevault init [--server-url URL] [--codex]` | Initialize TraceVault in current repo, install hooks (Claude Code by default, `--codex` adds Codex CLI) |
+| `tracevault init [--server-url URL] [--agent <name>]` | Initialize TraceVault in current repo, install hooks (Claude Code by default, `--agent` adds extra agents e.g. `codex`) |
 | `tracevault login --server-url URL` | Authenticate via device auth flow (opens browser) |
 | `tracevault logout` | Clear local credentials |
 | `tracevault hook --event <type>` | Handle a hook event from any agent (reads JSON from stdin) |

@@ -33,7 +33,7 @@ fn parse_github_org(remote_url: &str) -> Option<String> {
 pub async fn init_in_directory(
     project_root: &Path,
     server_url: Option<&str>,
-    codex: bool,
+    agents: &[String],
 ) -> Result<(), io::Error> {
     // Check for git repository
     if !project_root.join(".git").exists() {
@@ -79,9 +79,12 @@ pub async fn init_in_directory(
     // Install Claude Code hooks into .claude/settings.json
     install_claude_hooks(project_root)?;
 
-    // Install Codex hooks into .codex/hooks.json
-    if codex {
-        install_codex_hooks(project_root)?;
+    // Install agent-specific hooks
+    for agent in agents {
+        match agent.as_str() {
+            "codex" => install_codex_hooks(project_root)?,
+            other => eprintln!("Warning: unknown agent '{}', skipping hooks", other),
+        }
     }
 
     // Install git hooks
