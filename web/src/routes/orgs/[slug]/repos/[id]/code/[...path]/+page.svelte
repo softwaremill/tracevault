@@ -153,6 +153,10 @@
 		{story}
 		loading={storyLoading}
 		error={storyError}
+		{repoId}
+		{selectedLine}
+		gitRef={gitRef}
+		filePath={filePath}
 		onClose={() => {
 			story = null;
 			storyLoading = false;

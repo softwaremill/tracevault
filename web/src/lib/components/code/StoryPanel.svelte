@@ -1,6 +1,7 @@
 <script lang="ts">
-	import type { StoryResponse } from '$lib/types/code';
+	import type { StoryResponse, FunctionSessionsResponse } from '$lib/types/code';
 	import { page } from '$app/stores';
+	import { api } from '$lib/api';
 	import { marked } from 'marked';
 	import { formatDateTime } from '$lib/utils/date';
 
@@ -8,27 +9,76 @@
 		story,
 		loading,
 		error = '',
+		repoId,
+		selectedLine,
+		gitRef,
+		filePath,
 		onClose,
 		onRegenerate
 	}: {
 		story: StoryResponse | null;
 		loading: boolean;
 		error?: string;
+		repoId: string;
+		selectedLine: number | null;
+		gitRef: string;
+		filePath: string;
 		onClose: () => void;
 		onRegenerate: () => void;
 	} = $props();
 
 	const slug = $derived($page.params.slug);
 
+	// Tab state
+	let activeTab = $state<'story' | 'sessions'>('story');
+
+	// Sessions state
+	let sessions = $state<FunctionSessionsResponse | null>(null);
+	let sessionsLoading = $state(false);
+	let sessionsError = $state('');
+
+	// Reset sessions when line changes
+	$effect(() => {
+		// Track selectedLine to trigger reset
+		selectedLine;
+		activeTab = 'story';
+		sessions = null;
+		sessionsError = '';
+	});
+
+	// Fetch sessions when switching to sessions tab
+	$effect(() => {
+		if (activeTab === 'sessions' && selectedLine != null) {
+			fetchSessions();
+		}
+	});
+
+	async function fetchSessions() {
+		sessionsLoading = true;
+		sessionsError = '';
+		sessions = null;
+		try {
+			const params = new URLSearchParams({
+				ref: gitRef,
+				path: filePath,
+				line: String(selectedLine)
+			});
+			sessions = await api.get<FunctionSessionsResponse>(
+				`/api/v1/orgs/${slug}/repos/${repoId}/code/sessions?${params}`
+			);
+		} catch (e) {
+			sessionsError = e instanceof Error ? e.message : 'Failed to load sessions';
+		}
+		sessionsLoading = false;
+	}
+
 	// Build a SHA→trace_id lookup from references
 	const shaToTraceId = $derived.by(() => {
 		const map = new Map<string, string>();
 		for (const ref of story?.references ?? []) {
 			if (!ref.id) continue;
-			// Map both full SHA and 7-char prefix
 			map.set(ref.sha, ref.id);
 			map.set(ref.sha.slice(0, 7), ref.id);
-			// Also map 8, 10, 12 char prefixes the LLM might use
 			for (const len of [8, 10, 12]) {
 				if (ref.sha.length >= len) {
 					map.set(ref.sha.slice(0, len), ref.id);
@@ -42,11 +92,6 @@
 	const renderedMarkdown = $derived.by(() => {
 		if (!story) return '';
 		let html = marked.parse(story.story) as string;
-
-		// Replace SHA text in HTML with links. We match hex strings that look
-		// like commit SHAs (7-40 chars) but only if they appear in our reference map.
-		// The regex matches SHAs inside <code> tags or as plain text, but NOT inside
-		// href attributes or existing <a> tags.
 		if (shaToTraceId.size > 0) {
 			html = html.replace(/\b([0-9a-f]{7,40})\b/g, (match) => {
 				const traceId = shaToTraceId.get(match);
@@ -57,21 +102,24 @@
 		return html;
 	});
 
-	// References that have a trace link (commit was found in TraceVault DB)
 	const trackedRefs = $derived(
 		(story?.references ?? []).filter((r) => r.id !== null)
 	);
+
+	const panelVisible = $derived(story !== null || loading || error || activeTab === 'sessions');
 </script>
 
-{#if story || loading || error}
+{#if panelVisible}
 	<div class="fixed right-0 top-0 z-50 flex h-full w-[480px] flex-col border-l bg-card shadow-xl">
 		<div class="flex items-center justify-between border-b p-4">
 			<div>
 				<h3 class="text-lg font-semibold">
 					{#if story}
 						{story.function_name}
+					{:else if sessions}
+						{sessions.function_name}
 					{:else}
-						Generating story...
+						{#if loading}Generating story...{:else}Code Sessions{/if}
 					{/if}
 				</h3>
 				{#if story}
@@ -79,10 +127,14 @@
 						{story.kind} -- Lines {story.line_range[0]}-{story.line_range[1]}
 						{#if story.cached}-- Cached{/if}
 					</p>
+				{:else if sessions}
+					<p class="text-sm text-muted-foreground">
+						Lines {sessions.line_range[0]}-{sessions.line_range[1]}
+					</p>
 				{/if}
 			</div>
 			<div class="flex gap-2">
-				{#if story}
+				{#if story && activeTab === 'story'}
 					<button
 						onclick={onRegenerate}
 						class="rounded border px-2 py-1 text-sm hover:bg-accent"
@@ -96,72 +148,144 @@
 			</div>
 		</div>
 
-		<div class="flex-1 overflow-y-auto p-4">
-			{#if loading}
-				<div class="flex items-center gap-2 text-muted-foreground">
-					<div
-						class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
-					></div>
-					Analyzing code history and generating story...
-				</div>
-			{:else if error}
-				<div class="space-y-3">
-					<div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-						{error}
-					</div>
-					<p class="text-sm text-muted-foreground">
-						This usually means the LLM provider is not configured. Go to
-						<a href="/orgs/{slug}/settings/llm" class="underline font-medium text-foreground">Settings &rarr; LLM</a>
-						to configure your provider and API key.
-					</p>
-				</div>
-			{:else if story}
-				<article class="story-markdown">
-					{@html renderedMarkdown}
-				</article>
+		<!-- Tabs -->
+		<div class="flex border-b">
+			<button
+				class="flex-1 px-4 py-2 text-sm font-medium transition-colors {activeTab === 'story'
+					? 'border-b-2 border-primary text-primary'
+					: 'text-muted-foreground hover:text-foreground'}"
+				onclick={() => (activeTab = 'story')}
+			>
+				Story
+			</button>
+			<button
+				class="flex-1 px-4 py-2 text-sm font-medium transition-colors {activeTab === 'sessions'
+					? 'border-b-2 border-primary text-primary'
+					: 'text-muted-foreground hover:text-foreground'}"
+				onclick={() => (activeTab = 'sessions')}
+			>
+				Sessions
+			</button>
+		</div>
 
-				{#if trackedRefs.length > 0}
-					<div class="mt-6 border-t pt-4">
-						<h4 class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-							Related Traces
-						</h4>
-						<div class="space-y-2">
-							{#each trackedRefs as ref}
-								<div class="rounded border bg-muted/30 px-3 py-2 text-xs">
-									<div class="flex items-center gap-2">
-										<a
-											href="/orgs/{slug}/traces/{ref.id}"
-											class="font-mono font-medium text-foreground underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-foreground"
-										>
-											{ref.sha.slice(0, 7)}
-										</a>
-										<span class="truncate text-muted-foreground">{ref.message}</span>
-									</div>
-									{#if ref.sessions.length > 0}
-										<div class="mt-1 flex flex-wrap gap-1">
-											{#each ref.sessions as session}
-												<a
-													href="/orgs/{slug}/traces/{ref.id}"
-													class="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20"
-												>
-													<span>Session {session.session_id.slice(0, 8)}</span>
-													{#if session.model}
-														<span class="text-muted-foreground">({session.model})</span>
-													{/if}
-												</a>
-											{/each}
+		<div class="flex-1 overflow-y-auto p-4">
+			{#if activeTab === 'story'}
+				{#if loading}
+					<div class="flex items-center gap-2 text-muted-foreground">
+						<div
+							class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+						></div>
+						Analyzing code history and generating story...
+					</div>
+				{:else if error}
+					<div class="space-y-3">
+						<div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+							{error}
+						</div>
+						<p class="text-sm text-muted-foreground">
+							This usually means the LLM provider is not configured. Go to
+							<a href="/orgs/{slug}/settings/llm" class="underline font-medium text-foreground">Settings &rarr; LLM</a>
+							to configure your provider and API key.
+						</p>
+					</div>
+				{:else if story}
+					<article class="story-markdown">
+						{@html renderedMarkdown}
+					</article>
+
+					{#if trackedRefs.length > 0}
+						<div class="mt-6 border-t pt-4">
+							<h4 class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+								Related Traces
+							</h4>
+							<div class="space-y-2">
+								{#each trackedRefs as ref}
+									<div class="rounded border bg-muted/30 px-3 py-2 text-xs">
+										<div class="flex items-center gap-2">
+											<a
+												href="/orgs/{slug}/traces/{ref.id}"
+												class="font-mono font-medium text-foreground underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-foreground"
+											>
+												{ref.sha.slice(0, 7)}
+											</a>
+											<span class="truncate text-muted-foreground">{ref.message}</span>
 										</div>
+										{#if ref.sessions.length > 0}
+											<div class="mt-1 flex flex-wrap gap-1">
+												{#each ref.sessions as session}
+													<a
+														href="/orgs/{slug}/traces/{ref.id}"
+														class="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20"
+													>
+														<span>Session {session.session_id.slice(0, 8)}</span>
+														{#if session.model}
+															<span class="text-muted-foreground">({session.model})</span>
+														{/if}
+													</a>
+												{/each}
+											</div>
+										{/if}
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
+					<div class="mt-4 space-y-1 border-t pt-4 text-xs text-muted-foreground">
+						<p>Commits analyzed: {story.commits_analyzed.length}</p>
+						<p>Generated: {formatDateTime(story.generated_at)}</p>
+					</div>
+				{:else}
+					<p class="text-sm text-muted-foreground">Click a line number to generate its story.</p>
+				{/if}
+			{:else}
+				<!-- Sessions tab -->
+				{#if sessionsLoading}
+					<div class="flex items-center gap-2 text-muted-foreground">
+						<div
+							class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+						></div>
+						Loading sessions...
+					</div>
+				{:else if sessionsError}
+					<div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+						{sessionsError}
+					</div>
+				{:else if sessions && sessions.sessions.length === 0}
+					<p class="text-sm text-muted-foreground">No sessions found for this function.</p>
+				{:else if sessions}
+					<div class="space-y-2">
+						{#each sessions.sessions as session}
+							<a
+								href="/orgs/{slug}/traces/sessions/{session.id}"
+								class="block rounded border bg-muted/30 px-3 py-2 text-sm transition-colors hover:bg-muted/50"
+							>
+								<div class="flex items-center justify-between">
+									<span class="font-medium text-foreground">
+										{session.started_at ? formatDateTime(session.started_at) : 'Unknown date'}
+									</span>
+									{#if session.model}
+										<span class="text-xs text-muted-foreground">{session.model}</span>
 									{/if}
 								</div>
-							{/each}
-						</div>
+								{#if session.user_email}
+									<p class="mt-0.5 text-xs text-muted-foreground">{session.user_email}</p>
+								{/if}
+								{#if session.commit_shas.length > 0}
+									<div class="mt-1 flex flex-wrap gap-1">
+										{#each session.commit_shas as sha}
+											<span class="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary">
+												{sha.slice(0, 7)}
+											</span>
+										{/each}
+									</div>
+								{/if}
+							</a>
+						{/each}
 					</div>
+				{:else}
+					<p class="text-sm text-muted-foreground">Select a line to view associated sessions.</p>
 				{/if}
-
-				<div class="mt-4 space-y-1 border-t pt-4 text-xs text-muted-foreground">
-					<p>Commits analyzed: {story.commits_analyzed.length}</p>
-					<p>Generated: {formatDateTime(story.generated_at)}</p>
-				</div>
 			{/if}
 		</div>
 	</div>
