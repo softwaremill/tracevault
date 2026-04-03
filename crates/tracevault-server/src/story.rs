@@ -283,6 +283,93 @@ pub async fn gather_story_context(
         });
     }
 
+    // 3. If no sessions were found via SHA matching, supplement with a direct
+    // file_path query (handles rebased/squashed commits where SHAs diverge)
+    let has_sessions = changes.iter().any(|c| !c.sessions.is_empty());
+    if !has_sessions {
+        let db_sessions = sqlx::query_as::<_, (Uuid, String, Option<String>, String)>(
+            "SELECT DISTINCT s.id, s.session_id, s.model, c.commit_sha \
+             FROM sessions s \
+             JOIN commit_attributions ca ON ca.session_id = s.id \
+             JOIN commits c ON c.id = ca.commit_id \
+             WHERE c.repo_id = $1 AND ca.file_path = $2 \
+             ORDER BY s.started_at DESC NULLS LAST",
+        )
+        .bind(repo_id)
+        .bind(file_path)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+        if !db_sessions.is_empty() {
+            let sessions: Vec<SessionRef> = db_sessions
+                .iter()
+                .map(|(id, sid, m, _)| SessionRef {
+                    id: *id,
+                    session_id: sid.clone(),
+                    model: m.clone(),
+                })
+                .collect();
+
+            // Fetch transcripts for these sessions
+            let mut combined_excerpts = Vec::new();
+            let mut total_chars = 0usize;
+            const FALLBACK_BUDGET: usize = 40_000;
+            const FALLBACK_PER_SESSION: usize = 8_000;
+
+            for (sid, session_id, _, _) in db_sessions.iter() {
+                if total_chars >= FALLBACK_BUDGET {
+                    break;
+                }
+                let chunks: Vec<(serde_json::Value,)> = sqlx::query_as(
+                    "SELECT data FROM transcript_chunks \
+                     WHERE session_id = $1 \
+                     ORDER BY chunk_index ASC",
+                )
+                .bind(sid)
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default();
+
+                if chunks.is_empty() {
+                    continue;
+                }
+                let transcript_array: Vec<serde_json::Value> =
+                    chunks.into_iter().map(|(d,)| d).collect();
+                let transcript_val = serde_json::Value::Array(transcript_array);
+                if let Some(excerpt) = extract_relevant_excerpt(
+                    &transcript_val,
+                    file_path,
+                    &scope.name,
+                    FALLBACK_PER_SESSION,
+                ) {
+                    let remaining = FALLBACK_BUDGET - total_chars;
+                    let truncated: String = excerpt.chars().take(remaining).collect();
+                    total_chars += truncated.len();
+                    combined_excerpts.push(format!(
+                        "[Session {}]:\n{}",
+                        &session_id[..8.min(session_id.len())],
+                        truncated
+                    ));
+                }
+            }
+
+            let model = sessions.first().and_then(|s| s.model.clone());
+            let excerpt = if combined_excerpts.is_empty() {
+                None
+            } else {
+                Some(combined_excerpts.join("\n\n"))
+            };
+
+            // Attach to the first change entry (or create a synthetic one)
+            if let Some(first_change) = changes.first_mut() {
+                first_change.sessions = sessions;
+                first_change.model = model;
+                first_change.session_transcript_excerpt = excerpt;
+            }
+        }
+    }
+
     Ok(StoryContext {
         function_source,
         changes,
