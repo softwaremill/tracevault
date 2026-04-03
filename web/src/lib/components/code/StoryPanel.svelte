@@ -96,56 +96,40 @@
 		return map;
 	});
 
-	// Build session ID prefix → session UUID lookup from references
-	const sessionIdToUuid = $derived.by(() => {
-		const map = new Map<string, string>();
-		for (const ref of story?.references ?? []) {
-			for (const session of ref.sessions) {
-				// Map the 8-char prefix of the UUID (what the LLM references)
-				map.set(session.id.slice(0, 8), session.id);
-			}
-		}
-		return map;
-	});
-
-	// Render markdown then inject commit and session links into the HTML
+	// Render markdown then inject commit links into the HTML
 	const renderedMarkdown = $derived.by(() => {
 		if (!story) return '';
 		let html = marked.parse(story.story) as string;
-
-		// Linkify known hex IDs (sessions and commits) in a single pass
-		// to avoid regex conflicts between 8-char session IDs and 7-40 char commit SHAs
-		if (shaToTraceId.size > 0 || sessionIdToUuid.size > 0) {
+		if (shaToTraceId.size > 0) {
 			html = html.replace(/\b([0-9a-f]{7,40})\b/g, (match, _p1, offset, fullStr) => {
-				// Skip if inside an existing <a> tag (look back for unclosed <a)
+				// Skip if inside an existing <a> tag
 				const before = fullStr.slice(Math.max(0, offset - 200), offset);
 				const lastAOpen = before.lastIndexOf('<a ');
 				const lastAClose = before.lastIndexOf('</a>');
 				if (lastAOpen > lastAClose) return match;
 
-				// Try session match first (8-char exact)
-				if (match.length === 8) {
-					const sessionUuid = sessionIdToUuid.get(match);
-					if (sessionUuid) {
-						return `<a href="/orgs/${slug}/traces/sessions/${sessionUuid}" class="session-link">${match}</a>`;
-					}
-				}
-
-				// Then try commit match
 				const traceId = shaToTraceId.get(match);
-				if (traceId) {
-					return `<a href="/orgs/${slug}/traces/${traceId}" class="commit-link">${match}</a>`;
-				}
-
-				return match;
+				if (!traceId) return match;
+				return `<a href="/orgs/${slug}/traces/${traceId}" class="commit-link">${match}</a>`;
 			});
 		}
 		return html;
 	});
 
-	const trackedRefs = $derived(
-		(story?.references ?? []).filter((r) => r.id !== null)
-	);
+	// Extract unique sessions from all references (regardless of commit match)
+	const linkedSessions = $derived.by(() => {
+		const seen = new Set<string>();
+		const result: { id: string; session_id: string; model: string | null }[] = [];
+		for (const ref of story?.references ?? []) {
+			for (const session of ref.sessions) {
+				if (!seen.has(session.id)) {
+					seen.add(session.id);
+					result.push(session);
+				}
+			}
+		}
+		return result;
+	});
 
 	const panelVisible = $derived(selectedLine != null);
 </script>
@@ -282,39 +266,26 @@
 						{@html renderedMarkdown}
 					</article>
 
-					{#if trackedRefs.length > 0}
+					{#if linkedSessions.length > 0}
 						<div class="mt-6 border-t pt-4">
 							<h4 class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-								Related Traces
+								Linked Sessions
 							</h4>
 							<div class="space-y-2">
-								{#each trackedRefs as ref}
-									<div class="rounded border bg-muted/30 px-3 py-2 text-xs">
-										<div class="flex items-center gap-2">
-											<a
-												href="/orgs/{slug}/traces/{ref.id}"
-												class="font-mono font-medium text-foreground underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-foreground"
-											>
-												{ref.sha.slice(0, 7)}
-											</a>
-											<span class="truncate text-muted-foreground">{ref.message}</span>
+								{#each linkedSessions as session}
+									<a
+										href="/orgs/{slug}/traces/sessions/{session.id}"
+										class="block rounded border bg-muted/30 px-3 py-2 text-xs transition-colors hover:bg-muted/50"
+									>
+										<div class="flex items-center justify-between">
+											<span class="font-mono font-medium text-foreground">
+												{session.session_id.slice(0, 8)}
+											</span>
+											{#if session.model}
+												<span class="text-muted-foreground">{session.model}</span>
+											{/if}
 										</div>
-										{#if ref.sessions.length > 0}
-											<div class="mt-1 flex flex-wrap gap-1">
-												{#each ref.sessions as session}
-													<a
-														href="/orgs/{slug}/traces/{ref.id}"
-														class="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20"
-													>
-														<span>Session {session.session_id.slice(0, 8)}</span>
-														{#if session.model}
-															<span class="text-muted-foreground">({session.model})</span>
-														{/if}
-													</a>
-												{/each}
-											</div>
-										{/if}
-									</div>
+									</a>
 								{/each}
 							</div>
 						</div>
@@ -438,21 +409,6 @@
 		opacity: 0.85;
 	}
 
-	.story-markdown :global(a.session-link) {
-		font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
-		font-size: 0.8em;
-		background: var(--muted);
-		color: var(--foreground);
-		padding: 0.1rem 0.375rem;
-		border-radius: 0.25rem;
-		text-decoration: none;
-		white-space: nowrap;
-		border: 1px solid var(--border);
-	}
-
-	.story-markdown :global(a.session-link:hover) {
-		background: var(--accent);
-	}
 
 	.story-markdown :global(code) {
 		font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;

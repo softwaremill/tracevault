@@ -514,10 +514,8 @@ pub fn build_story_prompt(ctx: &StoryContext) -> String {
          2. How it evolved over time\n\
          3. Key decisions made (especially insights from AI session transcripts)\n\
          4. Current state and any notable patterns\n\n\
-         Keep it concise but informative. Use markdown formatting.\n\n\
-         IMPORTANT: When referencing commits, use the full or short SHA (e.g., `abc1234`).\n\
-         When referencing AI sessions, use the 8-character session ID prefix exactly as provided \
-         (e.g., `a1b2c3d4`). These IDs will be turned into clickable links in the UI.",
+         Keep it concise but informative. Use markdown formatting.\n\
+         When referencing commits, use the short SHA (e.g., `abc1234`).",
     );
 
     if prompt.len() > 100_000 {
