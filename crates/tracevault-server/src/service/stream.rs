@@ -139,7 +139,7 @@ impl StreamService {
                     || batch_output > 0
                     || batch_cache_read > 0
                     || batch_cache_write > 0;
-                if has_tokens {
+                if has_tokens || detected_model.is_some() {
                     let model_name = detected_model.as_deref().unwrap_or("unknown");
                     // input_tokens from the API includes cache_read and cache_write,
                     // subtract to get fresh (non-cached) input only
