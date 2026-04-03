@@ -1,3 +1,4 @@
+pub mod agent_adapter;
 pub mod code_nav;
 pub mod diff;
 pub mod extensions;

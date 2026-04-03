@@ -85,6 +85,7 @@ pub fn drain_pending(pending_path: &Path) -> Result<Vec<String>, io::Error> {
 pub async fn run_stream(
     project_root: &Path,
     event_type: &str,
+    agent: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 1. Read HookEvent from stdin
     let mut input = String::new();
@@ -108,15 +109,16 @@ pub async fn run_stream(
     let (transcript_lines, new_offset) = read_new_transcript_lines(transcript_path, &offset_path)?;
 
     // 5. Build StreamEventRequest
+    // Claude Code sends "notification" for SessionStart, Codex sends "session-start"
     let stream_event_type = match event_type {
-        "notification" => StreamEventType::SessionStart,
+        "notification" | "session-start" => StreamEventType::SessionStart,
         "stop" => StreamEventType::SessionEnd,
         _ => StreamEventType::ToolUse,
     };
 
     let req = StreamEventRequest {
-        protocol_version: 1,
-        tool: Some("claude-code".to_string()),
+        protocol_version: 2,
+        tool: Some(agent.to_string()),
         event_type: stream_event_type,
         session_id: hook_event.session_id.clone(),
         timestamp: chrono::Utc::now(),
@@ -193,9 +195,15 @@ pub async fn run_stream(
         }
     }
 
-    // 12. Always print HookResponse::allow() to stdout
-    let response = HookResponse::allow();
-    println!("{}", serde_json::to_string(&response)?);
+    // 12. Always print hook response to stdout
+    // Codex expects empty JSON {}, Claude Code expects {"suppress_output": true}
+    match agent {
+        "codex" => println!("{{}}"),
+        _ => {
+            let response = HookResponse::allow();
+            println!("{}", serde_json::to_string(&response)?);
+        }
+    }
 
     Ok(())
 }

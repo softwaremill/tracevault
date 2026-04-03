@@ -15,6 +15,9 @@ enum Cli {
         /// TraceVault server URL for repo registration
         #[arg(long)]
         server_url: Option<String>,
+        /// Additional AI agents to install hooks for (e.g. codex, gemini)
+        #[arg(long = "agent")]
+        agents: Vec<String>,
     },
     /// Show current session status
     Status,
@@ -27,6 +30,9 @@ enum Cli {
     Stream {
         #[arg(long)]
         event: String,
+        /// AI coding agent name (claude-code, codex)
+        #[arg(long, default_value = "claude-code")]
+        agent: String,
     },
     /// Check session policies before pushing
     Check,
@@ -63,12 +69,15 @@ enum Cli {
 async fn main() {
     let cli = Cli::parse();
     match cli {
-        Cli::Init { server_url } => {
+        Cli::Init { server_url, agents } => {
             let cwd = env::current_dir().expect("Cannot determine current directory");
-            match commands::init::init_in_directory(&cwd, server_url.as_deref()).await {
+            match commands::init::init_in_directory(&cwd, server_url.as_deref(), &agents).await {
                 Ok(()) => {
                     println!("TraceVault initialized in {}", cwd.display());
                     println!("Claude Code hooks installed in .claude/settings.json");
+                    for agent in &agents {
+                        println!("{} hooks installed", agent);
+                    }
                     println!("Git pre-push hook installed");
                 }
                 Err(e) => eprintln!("Error: {e}"),
@@ -81,9 +90,9 @@ async fn main() {
                 eprintln!("Hook error: {e}");
             }
         }
-        Cli::Stream { event } => {
+        Cli::Stream { event, agent } => {
             let cwd = env::current_dir().expect("Cannot determine current directory");
-            if let Err(e) = commands::stream::run_stream(&cwd, &event).await {
+            if let Err(e) = commands::stream::run_stream(&cwd, &event, &agent).await {
                 eprintln!("Stream error: {e}");
             }
         }

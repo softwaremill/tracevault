@@ -6,6 +6,7 @@
 	import type { SessionItem } from '$lib/types';
 	import DataTable from '$lib/components/DataTable.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import AgentBadge from '$lib/components/AgentBadge.svelte';
 	import LoadingState from '$lib/components/LoadingState.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
@@ -87,7 +88,10 @@
 		>
 			{#snippet children({ row, col })}
 				{#if col.key === '_status'}
-					<StatusBadge status={String(row._status)} />
+					<div class="flex items-center gap-1.5">
+						<StatusBadge status={String(row._status)} />
+						<AgentBadge tool={row.tool as string | null} />
+					</div>
 				{:else if col.key === 'session_id'}
 					<a href="/orgs/{slug}/traces/sessions/{row.id}" class="font-mono text-sm underline">
 						{String(row.session_id).slice(0, 8)}

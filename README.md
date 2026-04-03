@@ -6,6 +6,8 @@
 
 AI code governance platform for enterprises. Captures what AI coding agents do in your repos — which files they touch, how many tokens they burn, what tools they call, what percentage of code is AI-generated — then enforces policies and produces tamper-evident audit trails for regulatory compliance.
 
+Supports **Claude Code**, **Codex CLI**, and is extensible to other agents via the AgentAdapter architecture.
+
 Built for financial institutions and regulated industries where AI-generated code needs the same audit rigor as human-written code.
 
 [Learn more at VirtusLab](https://virtuslab.com/services/tracevault)
@@ -67,7 +69,7 @@ See exactly what AI wrote, line by line. The code browser overlays AI attributio
 Three Rust crates in a Cargo workspace:
 
 - **tracevault-core** — domain types, policy engine (7 condition types), attribution engine (tree-sitter based), secret redactor
-- **tracevault-cli** — CLI binary that hooks into Claude Code, captures traces locally, checks policies, pushes to server
+- **tracevault-cli** — CLI binary that hooks into Claude Code and Codex CLI, captures traces locally, checks policies, pushes to server
 - **tracevault-server** — axum HTTP server backed by PostgreSQL with Ed25519 signing, audit logging, RBAC, code browser
 
 Plus a SvelteKit web dashboard and a GitHub Action for CI verification.
@@ -264,6 +266,19 @@ tracevault init
 
 That's it. From this point on, every Claude Code session in this repo is automatically traced — tool calls, file edits, token usage, and model info are captured and streamed to the TraceVault server. When you `git push`, the pre-push hook evaluates policies and uploads traces.
 
+## Using with Codex CLI
+
+[Codex CLI](https://github.com/openai/codex) (OpenAI's coding agent) is also supported. Initialize with the `--agent codex` flag to install Codex hooks:
+
+```sh
+npm install -g @openai/codex
+cd /path/to/your/repo
+tracevault login --server-url https://your-tracevault-server.example.com
+tracevault init --agent codex
+```
+
+This installs hooks in `.codex/hooks.json` in addition to the Claude Code hooks. Codex sessions are traced including transcript parsing, token usage, and file changes via `apply_patch`. The session detail view shows a Codex badge to distinguish agent types.
+
 ## Keys & Secrets
 
 ### Encryption key (`TRACEVAULT_ENCRYPTION_KEY`)
@@ -316,10 +331,11 @@ export DATABASE_URL=postgres://user:password@host:5432/tracevault?sslmode=requir
 
 | Command | Description |
 |---------|-------------|
-| `tracevault init [--server-url URL]` | Initialize TraceVault in current repo, install pre-push hook and Claude Code hooks |
+| `tracevault init [--server-url URL] [--agent <name>]` | Initialize TraceVault in current repo, install hooks (Claude Code by default, `--agent` adds extra agents e.g. `codex`) |
 | `tracevault login --server-url URL` | Authenticate via device auth flow (opens browser) |
 | `tracevault logout` | Clear local credentials |
-| `tracevault hook --event <type>` | Handle a Claude Code hook event (reads JSON from stdin) |
+| `tracevault hook --event <type>` | Handle a hook event from any agent (reads JSON from stdin) |
+| `tracevault stream --event <type> [--agent <name>]` | Stream hook events to server (`--agent`: `claude-code` (default), `codex`) |
 | `tracevault sync` | Sync repo metadata with the server |
 | `tracevault check` | Evaluate policies against server rules, exit non-zero if blocked |
 | `tracevault push` | Push collected traces to the server |
