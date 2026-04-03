@@ -14,7 +14,8 @@
 		gitRef,
 		filePath,
 		onClose,
-		onRegenerate
+		onGenerateStory,
+		onRegenerateStory
 	}: {
 		story: StoryResponse | null;
 		loading: boolean;
@@ -24,32 +25,39 @@
 		gitRef: string;
 		filePath: string;
 		onClose: () => void;
-		onRegenerate: () => void;
+		onGenerateStory: () => void;
+		onRegenerateStory: () => void;
 	} = $props();
 
 	const slug = $derived($page.params.slug);
 
-	// Tab state
-	let activeTab = $state<'story' | 'sessions'>('story');
+	// Tab state — sessions is default
+	let activeTab = $state<'sessions' | 'story'>('sessions');
 
 	// Sessions state
 	let sessions = $state<FunctionSessionsResponse | null>(null);
 	let sessionsLoading = $state(false);
 	let sessionsError = $state('');
 
-	// Reset sessions when line changes
+	// Reset when line changes — default to sessions tab
 	$effect(() => {
-		// Track selectedLine to trigger reset
 		selectedLine;
-		activeTab = 'story';
+		activeTab = 'sessions';
 		sessions = null;
 		sessionsError = '';
 	});
 
-	// Fetch sessions when switching to sessions tab
+	// Fetch sessions when sessions tab is active
 	$effect(() => {
 		if (activeTab === 'sessions' && selectedLine != null) {
 			fetchSessions();
+		}
+	});
+
+	// Generate story when story tab is first opened
+	$effect(() => {
+		if (activeTab === 'story' && selectedLine != null && !story && !loading) {
+			onGenerateStory();
 		}
 	});
 
@@ -106,7 +114,7 @@
 		(story?.references ?? []).filter((r) => r.id !== null)
 	);
 
-	const panelVisible = $derived(story !== null || loading || error || activeTab === 'sessions');
+	const panelVisible = $derived(selectedLine != null);
 </script>
 
 {#if panelVisible}
@@ -136,7 +144,7 @@
 			<div class="flex gap-2">
 				{#if story && activeTab === 'story'}
 					<button
-						onclick={onRegenerate}
+						onclick={onRegenerateStory}
 						class="rounded border px-2 py-1 text-sm hover:bg-accent"
 					>
 						Regenerate
@@ -151,14 +159,6 @@
 		<!-- Tabs -->
 		<div class="flex border-b">
 			<button
-				class="flex-1 px-4 py-2 text-sm font-medium transition-colors {activeTab === 'story'
-					? 'border-b-2 border-primary text-primary'
-					: 'text-muted-foreground hover:text-foreground'}"
-				onclick={() => (activeTab = 'story')}
-			>
-				Story
-			</button>
-			<button
 				class="flex-1 px-4 py-2 text-sm font-medium transition-colors {activeTab === 'sessions'
 					? 'border-b-2 border-primary text-primary'
 					: 'text-muted-foreground hover:text-foreground'}"
@@ -166,10 +166,66 @@
 			>
 				Sessions
 			</button>
+			<button
+				class="flex-1 px-4 py-2 text-sm font-medium transition-colors {activeTab === 'story'
+					? 'border-b-2 border-primary text-primary'
+					: 'text-muted-foreground hover:text-foreground'}"
+				onclick={() => (activeTab = 'story')}
+			>
+				Story
+			</button>
 		</div>
 
 		<div class="flex-1 overflow-y-auto p-4">
-			{#if activeTab === 'story'}
+			{#if activeTab === 'sessions'}
+				{#if sessionsLoading}
+					<div class="flex items-center gap-2 text-muted-foreground">
+						<div
+							class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+						></div>
+						Loading sessions...
+					</div>
+				{:else if sessionsError}
+					<div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+						{sessionsError}
+					</div>
+				{:else if sessions && sessions.sessions.length === 0}
+					<p class="text-sm text-muted-foreground">No sessions found for this function.</p>
+				{:else if sessions}
+					<div class="space-y-2">
+						{#each sessions.sessions as session}
+							<a
+								href="/orgs/{slug}/traces/sessions/{session.id}"
+								class="block rounded border bg-muted/30 px-3 py-2 text-sm transition-colors hover:bg-muted/50"
+							>
+								<div class="flex items-center justify-between">
+									<span class="font-medium text-foreground">
+										{session.started_at ? formatDateTime(session.started_at) : 'Unknown date'}
+									</span>
+									{#if session.model}
+										<span class="text-xs text-muted-foreground">{session.model}</span>
+									{/if}
+								</div>
+								{#if session.user_email}
+									<p class="mt-0.5 text-xs text-muted-foreground">{session.user_email}</p>
+								{/if}
+								{#if session.commit_shas.length > 0}
+									<div class="mt-1 flex flex-wrap gap-1">
+										{#each session.commit_shas as sha}
+											<span class="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary">
+												{sha.slice(0, 7)}
+											</span>
+										{/each}
+									</div>
+								{/if}
+							</a>
+						{/each}
+					</div>
+				{:else}
+					<p class="text-sm text-muted-foreground">Select a line to view associated sessions.</p>
+				{/if}
+			{:else}
+				<!-- Story tab -->
 				{#if loading}
 					<div class="flex items-center gap-2 text-muted-foreground">
 						<div
@@ -235,56 +291,6 @@
 						<p>Commits analyzed: {story.commits_analyzed.length}</p>
 						<p>Generated: {formatDateTime(story.generated_at)}</p>
 					</div>
-				{:else}
-					<p class="text-sm text-muted-foreground">Click a line number to generate its story.</p>
-				{/if}
-			{:else}
-				<!-- Sessions tab -->
-				{#if sessionsLoading}
-					<div class="flex items-center gap-2 text-muted-foreground">
-						<div
-							class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
-						></div>
-						Loading sessions...
-					</div>
-				{:else if sessionsError}
-					<div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-						{sessionsError}
-					</div>
-				{:else if sessions && sessions.sessions.length === 0}
-					<p class="text-sm text-muted-foreground">No sessions found for this function.</p>
-				{:else if sessions}
-					<div class="space-y-2">
-						{#each sessions.sessions as session}
-							<a
-								href="/orgs/{slug}/traces/sessions/{session.id}"
-								class="block rounded border bg-muted/30 px-3 py-2 text-sm transition-colors hover:bg-muted/50"
-							>
-								<div class="flex items-center justify-between">
-									<span class="font-medium text-foreground">
-										{session.started_at ? formatDateTime(session.started_at) : 'Unknown date'}
-									</span>
-									{#if session.model}
-										<span class="text-xs text-muted-foreground">{session.model}</span>
-									{/if}
-								</div>
-								{#if session.user_email}
-									<p class="mt-0.5 text-xs text-muted-foreground">{session.user_email}</p>
-								{/if}
-								{#if session.commit_shas.length > 0}
-									<div class="mt-1 flex flex-wrap gap-1">
-										{#each session.commit_shas as sha}
-											<span class="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary">
-												{sha.slice(0, 7)}
-											</span>
-										{/each}
-									</div>
-								{/if}
-							</a>
-						{/each}
-					</div>
-				{:else}
-					<p class="text-sm text-muted-foreground">Select a line to view associated sessions.</p>
 				{/if}
 			{/if}
 		</div>
