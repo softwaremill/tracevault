@@ -96,15 +96,38 @@
 		return map;
 	});
 
-	// Render markdown then inject commit links into the HTML
+	// Build session ID prefix → session UUID lookup from references
+	const sessionIdToUuid = $derived.by(() => {
+		const map = new Map<string, string>();
+		for (const ref of story?.references ?? []) {
+			for (const session of ref.sessions) {
+				// Map the 8-char prefix of the UUID (what the LLM references)
+				map.set(session.id.slice(0, 8), session.id);
+			}
+		}
+		return map;
+	});
+
+	// Render markdown then inject commit and session links into the HTML
 	const renderedMarkdown = $derived.by(() => {
 		if (!story) return '';
 		let html = marked.parse(story.story) as string;
+		// Linkify commit SHAs
 		if (shaToTraceId.size > 0) {
 			html = html.replace(/\b([0-9a-f]{7,40})\b/g, (match) => {
 				const traceId = shaToTraceId.get(match);
 				if (!traceId) return match;
 				return `<a href="/orgs/${slug}/traces/${traceId}" class="commit-link">${match}</a>`;
+			});
+		}
+		// Linkify session ID prefixes (8-char hex patterns that match known sessions)
+		if (sessionIdToUuid.size > 0) {
+			html = html.replace(/\b([0-9a-f]{8})\b/g, (match) => {
+				// Skip if already linkified as a commit
+				const sessionUuid = sessionIdToUuid.get(match);
+				if (!sessionUuid) return match;
+				// Don't double-linkify (check if already inside an <a> tag)
+				return `<a href="/orgs/${slug}/traces/sessions/${sessionUuid}" class="session-link">${match}</a>`;
 			});
 		}
 		return html;
@@ -403,6 +426,22 @@
 
 	.story-markdown :global(a.commit-link:hover) {
 		opacity: 0.85;
+	}
+
+	.story-markdown :global(a.session-link) {
+		font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+		font-size: 0.8em;
+		background: var(--muted);
+		color: var(--foreground);
+		padding: 0.1rem 0.375rem;
+		border-radius: 0.25rem;
+		text-decoration: none;
+		white-space: nowrap;
+		border: 1px solid var(--border);
+	}
+
+	.story-markdown :global(a.session-link:hover) {
+		background: var(--accent);
 	}
 
 	.story-markdown :global(code) {

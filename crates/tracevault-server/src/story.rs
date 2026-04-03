@@ -190,28 +190,58 @@ pub async fn gather_story_context(
 
                 let model = session_rows.first().and_then(|r| r.2.clone());
 
-                // Get transcript excerpt from the first session's transcript_chunks
-                let excerpt = if let Some((first_sid, _, _)) = session_rows.first() {
-                    let chunks: Vec<(serde_json::Value,)> = sqlx::query_as(
-                        "SELECT data FROM transcript_chunks \
-                         WHERE session_id = $1 \
-                         ORDER BY chunk_index ASC",
-                    )
-                    .bind(first_sid)
-                    .fetch_all(pool)
-                    .await
-                    .unwrap_or_default();
+                // Get transcript excerpts from sessions (newest first, budget-limited)
+                let excerpt = {
+                    let mut combined_excerpts = Vec::new();
+                    let mut total_chars = 0usize;
+                    const TRANSCRIPT_BUDGET: usize = 40_000;
+                    const PER_SESSION_LIMIT: usize = 8_000;
 
-                    if !chunks.is_empty() {
+                    // Iterate sessions in reverse (newest first)
+                    for (sid, session_id, _) in session_rows.iter().rev() {
+                        if total_chars >= TRANSCRIPT_BUDGET {
+                            break;
+                        }
+
+                        let chunks: Vec<(serde_json::Value,)> = sqlx::query_as(
+                            "SELECT data FROM transcript_chunks \
+                             WHERE session_id = $1 \
+                             ORDER BY chunk_index ASC",
+                        )
+                        .bind(sid)
+                        .fetch_all(pool)
+                        .await
+                        .unwrap_or_default();
+
+                        if chunks.is_empty() {
+                            continue;
+                        }
+
                         let transcript_array: Vec<serde_json::Value> =
                             chunks.into_iter().map(|(d,)| d).collect();
                         let transcript_val = serde_json::Value::Array(transcript_array);
-                        extract_relevant_excerpt(&transcript_val, file_path, &scope.name)
-                    } else {
-                        None
+                        if let Some(excerpt) = extract_relevant_excerpt(
+                            &transcript_val,
+                            file_path,
+                            &scope.name,
+                            PER_SESSION_LIMIT,
+                        ) {
+                            let remaining = TRANSCRIPT_BUDGET - total_chars;
+                            let truncated: String = excerpt.chars().take(remaining).collect();
+                            total_chars += truncated.len();
+                            combined_excerpts.push(format!(
+                                "[Session {}]:\n{}",
+                                &session_id[..8.min(session_id.len())],
+                                truncated
+                            ));
+                        }
                     }
-                } else {
-                    None
+
+                    if combined_excerpts.is_empty() {
+                        None
+                    } else {
+                        Some(combined_excerpts.join("\n\n"))
+                    }
                 };
 
                 // Compute ai_percentage from attributions
@@ -331,6 +361,7 @@ fn extract_relevant_excerpt(
     transcript: &serde_json::Value,
     file_path: &str,
     func_name: &str,
+    max_chars: usize,
 ) -> Option<String> {
     let text = serde_json::to_string(transcript).ok()?;
     let mut excerpts = Vec::new();
@@ -342,7 +373,7 @@ fn extract_relevant_excerpt(
     if excerpts.is_empty() {
         return None;
     }
-    Some(excerpts.join("\n").chars().take(2000).collect())
+    Some(excerpts.join("\n").chars().take(max_chars).collect())
 }
 
 pub fn build_story_prompt(ctx: &StoryContext) -> String {
@@ -363,6 +394,21 @@ pub fn build_story_prompt(ctx: &StoryContext) -> String {
             change.date
         ));
         prompt.push_str(&format!("Commit message: {}\n", change.message));
+        if !change.sessions.is_empty() {
+            let session_ids: Vec<String> = change
+                .sessions
+                .iter()
+                .map(|s| {
+                    let short = &s.id.to_string()[..8];
+                    format!(
+                        "{} (model: {})",
+                        short,
+                        s.model.as_deref().unwrap_or("unknown")
+                    )
+                })
+                .collect();
+            prompt.push_str(&format!("Sessions: {}\n", session_ids.join(", ")));
+        }
         if let Some(model) = &change.model {
             prompt.push_str(&format!("AI Model: {}\n", model));
         }
@@ -370,7 +416,7 @@ pub fn build_story_prompt(ctx: &StoryContext) -> String {
             prompt.push_str(&format!("Attribution: {:.0}% AI-generated\n", pct));
         }
         if let Some(excerpt) = &change.session_transcript_excerpt {
-            prompt.push_str(&format!("AI Session Context:\n{}\n", excerpt));
+            prompt.push_str(&format!("AI Session Transcripts:\n{}\n", excerpt));
         }
         prompt.push('\n');
     }
@@ -379,9 +425,12 @@ pub fn build_story_prompt(ctx: &StoryContext) -> String {
         "## Task\nWrite a clear narrative explaining:\n\
          1. Why this code exists (original intent)\n\
          2. How it evolved over time\n\
-         3. Key decisions made (especially from AI session transcripts)\n\
+         3. Key decisions made (especially insights from AI session transcripts)\n\
          4. Current state and any notable patterns\n\n\
-         Keep it concise but informative. Use markdown formatting.",
+         Keep it concise but informative. Use markdown formatting.\n\n\
+         IMPORTANT: When referencing commits, use the full or short SHA (e.g., `abc1234`).\n\
+         When referencing AI sessions, use the 8-character session ID prefix exactly as provided \
+         (e.g., `a1b2c3d4`). These IDs will be turned into clickable links in the UI.",
     );
 
     if prompt.len() > 100_000 {
