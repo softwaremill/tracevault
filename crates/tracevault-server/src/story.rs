@@ -4,9 +4,19 @@ use tracevault_core::code_nav::CodeScope;
 use uuid::Uuid;
 
 #[derive(Debug, serde::Serialize)]
+pub struct SessionCommit {
+    pub commit_sha: String,
+    pub message: String,
+    pub session_ids: Vec<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
 pub struct StoryContext {
     pub function_source: String,
     pub changes: Vec<ChangeEntry>,
+    /// Commits with linked sessions found via file_path DB query.
+    /// These may have different SHAs than the git-log changes (due to rebases).
+    pub session_commits: Vec<SessionCommit>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -158,6 +168,11 @@ pub async fn gather_story_context(
     // All git2 objects are now dropped — safe to .await
 
     // 2. Enrich with TraceVault DB data (async)
+    println!(
+        "gather_story_context: enriching {} commits for repo_id={}",
+        git_commits.len(),
+        repo_id
+    );
     let mut changes = Vec::new();
     for gc in &git_commits {
         // Fetch commit UUID and attribution
@@ -187,6 +202,13 @@ pub async fn gather_story_context(
                 .fetch_all(pool)
                 .await
                 .unwrap_or_default();
+
+                println!(
+                    "  commit {} -> c_id={}, sessions={}",
+                    &gc.sha[..8],
+                    c_id,
+                    session_rows.len()
+                );
 
                 let model = session_rows.first().and_then(|r| r.2.clone());
 
@@ -283,96 +305,131 @@ pub async fn gather_story_context(
         });
     }
 
-    // 3. If no sessions were found via SHA matching, supplement with a direct
-    // file_path query (handles rebased/squashed commits where SHAs diverge)
-    let has_sessions = changes.iter().any(|c| !c.sessions.is_empty());
-    if !has_sessions {
-        let db_sessions = sqlx::query_as::<_, (Uuid, String, Option<String>, String)>(
-            "SELECT DISTINCT s.id, s.session_id, s.model, c.commit_sha \
-             FROM sessions s \
-             JOIN commit_attributions ca ON ca.session_id = s.id \
-             JOIN commits c ON c.id = ca.commit_id \
-             WHERE c.repo_id = $1 AND ca.file_path = $2 \
-             ORDER BY s.started_at DESC NULLS LAST",
-        )
-        .bind(repo_id)
-        .bind(file_path)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_default();
+    // 3. Query session-linked commits directly by file_path from the DB.
+    // Git-log SHAs may differ from DB SHAs (rebases/squashes), so this
+    // provides the authoritative session-to-commit mapping for the prompt.
+    let db_rows = sqlx::query_as::<_, (String, String, String, Option<String>)>(
+        "SELECT c.commit_sha, COALESCE(c.message, ''), s.session_id, s.model \
+         FROM commits c \
+         JOIN commit_attributions ca ON ca.commit_id = c.id \
+         JOIN sessions s ON s.id = ca.session_id \
+         WHERE c.repo_id = $1 AND ca.file_path = $2 \
+         ORDER BY s.started_at DESC NULLS LAST",
+    )
+    .bind(repo_id)
+    .bind(file_path)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
 
-        if !db_sessions.is_empty() {
-            let sessions: Vec<SessionRef> = db_sessions
-                .iter()
-                .map(|(id, sid, m, _)| SessionRef {
-                    id: *id,
-                    session_id: sid.clone(),
-                    model: m.clone(),
+    // Group into SessionCommit entries
+    let session_commits = {
+        use std::collections::HashMap;
+        let mut map: HashMap<String, SessionCommit> = HashMap::new();
+        for (sha, msg, sid, _model) in &db_rows {
+            map.entry(sha.clone())
+                .and_modify(|sc| {
+                    if !sc.session_ids.contains(sid) {
+                        sc.session_ids.push(sid.clone());
+                    }
                 })
-                .collect();
+                .or_insert_with(|| SessionCommit {
+                    commit_sha: sha.clone(),
+                    message: msg.clone(),
+                    session_ids: vec![sid.clone()],
+                });
+        }
+        map.into_values().collect::<Vec<_>>()
+    };
 
-            // Fetch transcripts for these sessions
-            let mut combined_excerpts = Vec::new();
-            let mut total_chars = 0usize;
-            const FALLBACK_BUDGET: usize = 40_000;
-            const FALLBACK_PER_SESSION: usize = 8_000;
-
-            for (sid, session_id, _, _) in db_sessions.iter() {
-                if total_chars >= FALLBACK_BUDGET {
-                    break;
-                }
-                let chunks: Vec<(serde_json::Value,)> = sqlx::query_as(
-                    "SELECT data FROM transcript_chunks \
-                     WHERE session_id = $1 \
-                     ORDER BY chunk_index ASC",
+    // Also attach transcripts to the first change entry if none found via SHA matching
+    let has_sessions = changes.iter().any(|c| !c.sessions.is_empty());
+    if !has_sessions && !db_rows.is_empty() {
+        // Collect unique session IDs for transcript fetching
+        let mut seen_sids = std::collections::HashSet::new();
+        let mut session_refs = Vec::new();
+        for (_, _, sid, model) in &db_rows {
+            if seen_sids.insert(sid.clone()) {
+                // Look up session UUID
+                if let Some((s_uuid,)) = sqlx::query_as::<_, (Uuid,)>(
+                    "SELECT id FROM sessions WHERE session_id = $1 LIMIT 1",
                 )
                 .bind(sid)
-                .fetch_all(pool)
+                .fetch_optional(pool)
                 .await
-                .unwrap_or_default();
-
-                if chunks.is_empty() {
-                    continue;
-                }
-                let transcript_array: Vec<serde_json::Value> =
-                    chunks.into_iter().map(|(d,)| d).collect();
-                let transcript_val = serde_json::Value::Array(transcript_array);
-                if let Some(excerpt) = extract_relevant_excerpt(
-                    &transcript_val,
-                    file_path,
-                    &scope.name,
-                    FALLBACK_PER_SESSION,
-                ) {
-                    let remaining = FALLBACK_BUDGET - total_chars;
-                    let truncated: String = excerpt.chars().take(remaining).collect();
-                    total_chars += truncated.len();
-                    combined_excerpts.push(format!(
-                        "[Session {}]:\n{}",
-                        &session_id[..8.min(session_id.len())],
-                        truncated
-                    ));
+                .ok()
+                .flatten()
+                {
+                    session_refs.push(SessionRef {
+                        id: s_uuid,
+                        session_id: sid.clone(),
+                        model: model.clone(),
+                    });
                 }
             }
+        }
 
-            let model = sessions.first().and_then(|s| s.model.clone());
-            let excerpt = if combined_excerpts.is_empty() {
-                None
-            } else {
-                Some(combined_excerpts.join("\n\n"))
-            };
+        // Fetch transcripts
+        let mut combined_excerpts = Vec::new();
+        let mut total_chars = 0usize;
+        const FALLBACK_BUDGET: usize = 40_000;
+        const FALLBACK_PER_SESSION: usize = 8_000;
 
-            // Attach to the first change entry (or create a synthetic one)
-            if let Some(first_change) = changes.first_mut() {
-                first_change.sessions = sessions;
-                first_change.model = model;
-                first_change.session_transcript_excerpt = excerpt;
+        for sr in &session_refs {
+            if total_chars >= FALLBACK_BUDGET {
+                break;
             }
+            let chunks: Vec<(serde_json::Value,)> = sqlx::query_as(
+                "SELECT data FROM transcript_chunks \
+                 WHERE session_id = $1 \
+                 ORDER BY chunk_index ASC",
+            )
+            .bind(sr.id)
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default();
+
+            if chunks.is_empty() {
+                continue;
+            }
+            let transcript_array: Vec<serde_json::Value> =
+                chunks.into_iter().map(|(d,)| d).collect();
+            let transcript_val = serde_json::Value::Array(transcript_array);
+            if let Some(excerpt) = extract_relevant_excerpt(
+                &transcript_val,
+                file_path,
+                &scope.name,
+                FALLBACK_PER_SESSION,
+            ) {
+                let remaining = FALLBACK_BUDGET - total_chars;
+                let truncated: String = excerpt.chars().take(remaining).collect();
+                total_chars += truncated.len();
+                combined_excerpts.push(format!(
+                    "[Session {}]:\n{}",
+                    &sr.session_id[..8.min(sr.session_id.len())],
+                    truncated
+                ));
+            }
+        }
+
+        let model = session_refs.first().and_then(|s| s.model.clone());
+        let excerpt = if combined_excerpts.is_empty() {
+            None
+        } else {
+            Some(combined_excerpts.join("\n\n"))
+        };
+
+        if let Some(first_change) = changes.first_mut() {
+            first_change.sessions = session_refs;
+            first_change.model = model;
+            first_change.session_transcript_excerpt = excerpt;
         }
     }
 
     Ok(StoryContext {
         function_source,
         changes,
+        session_commits,
     })
 }
 
@@ -508,6 +565,30 @@ pub fn build_story_prompt(ctx: &StoryContext) -> String {
         prompt.push('\n');
     }
 
+    // Add session-linked commits with their session IDs
+    if !ctx.session_commits.is_empty() {
+        prompt.push_str("## AI Sessions and Commits\n\n");
+        prompt.push_str(
+            "These commits were made during AI coding sessions that modified this file.\n\
+             Each commit lists the session IDs that contributed to it.\n\n",
+        );
+        for sc in &ctx.session_commits {
+            let session_list = sc
+                .session_ids
+                .iter()
+                .map(|s| format!("`{}`", &s[..8.min(s.len())]))
+                .collect::<Vec<_>>()
+                .join(", ");
+            prompt.push_str(&format!(
+                "- Commit `{}` — {} (sessions: {})\n",
+                &sc.commit_sha[..7.min(sc.commit_sha.len())],
+                sc.message.lines().next().unwrap_or(""),
+                session_list
+            ));
+        }
+        prompt.push('\n');
+    }
+
     prompt.push_str(
         "## Task\nWrite a clear narrative explaining:\n\
          1. Why this code exists (original intent)\n\
@@ -515,7 +596,10 @@ pub fn build_story_prompt(ctx: &StoryContext) -> String {
          3. Key decisions made (especially insights from AI session transcripts)\n\
          4. Current state and any notable patterns\n\n\
          Keep it concise but informative. Use markdown formatting.\n\
-         When referencing commits, use the short SHA (e.g., `abc1234`).",
+         IMPORTANT: When referencing changes, use the short commit SHAs (e.g., `abc1234`) and \
+         session IDs (e.g., `a1b2c3d4`) from the 'AI Sessions and Commits' section. \
+         Both will become clickable links in the UI. Reference specific sessions when \
+         discussing insights from their transcripts.",
     );
 
     if prompt.len() > 100_000 {

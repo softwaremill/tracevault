@@ -80,6 +80,19 @@
 		sessionsLoading = false;
 	}
 
+	// Generate a stable pastel color from an ID string
+	function idToColor(id: string, type: 'session' | 'commit'): string {
+		let hash = 0;
+		for (let i = 0; i < id.length; i++) {
+			hash = id.charCodeAt(i) + ((hash << 5) - hash);
+		}
+		// Different hue ranges: sessions 180-330 (cool), commits 0-160 (warm)
+		const hueBase = type === 'session' ? 180 : 0;
+		const hueRange = type === 'session' ? 150 : 160;
+		const hue = (Math.abs(hash) % hueRange) + hueBase;
+		return `hsl(${hue} 55% 85% / 0.7)`;
+	}
+
 	// Build a SHA→trace_id lookup from references
 	const shaToTraceId = $derived.by(() => {
 		const map = new Map<string, string>();
@@ -96,11 +109,28 @@
 		return map;
 	});
 
-	// Render markdown then inject commit links into the HTML
+	// Build session ID prefix → session UUID lookup
+	// Maps both internal UUID prefixes and external session_id prefixes
+	const sessionIdToUuid = $derived.by(() => {
+		const map = new Map<string, string>();
+		for (const ref of story?.references ?? []) {
+			for (const session of ref.sessions) {
+				// Map internal UUID prefix
+				map.set(session.id.slice(0, 8), session.id);
+				// Map external session_id prefix (what the LLM references)
+				if (session.session_id) {
+					map.set(session.session_id.slice(0, 8), session.id);
+				}
+			}
+		}
+		return map;
+	});
+
+	// Render markdown then inject commit and session links into the HTML
 	const renderedMarkdown = $derived.by(() => {
 		if (!story) return '';
 		let html = marked.parse(story.story) as string;
-		if (shaToTraceId.size > 0) {
+		if (shaToTraceId.size > 0 || sessionIdToUuid.size > 0) {
 			html = html.replace(/\b([0-9a-f]{7,40})\b/g, (match, _p1, offset, fullStr) => {
 				// Skip if inside an existing <a> tag
 				const before = fullStr.slice(Math.max(0, offset - 200), offset);
@@ -108,9 +138,21 @@
 				const lastAClose = before.lastIndexOf('</a>');
 				if (lastAOpen > lastAClose) return match;
 
+				// 8-char exact: try session first, then commit
+				if (match.length === 8) {
+					const sessionUuid = sessionIdToUuid.get(match);
+					if (sessionUuid) {
+						const color = idToColor(sessionUuid, 'session');
+						return `<a href="/orgs/${slug}/traces/sessions/${sessionUuid}" class="ref-link" style="background:${color}">${match}</a>`;
+					}
+				}
+
 				const traceId = shaToTraceId.get(match);
-				if (!traceId) return match;
-				return `<a href="/orgs/${slug}/traces/${traceId}" class="commit-link">${match}</a>`;
+				if (traceId) {
+					const color = idToColor(traceId, 'commit');
+					return `<a href="/orgs/${slug}/traces/commits/${traceId}" class="ref-link" style="background:${color}">${match}</a>`;
+				}
+				return match;
 			});
 		}
 		return html;
@@ -275,7 +317,8 @@
 								{#each linkedSessions as session}
 									<a
 										href="/orgs/{slug}/traces/sessions/{session.id}"
-										class="block rounded border bg-muted/30 px-3 py-2 text-xs transition-colors hover:bg-muted/50"
+										class="block rounded border px-3 py-2 text-xs transition-opacity hover:opacity-75"
+										style="background: {idToColor(session.id, 'session')}"
 									>
 										<div class="flex items-center justify-between">
 											<span class="font-mono font-medium text-foreground">
@@ -394,19 +437,18 @@
 		opacity: 0.8;
 	}
 
-	.story-markdown :global(a.commit-link) {
+	.story-markdown :global(a.ref-link) {
 		font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
 		font-size: 0.8em;
-		background: var(--primary);
-		color: var(--primary-foreground);
+		color: var(--foreground);
 		padding: 0.1rem 0.375rem;
 		border-radius: 0.25rem;
 		text-decoration: none;
 		white-space: nowrap;
 	}
 
-	.story-markdown :global(a.commit-link:hover) {
-		opacity: 0.85;
+	.story-markdown :global(a.ref-link:hover) {
+		opacity: 0.75;
 	}
 
 
