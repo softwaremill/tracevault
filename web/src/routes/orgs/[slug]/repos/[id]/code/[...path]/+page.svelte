@@ -72,36 +72,29 @@
 
 	const gitRef = $derived(resolvedRef);
 
-	async function handleLineClick(line: number) {
+	function handleLineClick(line: number) {
 		selectedLine = line;
-		storyLoading = true;
-		storyError = '';
 		story = null;
-		try {
-			story = await api.post<StoryResponse>(`/api/v1/orgs/${slug}/repos/${repoId}/story`, {
-				ref: gitRef,
-				path: filePath,
-				line
-			});
-		} catch (e) {
-			storyError = e instanceof Error ? e.message : 'Story generation failed';
-		}
 		storyLoading = false;
+		storyError = '';
 	}
 
-	async function handleRegenerate() {
+	async function handleGenerateStory(force = false) {
 		if (!selectedLine) return;
 		storyLoading = true;
 		storyError = '';
 		story = null;
 		try {
-			story = await api.post<StoryResponse>(`/api/v1/orgs/${slug}/repos/${repoId}/story?force=true`, {
+			const url = force
+				? `/api/v1/orgs/${slug}/repos/${repoId}/story?force=true`
+				: `/api/v1/orgs/${slug}/repos/${repoId}/story`;
+			story = await api.post<StoryResponse>(url, {
 				ref: gitRef,
 				path: filePath,
 				line: selectedLine
 			});
 		} catch (e) {
-			storyError = e instanceof Error ? e.message : 'Story regeneration failed';
+			storyError = e instanceof Error ? e.message : 'Story generation failed';
 		}
 		storyLoading = false;
 	}
@@ -137,7 +130,7 @@
 				{blob.language || 'Plain text'} -- {blob.size} bytes
 			</span>
 			{#if $features.story_generation}
-				<span class="text-xs text-muted-foreground">Click a line number to generate its story</span>
+				<span class="text-xs text-muted-foreground">Click a line number to view sessions and stories</span>
 			{/if}
 		</div>
 		<CodeView content={blob.content} language={blob.language} onLineClick={$features.story_generation ? handleLineClick : undefined} />
@@ -153,12 +146,17 @@
 		{story}
 		loading={storyLoading}
 		error={storyError}
+		{repoId}
+		{selectedLine}
+		gitRef={gitRef}
+		filePath={filePath}
 		onClose={() => {
 			story = null;
 			storyLoading = false;
 			storyError = '';
 			selectedLine = null;
 		}}
-		onRegenerate={handleRegenerate}
+		onGenerateStory={() => handleGenerateStory()}
+		onRegenerateStory={() => handleGenerateStory(true)}
 	/>
 {/if}

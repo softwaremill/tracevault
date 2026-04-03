@@ -274,6 +274,10 @@ async fn main() {
             "/api/v1/orgs/{slug}/repos/{repo_id}/story",
             post(api::code::generate_story),
         )
+        .route(
+            "/api/v1/orgs/{slug}/repos/{repo_id}/code/sessions",
+            get(api::code::get_function_sessions),
+        )
         // Org-scoped: traces
         .route(
             "/api/v1/orgs/{slug}/traces/stats",

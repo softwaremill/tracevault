@@ -67,3 +67,18 @@ export interface RefInfo {
 	author: string;
 	date: string;
 }
+
+export interface FunctionSessionRef {
+	id: string;
+	session_id: string;
+	model: string | null;
+	user_email: string | null;
+	started_at: string | null;
+	commit_shas: string[];
+}
+
+export interface FunctionSessionsResponse {
+	function_name: string;
+	line_range: [number, number];
+	sessions: FunctionSessionRef[];
+}

@@ -1,6 +1,7 @@
 <script lang="ts">
-	import type { StoryResponse } from '$lib/types/code';
+	import type { StoryResponse, FunctionSessionsResponse } from '$lib/types/code';
 	import { page } from '$app/stores';
+	import { api } from '$lib/api';
 	import { marked } from 'marked';
 	import { formatDateTime } from '$lib/utils/date';
 
@@ -8,27 +9,97 @@
 		story,
 		loading,
 		error = '',
+		repoId,
+		selectedLine,
+		gitRef,
+		filePath,
 		onClose,
-		onRegenerate
+		onGenerateStory,
+		onRegenerateStory
 	}: {
 		story: StoryResponse | null;
 		loading: boolean;
 		error?: string;
+		repoId: string;
+		selectedLine: number | null;
+		gitRef: string;
+		filePath: string;
 		onClose: () => void;
-		onRegenerate: () => void;
+		onGenerateStory: () => void;
+		onRegenerateStory: () => void;
 	} = $props();
 
 	const slug = $derived($page.params.slug);
+
+	// Tab state — sessions is default
+	let activeTab = $state<'sessions' | 'story'>('sessions');
+
+	// Sessions state
+	let sessions = $state<FunctionSessionsResponse | null>(null);
+	let sessionsLoading = $state(false);
+	let sessionsError = $state('');
+
+	// Reset when line changes — default to sessions tab
+	$effect(() => {
+		selectedLine;
+		activeTab = 'sessions';
+		sessions = null;
+		sessionsError = '';
+	});
+
+	// Fetch sessions when sessions tab is active
+	$effect(() => {
+		if (activeTab === 'sessions' && selectedLine != null) {
+			fetchSessions();
+		}
+	});
+
+	// Generate story when story tab is first opened
+	$effect(() => {
+		if (activeTab === 'story' && selectedLine != null && !story && !loading) {
+			onGenerateStory();
+		}
+	});
+
+	async function fetchSessions() {
+		sessionsLoading = true;
+		sessionsError = '';
+		sessions = null;
+		try {
+			const params = new URLSearchParams({
+				ref: gitRef,
+				path: filePath,
+				line: String(selectedLine)
+			});
+			sessions = await api.get<FunctionSessionsResponse>(
+				`/api/v1/orgs/${slug}/repos/${repoId}/code/sessions?${params}`
+			);
+		} catch (e) {
+			sessionsError = e instanceof Error ? e.message : 'Failed to load sessions';
+		}
+		sessionsLoading = false;
+	}
+
+	// Generate a stable pastel color from an ID string
+	function idToColor(id: string, type: 'session' | 'commit'): string {
+		let hash = 0;
+		for (let i = 0; i < id.length; i++) {
+			hash = id.charCodeAt(i) + ((hash << 5) - hash);
+		}
+		// Different hue ranges: sessions 180-330 (cool), commits 0-160 (warm)
+		const hueBase = type === 'session' ? 180 : 0;
+		const hueRange = type === 'session' ? 150 : 160;
+		const hue = (Math.abs(hash) % hueRange) + hueBase;
+		return `hsl(${hue} 55% 85% / 0.7)`;
+	}
 
 	// Build a SHA→trace_id lookup from references
 	const shaToTraceId = $derived.by(() => {
 		const map = new Map<string, string>();
 		for (const ref of story?.references ?? []) {
 			if (!ref.id) continue;
-			// Map both full SHA and 7-char prefix
 			map.set(ref.sha, ref.id);
 			map.set(ref.sha.slice(0, 7), ref.id);
-			// Also map 8, 10, 12 char prefixes the LLM might use
 			for (const len of [8, 10, 12]) {
 				if (ref.sha.length >= len) {
 					map.set(ref.sha.slice(0, len), ref.id);
@@ -38,40 +109,84 @@
 		return map;
 	});
 
-	// Render markdown then inject commit links into the HTML
+	// Build session ID prefix → session UUID lookup
+	// Maps both internal UUID prefixes and external session_id prefixes
+	const sessionIdToUuid = $derived.by(() => {
+		const map = new Map<string, string>();
+		for (const ref of story?.references ?? []) {
+			for (const session of ref.sessions) {
+				// Map internal UUID prefix
+				map.set(session.id.slice(0, 8), session.id);
+				// Map external session_id prefix (what the LLM references)
+				if (session.session_id) {
+					map.set(session.session_id.slice(0, 8), session.id);
+				}
+			}
+		}
+		return map;
+	});
+
+	// Render markdown then inject commit and session links into the HTML
 	const renderedMarkdown = $derived.by(() => {
 		if (!story) return '';
 		let html = marked.parse(story.story) as string;
+		if (shaToTraceId.size > 0 || sessionIdToUuid.size > 0) {
+			html = html.replace(/\b([0-9a-f]{7,40})\b/g, (match, _p1, offset, fullStr) => {
+				// Skip if inside an existing <a> tag
+				const before = fullStr.slice(Math.max(0, offset - 200), offset);
+				const lastAOpen = before.lastIndexOf('<a ');
+				const lastAClose = before.lastIndexOf('</a>');
+				if (lastAOpen > lastAClose) return match;
 
-		// Replace SHA text in HTML with links. We match hex strings that look
-		// like commit SHAs (7-40 chars) but only if they appear in our reference map.
-		// The regex matches SHAs inside <code> tags or as plain text, but NOT inside
-		// href attributes or existing <a> tags.
-		if (shaToTraceId.size > 0) {
-			html = html.replace(/\b([0-9a-f]{7,40})\b/g, (match) => {
+				// 8-char exact: try session first, then commit
+				if (match.length === 8) {
+					const sessionUuid = sessionIdToUuid.get(match);
+					if (sessionUuid) {
+						const color = idToColor(sessionUuid, 'session');
+						return `<a href="/orgs/${slug}/traces/sessions/${sessionUuid}" class="ref-link" style="background:${color}">${match}</a>`;
+					}
+				}
+
 				const traceId = shaToTraceId.get(match);
-				if (!traceId) return match;
-				return `<a href="/orgs/${slug}/traces/${traceId}" class="commit-link">${match}</a>`;
+				if (traceId) {
+					const color = idToColor(traceId, 'commit');
+					return `<a href="/orgs/${slug}/traces/commits/${traceId}" class="ref-link" style="background:${color}">${match}</a>`;
+				}
+				return match;
 			});
 		}
 		return html;
 	});
 
-	// References that have a trace link (commit was found in TraceVault DB)
-	const trackedRefs = $derived(
-		(story?.references ?? []).filter((r) => r.id !== null)
-	);
+	// Extract unique sessions from all references (regardless of commit match)
+	const linkedSessions = $derived.by(() => {
+		const seen = new Set<string>();
+		const result: { id: string; session_id: string; model: string | null }[] = [];
+		for (const ref of story?.references ?? []) {
+			for (const session of ref.sessions) {
+				if (!seen.has(session.id)) {
+					seen.add(session.id);
+					result.push(session);
+				}
+			}
+		}
+		return result;
+	});
+
+	const panelVisible = $derived(selectedLine != null);
 </script>
 
-{#if story || loading || error}
+{#if panelVisible}
 	<div class="fixed right-0 top-0 z-50 flex h-full w-[480px] flex-col border-l bg-card shadow-xl">
 		<div class="flex items-center justify-between border-b p-4">
 			<div>
 				<h3 class="text-lg font-semibold">
 					{#if story}
 						{story.function_name}
+					{:else if sessions}
+						{sessions.function_name}
 					{:else}
-						Generating story...
+						{#if loading}Generating story...{:else}Code Sessions{/if}
 					{/if}
 				</h3>
 				{#if story}
@@ -79,12 +194,16 @@
 						{story.kind} -- Lines {story.line_range[0]}-{story.line_range[1]}
 						{#if story.cached}-- Cached{/if}
 					</p>
+				{:else if sessions}
+					<p class="text-sm text-muted-foreground">
+						Lines {sessions.line_range[0]}-{sessions.line_range[1]}
+					</p>
 				{/if}
 			</div>
 			<div class="flex gap-2">
-				{#if story}
+				{#if story && activeTab === 'story'}
 					<button
-						onclick={onRegenerate}
+						onclick={onRegenerateStory}
 						class="rounded border px-2 py-1 text-sm hover:bg-accent"
 					>
 						Regenerate
@@ -96,72 +215,130 @@
 			</div>
 		</div>
 
-		<div class="flex-1 overflow-y-auto p-4">
-			{#if loading}
-				<div class="flex items-center gap-2 text-muted-foreground">
-					<div
-						class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
-					></div>
-					Analyzing code history and generating story...
-				</div>
-			{:else if error}
-				<div class="space-y-3">
-					<div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-						{error}
-					</div>
-					<p class="text-sm text-muted-foreground">
-						This usually means the LLM provider is not configured. Go to
-						<a href="/orgs/{slug}/settings/llm" class="underline font-medium text-foreground">Settings &rarr; LLM</a>
-						to configure your provider and API key.
-					</p>
-				</div>
-			{:else if story}
-				<article class="story-markdown">
-					{@html renderedMarkdown}
-				</article>
+		<!-- Tabs -->
+		<div class="flex border-b">
+			<button
+				class="flex-1 px-4 py-2 text-sm font-medium transition-colors {activeTab === 'sessions'
+					? 'border-b-2 border-primary text-primary'
+					: 'text-muted-foreground hover:text-foreground'}"
+				onclick={() => (activeTab = 'sessions')}
+			>
+				Sessions
+			</button>
+			<button
+				class="flex-1 px-4 py-2 text-sm font-medium transition-colors {activeTab === 'story'
+					? 'border-b-2 border-primary text-primary'
+					: 'text-muted-foreground hover:text-foreground'}"
+				onclick={() => (activeTab = 'story')}
+			>
+				Story
+			</button>
+		</div>
 
-				{#if trackedRefs.length > 0}
-					<div class="mt-6 border-t pt-4">
-						<h4 class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-							Related Traces
-						</h4>
-						<div class="space-y-2">
-							{#each trackedRefs as ref}
-								<div class="rounded border bg-muted/30 px-3 py-2 text-xs">
-									<div class="flex items-center gap-2">
-										<a
-											href="/orgs/{slug}/traces/{ref.id}"
-											class="font-mono font-medium text-foreground underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-foreground"
-										>
-											{ref.sha.slice(0, 7)}
-										</a>
-										<span class="truncate text-muted-foreground">{ref.message}</span>
-									</div>
-									{#if ref.sessions.length > 0}
-										<div class="mt-1 flex flex-wrap gap-1">
-											{#each ref.sessions as session}
-												<a
-													href="/orgs/{slug}/traces/{ref.id}"
-													class="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20"
-												>
-													<span>Session {session.session_id.slice(0, 8)}</span>
-													{#if session.model}
-														<span class="text-muted-foreground">({session.model})</span>
-													{/if}
-												</a>
-											{/each}
-										</div>
+		<div class="flex-1 overflow-y-auto p-4">
+			{#if activeTab === 'sessions'}
+				{#if sessionsLoading}
+					<div class="flex items-center gap-2 text-muted-foreground">
+						<div
+							class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+						></div>
+						Loading sessions...
+					</div>
+				{:else if sessionsError}
+					<div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+						{sessionsError}
+					</div>
+				{:else if sessions && sessions.sessions.length === 0}
+					<p class="text-sm text-muted-foreground">No sessions found for this function.</p>
+				{:else if sessions}
+					<div class="space-y-2">
+						{#each sessions.sessions as session}
+							<a
+								href="/orgs/{slug}/traces/sessions/{session.id}"
+								class="block rounded border bg-muted/30 px-3 py-2 text-sm transition-colors hover:bg-muted/50"
+							>
+								<div class="flex items-center justify-between">
+									<span class="font-medium text-foreground">
+										{session.started_at ? formatDateTime(session.started_at) : 'Unknown date'}
+									</span>
+									{#if session.model}
+										<span class="text-xs text-muted-foreground">{session.model}</span>
 									{/if}
 								</div>
-							{/each}
+								{#if session.user_email}
+									<p class="mt-0.5 text-xs text-muted-foreground">{session.user_email}</p>
+								{/if}
+								{#if session.commit_shas.length > 0}
+									<div class="mt-1 flex flex-wrap gap-1">
+										{#each session.commit_shas as sha}
+											<span class="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary">
+												{sha.slice(0, 7)}
+											</span>
+										{/each}
+									</div>
+								{/if}
+							</a>
+						{/each}
+					</div>
+				{:else}
+					<p class="text-sm text-muted-foreground">Select a line to view associated sessions.</p>
+				{/if}
+			{:else}
+				<!-- Story tab -->
+				{#if loading}
+					<div class="flex items-center gap-2 text-muted-foreground">
+						<div
+							class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+						></div>
+						Analyzing code history and generating story...
+					</div>
+				{:else if error}
+					<div class="space-y-3">
+						<div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+							{error}
 						</div>
+						<p class="text-sm text-muted-foreground">
+							This usually means the LLM provider is not configured. Go to
+							<a href="/orgs/{slug}/settings/llm" class="underline font-medium text-foreground">Settings &rarr; LLM</a>
+							to configure your provider and API key.
+						</p>
+					</div>
+				{:else if story}
+					<article class="story-markdown">
+						{@html renderedMarkdown}
+					</article>
+
+					{#if linkedSessions.length > 0}
+						<div class="mt-6 border-t pt-4">
+							<h4 class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+								Linked Sessions
+							</h4>
+							<div class="space-y-2">
+								{#each linkedSessions as session}
+									<a
+										href="/orgs/{slug}/traces/sessions/{session.id}"
+										class="block rounded border px-3 py-2 text-xs transition-opacity hover:opacity-75"
+										style="background: {idToColor(session.id, 'session')}"
+									>
+										<div class="flex items-center justify-between">
+											<span class="font-mono font-medium text-foreground">
+												{session.session_id.slice(0, 8)}
+											</span>
+											{#if session.model}
+												<span class="text-muted-foreground">{session.model}</span>
+											{/if}
+										</div>
+									</a>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
+					<div class="mt-4 space-y-1 border-t pt-4 text-xs text-muted-foreground">
+						<p>Commits analyzed: {story.commits_analyzed.length}</p>
+						<p>Generated: {formatDateTime(story.generated_at)}</p>
 					</div>
 				{/if}
-
-				<div class="mt-4 space-y-1 border-t pt-4 text-xs text-muted-foreground">
-					<p>Commits analyzed: {story.commits_analyzed.length}</p>
-					<p>Generated: {formatDateTime(story.generated_at)}</p>
-				</div>
 			{/if}
 		</div>
 	</div>
@@ -260,20 +437,20 @@
 		opacity: 0.8;
 	}
 
-	.story-markdown :global(a.commit-link) {
+	.story-markdown :global(a.ref-link) {
 		font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
 		font-size: 0.8em;
-		background: var(--primary);
-		color: var(--primary-foreground);
+		color: var(--foreground);
 		padding: 0.1rem 0.375rem;
 		border-radius: 0.25rem;
 		text-decoration: none;
 		white-space: nowrap;
 	}
 
-	.story-markdown :global(a.commit-link:hover) {
-		opacity: 0.85;
+	.story-markdown :global(a.ref-link:hover) {
+		opacity: 0.75;
 	}
+
 
 	.story-markdown :global(code) {
 		font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;

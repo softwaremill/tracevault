@@ -167,6 +167,31 @@ pub struct StoryResponse {
     pub generated_at: String,
 }
 
+#[derive(Deserialize)]
+pub struct FunctionSessionsQuery {
+    #[serde(rename = "ref", default = "default_ref")]
+    pub git_ref: String,
+    pub path: String,
+    pub line: usize,
+}
+
+#[derive(Serialize)]
+pub struct FunctionSessionRefResponse {
+    pub id: String,
+    pub session_id: String,
+    pub model: Option<String>,
+    pub user_email: Option<String>,
+    pub started_at: Option<String>,
+    pub commit_shas: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct FunctionSessionsResponse {
+    pub function_name: String,
+    pub line_range: [usize; 2],
+    pub sessions: Vec<FunctionSessionRefResponse>,
+}
+
 // --- Endpoints ---
 
 pub async fn list_branches(
@@ -654,7 +679,7 @@ pub async fn generate_story(
         .map_err(|e| AppError::Internal(format!("LLM error: {e}")))?;
 
     // Build structured references from context
-    let references: Vec<CommitRef> = ctx
+    let mut references: Vec<CommitRef> = ctx
         .changes
         .iter()
         .map(|c| CommitRef {
@@ -674,11 +699,81 @@ pub async fn generate_story(
         })
         .collect();
 
-    let commits_analyzed: Vec<String> = ctx.changes.iter().map(|c| c.commit_sha.clone()).collect();
-    let sessions_referenced: Vec<String> = ctx
-        .changes
+    // Supplement references with session-linked commits from DB
+    // (handles cases where git SHAs don't match DB SHAs due to rebases)
+    let existing_shas: std::collections::HashSet<String> = references
         .iter()
-        .flat_map(|c| c.sessions.iter().map(|s| s.session_id.clone()))
+        .filter(|r| r.id.is_some())
+        .map(|r| r.sha.clone())
+        .collect();
+
+    let db_commit_sessions: Vec<(Uuid, String, String, Uuid, String, Option<String>)> =
+        sqlx::query_as(
+            "SELECT DISTINCT c.id, c.commit_sha, \
+                    COALESCE(c.message, ''), \
+                    s.id, s.session_id, s.model \
+             FROM commits c \
+             JOIN commit_attributions ca ON ca.commit_id = c.id \
+             JOIN sessions s ON s.id = ca.session_id \
+             WHERE c.repo_id = $1 AND ca.file_path = $2",
+        )
+        .bind(repo_id)
+        .bind(&req.path)
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+
+    // Group by commit SHA and build supplementary refs
+    {
+        use std::collections::HashMap;
+        let mut supp_map: HashMap<String, CommitRef> = HashMap::new();
+        for (c_id, sha, msg, s_id, s_session_id, s_model) in &db_commit_sessions {
+            if existing_shas.contains(sha) {
+                // Update existing ref that had id=null with the DB id
+                if let Some(existing) = references
+                    .iter_mut()
+                    .find(|r| r.sha == *sha && r.id.is_none())
+                {
+                    existing.id = Some(c_id.to_string());
+                    existing.sessions.push(SessionRefResponse {
+                        id: s_id.to_string(),
+                        session_id: s_session_id.clone(),
+                        model: s_model.clone(),
+                    });
+                }
+                continue;
+            }
+            supp_map
+                .entry(sha.clone())
+                .and_modify(|r| {
+                    let sid = s_id.to_string();
+                    if !r.sessions.iter().any(|s| s.id == sid) {
+                        r.sessions.push(SessionRefResponse {
+                            id: sid,
+                            session_id: s_session_id.clone(),
+                            model: s_model.clone(),
+                        });
+                    }
+                })
+                .or_insert_with(|| CommitRef {
+                    sha: sha.clone(),
+                    id: Some(c_id.to_string()),
+                    message: msg.clone(),
+                    author: String::new(),
+                    sessions: vec![SessionRefResponse {
+                        id: s_id.to_string(),
+                        session_id: s_session_id.clone(),
+                        model: s_model.clone(),
+                    }],
+                });
+        }
+        references.extend(supp_map.into_values());
+    }
+
+    let commits_analyzed: Vec<String> = ctx.changes.iter().map(|c| c.commit_sha.clone()).collect();
+    let sessions_referenced: Vec<String> = references
+        .iter()
+        .flat_map(|r| r.sessions.iter().map(|s| s.session_id.clone()))
         .collect();
 
     save_story_cache(
@@ -709,6 +804,82 @@ pub async fn generate_story(
         references,
         cached: false,
         generated_at: chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+// --- Function sessions endpoint ---
+
+pub async fn get_function_sessions(
+    State(state): State<AppState>,
+    auth: OrgAuth,
+    Path((_slug, repo_id)): Path<(String, Uuid)>,
+    Query(query): Query<FunctionSessionsQuery>,
+) -> Result<Json<FunctionSessionsResponse>, AppError> {
+    if !state
+        .extensions
+        .permissions
+        .has_permission(&auth.role, Permission::CodeBrowse)
+    {
+        return Err(AppError::Forbidden("Insufficient permissions".into()));
+    }
+
+    verify_repo_access(&state, auth.org_id, repo_id).await?;
+
+    // Detect function scope at the clicked line (git2 types are !Send)
+    let scope = {
+        let repo = state
+            .repo_manager
+            .open_repo(repo_id)
+            .map_err(AppError::internal)?;
+
+        let ext = query.path.rsplit('.').next().unwrap_or("");
+
+        let obj = repo
+            .revparse_single(&query.git_ref)
+            .map_err(|e| AppError::BadRequest(format!("Invalid ref: {e}")))?;
+        let commit = obj
+            .peel_to_commit()
+            .map_err(|e| AppError::BadRequest(format!("Ref is not a commit: {e}")))?;
+        let tree = commit.tree()?;
+        let entry = tree
+            .get_path(std::path::Path::new(&query.path))
+            .map_err(|e| AppError::NotFound(format!("File not found: {e}")))?;
+        let blob_obj = entry.to_object(&repo)?;
+        let blob = blob_obj
+            .as_blob()
+            .ok_or_else(|| AppError::BadRequest("Path is not a file".into()))?;
+        let source = String::from_utf8_lossy(blob.content()).to_string();
+
+        tracevault_core::code_nav::find_enclosing_scope(&source, ext, query.line)
+            .unwrap_or_else(|| tracevault_core::code_nav::fallback_scope(&source, query.line, 20))
+    };
+
+    let result = crate::story::gather_function_sessions(
+        &state.repo_manager,
+        &state.pool,
+        repo_id,
+        &query.git_ref,
+        &query.path,
+        &scope,
+    )
+    .await
+    .map_err(AppError::internal)?;
+
+    Ok(Json(FunctionSessionsResponse {
+        function_name: result.function_name,
+        line_range: [result.line_range.0, result.line_range.1],
+        sessions: result
+            .sessions
+            .into_iter()
+            .map(|s| FunctionSessionRefResponse {
+                id: s.id.to_string(),
+                session_id: s.session_id,
+                model: s.model,
+                user_email: s.user_email,
+                started_at: s.started_at.map(|t| t.to_rfc3339()),
+                commit_shas: s.commit_shas,
+            })
+            .collect(),
     }))
 }
 
