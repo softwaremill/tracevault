@@ -112,22 +112,32 @@
 	const renderedMarkdown = $derived.by(() => {
 		if (!story) return '';
 		let html = marked.parse(story.story) as string;
-		// Linkify commit SHAs
-		if (shaToTraceId.size > 0) {
-			html = html.replace(/\b([0-9a-f]{7,40})\b/g, (match) => {
+
+		// Linkify known hex IDs (sessions and commits) in a single pass
+		// to avoid regex conflicts between 8-char session IDs and 7-40 char commit SHAs
+		if (shaToTraceId.size > 0 || sessionIdToUuid.size > 0) {
+			html = html.replace(/\b([0-9a-f]{7,40})\b/g, (match, _p1, offset, fullStr) => {
+				// Skip if inside an existing <a> tag (look back for unclosed <a)
+				const before = fullStr.slice(Math.max(0, offset - 200), offset);
+				const lastAOpen = before.lastIndexOf('<a ');
+				const lastAClose = before.lastIndexOf('</a>');
+				if (lastAOpen > lastAClose) return match;
+
+				// Try session match first (8-char exact)
+				if (match.length === 8) {
+					const sessionUuid = sessionIdToUuid.get(match);
+					if (sessionUuid) {
+						return `<a href="/orgs/${slug}/traces/sessions/${sessionUuid}" class="session-link">${match}</a>`;
+					}
+				}
+
+				// Then try commit match
 				const traceId = shaToTraceId.get(match);
-				if (!traceId) return match;
-				return `<a href="/orgs/${slug}/traces/${traceId}" class="commit-link">${match}</a>`;
-			});
-		}
-		// Linkify session ID prefixes (8-char hex patterns that match known sessions)
-		if (sessionIdToUuid.size > 0) {
-			html = html.replace(/\b([0-9a-f]{8})\b/g, (match) => {
-				// Skip if already linkified as a commit
-				const sessionUuid = sessionIdToUuid.get(match);
-				if (!sessionUuid) return match;
-				// Don't double-linkify (check if already inside an <a> tag)
-				return `<a href="/orgs/${slug}/traces/sessions/${sessionUuid}" class="session-link">${match}</a>`;
+				if (traceId) {
+					return `<a href="/orgs/${slug}/traces/${traceId}" class="commit-link">${match}</a>`;
+				}
+
+				return match;
 			});
 		}
 		return html;
