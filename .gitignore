@@ -4,6 +4,7 @@
 *.swp
 .DS_Store
 crates/tracevault-server/data/repos
+data/
 .playwright-mcp
 docs/plans/
 docs/infra/

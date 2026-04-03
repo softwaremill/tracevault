@@ -33,6 +33,7 @@ fn parse_github_org(remote_url: &str) -> Option<String> {
 pub async fn init_in_directory(
     project_root: &Path,
     server_url: Option<&str>,
+    codex: bool,
 ) -> Result<(), io::Error> {
     // Check for git repository
     if !project_root.join(".git").exists() {
@@ -77,6 +78,11 @@ pub async fn init_in_directory(
 
     // Install Claude Code hooks into .claude/settings.json
     install_claude_hooks(project_root)?;
+
+    // Install Codex hooks into .codex/hooks.json
+    if codex {
+        install_codex_hooks(project_root)?;
+    }
 
     // Install git hooks
     install_git_hook(project_root)?;
@@ -331,6 +337,87 @@ pub fn tracevault_hooks() -> serde_json::Value {
             }]
         }]
     })
+}
+
+fn codex_hooks() -> serde_json::Value {
+    serde_json::json!({
+        "hooks": {
+            "SessionStart": [{
+                "matcher": "startup|resume",
+                "hooks": [{
+                    "type": "command",
+                    "command": "tracevault stream --agent codex --event session-start",
+                    "timeout": 10,
+                    "statusMessage": "TraceVault: streaming session start"
+                }]
+            }],
+            "PreToolUse": [{
+                "matcher": "Bash",
+                "hooks": [{
+                    "type": "command",
+                    "command": "tracevault stream --agent codex --event pre-tool-use",
+                    "timeout": 10,
+                    "statusMessage": "TraceVault: streaming pre-tool event"
+                }]
+            }],
+            "PostToolUse": [{
+                "matcher": "Bash",
+                "hooks": [{
+                    "type": "command",
+                    "command": "tracevault stream --agent codex --event post-tool-use",
+                    "timeout": 10,
+                    "statusMessage": "TraceVault: streaming post-tool event"
+                }]
+            }],
+            "Stop": [{
+                "hooks": [{
+                    "type": "command",
+                    "command": "tracevault stream --agent codex --event stop",
+                    "timeout": 10,
+                    "statusMessage": "TraceVault: finalizing session"
+                }]
+            }]
+        }
+    })
+}
+
+fn install_codex_hooks(project_root: &Path) -> Result<(), io::Error> {
+    let codex_dir = project_root.join(".codex");
+    fs::create_dir_all(&codex_dir)?;
+
+    let hooks_path = codex_dir.join("hooks.json");
+    let mut config: serde_json::Value = if hooks_path.exists() {
+        let content = fs::read_to_string(&hooks_path)?;
+        serde_json::from_str(&content).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Failed to parse .codex/hooks.json: {e}"),
+            )
+        })?
+    } else {
+        serde_json::json!({})
+    };
+
+    let hooks = codex_hooks();
+
+    // Merge hooks into existing config
+    let config_obj = config.as_object_mut().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            ".codex/hooks.json is not a JSON object",
+        )
+    })?;
+
+    // Set hooks key from our template
+    if let Some(hooks_value) = hooks.get("hooks") {
+        config_obj.insert("hooks".to_string(), hooks_value.clone());
+    }
+
+    let formatted = serde_json::to_string_pretty(&config)
+        .map_err(|e| io::Error::other(format!("Failed to serialize hooks: {e}")))?;
+    fs::write(&hooks_path, formatted)?;
+
+    Ok(())
 }
 
 #[cfg(test)]

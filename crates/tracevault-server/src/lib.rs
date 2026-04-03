@@ -22,6 +22,9 @@ pub mod story;
 
 pub use error::AppError;
 
+use std::sync::Arc;
+use tracevault_core::agent_adapter::AgentAdapterRegistry;
+
 #[derive(Clone)]
 pub struct AppState {
     pub pool: sqlx::PgPool,
@@ -31,4 +34,5 @@ pub struct AppState {
     pub http_client: reqwest::Client,
     pub cors_origin: String,
     pub invite_expiry_minutes: u64,
+    pub agent_registry: Arc<AgentAdapterRegistry>,
 }
